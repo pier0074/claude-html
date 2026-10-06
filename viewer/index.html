@@ -1,0 +1,21 @@
+<!doctype html><meta charset="utf-8"><title>Claude sessions</title>
+<style>/*{{css}}*/</style>
+<main>
+<h1>Claude sessions <button id="theme" class="th" title="theme">◐</button></h1>
+<p class="links"><a href="https://claude.ai/" target="_blank" rel="noopener">claude.ai</a></p>
+<p class="links"><a href="https://claude.ai/settings/usage" target="_blank" rel="noopener">claude.ai usage</a></p>
+<p class="sub"><span id="count">0</span> sessions · rebuild with <code>claude-html</code> · double-clickable launchers in <code>resume/</code></p>
+<div class="errors" id="errors" hidden></div>
+<div class="searchbox" id="sb"><input id="q" type="search" placeholder="search every conversation — words, or &quot;an exact phrase&quot;…" autofocus>
+<label class="case" title="match upper and lower case exactly"><input type="checkbox" id="cs"> match case</label></div>
+<p class="view" id="view" hidden>group · <button id="gdate">by date</button><button id="gproj">by project</button></p>
+<p id="n"></p>
+<table><thead><tr><th>Date</th><th>Project</th><th>What</th><th>Prompts</th><th>Source</th><th>Session</th><th>Resume</th><th></th></tr></thead>
+<tbody id="rows"></tbody></table>
+<p class="none" id="empty" hidden></p>
+<h2 id="mh" hidden>Messages</h2>
+<div id="mr"></div>
+</main>
+<script type="application/json" id="index-data">/*{{data}}*/</script>
+<script>/*{{viewer}}*/</script>
+<script>/*{{index}}*/</script>

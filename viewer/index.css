@@ -1,0 +1,82 @@
+:root{--bg:#faf9f7;--fg:#1c1a17;--dim:#6b665e;--line:#e6e2dc;--code:#f2efe9;--hit:#f6e2a8}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#16150f;--fg:#e8e4dc;--dim:#8f887c;--line:#2b2922;--code:#211f18;--hit:#5c4a1e}}
+:root[data-theme=dark]{--bg:#16150f;--fg:#e8e4dc;--dim:#8f887c;--line:#2b2922;--code:#211f18;--hit:#5c4a1e}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 ui-monospace,Menlo,monospace}
+main{max-width:1000px;margin:0 auto;padding:28px 20px}
+h1{font-size:17px;margin:0 0 4px}
+p.sub{color:var(--dim);font-size:12px;margin:0 0 16px}
+#q{width:100%;background:var(--code);color:var(--fg);border:1px solid var(--line);
+border-radius:5px;padding:8px 11px;font:inherit;font-size:13px;margin-bottom:6px}
+#q:focus{outline:none;border-color:var(--dim)}
+#n{color:var(--dim);font-size:11px;margin:0 0 14px;min-height:14px}
+h2{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);
+font-weight:500;margin:22px 0 6px;border-bottom:1px solid var(--line);padding-bottom:5px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;color:var(--dim);font-weight:500;font-size:11px;text-transform:uppercase;
+letter-spacing:.08em;border-bottom:1px solid var(--line);padding:6px 8px}
+td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:hover td{background:rgba(128,128,128,.07)}
+a{color:inherit;text-decoration:none} a:hover{text-decoration:underline}
+.d{color:var(--dim)}
+.ti{display:block;color:var(--dim);font-size:11.5px;max-width:420px;overflow:hidden;
+text-overflow:ellipsis;white-space:nowrap}
+button.cp{background:transparent;color:var(--dim);border:1px solid var(--line);border-radius:4px;
+padding:2px 9px;font:inherit;font-size:11px;cursor:pointer}
+button.cp:hover{color:var(--fg);border-color:var(--dim)}
+a.r{display:block;border-bottom:1px solid var(--line);padding:8px;text-decoration:none}
+a.r:hover{background:rgba(128,128,128,.07);text-decoration:none}
+.rh{display:block;font-size:11px;color:var(--dim);margin-bottom:2px}
+.rs{display:block;font-size:12.5px;line-height:1.55;word-break:break-word}
+mark{background:var(--hit);color:inherit;border-radius:2px}
+#hidden{display:none}
+.none{color:var(--dim);font-size:12.5px;line-height:1.8;padding:22px 8px;border-bottom:1px solid var(--line)}
+.errors{border:1px solid #c05a5a;background:rgba(200,72,72,.08);border-radius:5px;
+padding:12px 14px;margin:0 0 16px;font-size:12.5px;line-height:1.7}
+.errors ul{margin:6px 0 0;padding-left:20px}
+.stale{color:#b06a2a;font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-left:5px}
+.rt{color:var(--fg);opacity:.75}
+/* The match-case option appears once there is something to search for, or
+   while it is switched on, so an idle index stays uncluttered. */
+.searchbox{position:relative}
+.searchbox #q{padding-right:118px}
+.case{position:absolute;right:10px;top:50%;transform:translateY(-58%);display:none;
+align-items:center;gap:5px;color:var(--dim);font-size:11px;cursor:pointer;user-select:none}
+.case input{margin:0}
+.searchbox.on .case{display:flex}
+/* The date is one thing, not three: left to wrap it turned every row three
+   lines tall and the table ragged. */
+td.dt{white-space:nowrap;color:var(--dim)}
+/* "archive (inferred)" on two lines made rows of different heights for
+   no reason at all. */
+td.d{white-space:nowrap}
+.del{text-decoration:none;color:var(--dim);opacity:.35;font-size:13px}
+tr:hover .del{opacity:.8}
+.del:hover{opacity:1;color:#c05a5a;text-decoration:none}
+tr.pending td{opacity:.4}
+.proj{color:inherit;text-decoration:none;border-bottom:1px dotted var(--line)}
+.proj:hover{border-bottom-color:var(--dim);text-decoration:none}
+.links{margin:0 0 2px;font-size:12.5px}
+.links a{color:var(--dim);text-decoration:none;border-bottom:1px dotted var(--line)}
+.links a:hover{color:var(--fg);border-bottom-color:var(--dim);text-decoration:none}
+#rows tr{cursor:pointer}
+.nag{color:var(--dim);opacity:.8}
+/* Group by project, or stay in date order. Only shown when some project has
+   more than one session, since otherwise the two views are the same list. */
+.view{margin:0 0 10px;font-size:11px;color:var(--dim)}
+.view button{background:var(--code);color:var(--dim);border:1px solid var(--line);
+padding:3px 10px;font:inherit;font-size:11px;cursor:pointer;margin-left:5px}
+.view button:first-of-type{border-radius:4px 0 0 4px;margin-left:7px}
+.view button:last-of-type{border-radius:0 4px 4px 0;margin-left:-1px}
+.view button:hover{color:var(--fg)}
+.view button.on{color:var(--fg);border-color:var(--dim);background:var(--bg)}
+tr.grp th{text-align:left;padding:16px 8px 5px;border-bottom:1px solid var(--line);
+font-size:13px;font-weight:600;color:var(--fg);text-transform:none;letter-spacing:0}
+tr.grp:first-child th{padding-top:4px}
+tr.grp:hover td{background:none}
+.gc{color:var(--dim);font-weight:400;font-size:11px;margin-left:8px}
+/* The ◐ button: follow the system, or insist. */
+.th{background:none;border:1px solid var(--line);border-radius:4px;color:var(--dim);
+font:inherit;font-size:13px;line-height:1;padding:3px 8px;cursor:pointer}
+.th:hover{color:var(--fg);border-color:var(--dim)}
+h1 .th{vertical-align:2px;margin-left:8px}

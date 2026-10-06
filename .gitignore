@@ -1,0 +1,19 @@
+__pycache__/
+*.pyc
+
+# Generated pages. The folder you clone into is also where they are written,
+# so they are ignored rather than committed: they are rebuildable from your
+# transcripts, and they contain the full text of your conversations.
+/*.html
+/search-index.js
+/search/
+/sessions/
+/resume/
+/.manifest.json
+/.last-save
+/.last-open
+/.build-errors.json
+/.archive-errors/
+
+# Built by install.sh from helper.applescript.
+/Claude HTML.app/
