@@ -1,0 +1,85 @@
+<!doctype html><meta charset="utf-8"><title>Token usage</title>
+<style>/*{{css}}*/</style>
+<style>
+:root{--m1:#2f6f4f;--m2:#7a4f2a;--m3:#4a5f8a;--m4:#8a4a6a;--m5:#7a6a2a;--m6:#4a6f7a}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]){
+--m1:#7fc79b;--m2:#d3a06a;--m3:#8fa8d8;--m4:#d08fb0;--m5:#c7bb72;--m6:#86b8c4}}
+:root[data-theme=dark]{--m1:#7fc79b;--m2:#d3a06a;--m3:#8fa8d8;--m4:#d08fb0;--m5:#c7bb72;--m6:#86b8c4}
+.crumb{font-size:12.5px;margin:0 0 4px}
+.crumb a{color:var(--dim);text-decoration:none;border-bottom:1px dotted var(--line)}
+.crumb a:hover{color:var(--fg);border-bottom-color:var(--dim)}
+/* period toggle, same control as the index's group switch */
+.view{margin:16px 0 4px;font-size:11px;color:var(--dim)}
+.view button{background:var(--code);color:var(--dim);border:1px solid var(--line);
+padding:4px 14px;font:inherit;font-size:11px;cursor:pointer;margin-left:-1px}
+.view button:first-of-type{border-radius:4px 0 0 4px;margin-left:7px}
+.view button:last-of-type{border-radius:0 4px 4px 0}
+.view button:hover{color:var(--fg)}
+.view button.on{color:var(--fg);border-color:var(--dim);background:var(--bg)}
+/* headline cards */
+.cards{display:flex;gap:12px;flex-wrap:wrap;margin:16px 0 4px}
+.card{border:1px solid var(--line);border-radius:6px;padding:11px 16px;min-width:132px}
+.card .n{font-size:21px;font-weight:600;line-height:1.15}
+.card .l{font-size:10.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.07em;margin-top:3px}
+.card .d{font-size:11px;margin-top:4px;color:var(--dim)}
+.card .d.up{color:#b06a2a} .card .d.dn{color:var(--m1)}
+/* the chart: one column per period, stacked by model */
+/* Bars and labels are two rows with identical flex, so a full-height bar
+   cannot push its own label out of the box. */
+.chart{display:flex;align-items:flex-end;gap:3px;height:170px;margin:14px 0 0;
+border-bottom:1px solid var(--line)}
+.col{flex:1;min-width:0;height:100%;display:flex;align-items:flex-end;cursor:pointer}
+.col:hover .stack{outline:1px solid var(--dim)}
+.stack{width:100%;display:flex;flex-direction:column-reverse;
+border-radius:2px 2px 0 0;overflow:hidden;min-height:1px}
+.stack i{display:block;min-height:0}
+.xaxis{display:flex;gap:3px;margin-top:5px}
+/* Only every nth label is printed, so a wide one may spill into the blank
+   columns beside it rather than be clipped to "08-". */
+.xl{flex:1;min-width:0;font-size:9.5px;color:var(--dim);text-align:center;
+white-space:nowrap;overflow:visible}
+.ymax{font-size:10.5px;color:var(--dim);margin:14px 0 -12px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--dim);margin:22px 0 0}
+.legend span{display:flex;align-items:center;gap:5px}
+.legend i{width:9px;height:9px;border-radius:2px;display:block}
+/* tables */
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+tr.bucket th{padding-top:17px;font-size:12.5px;color:var(--fg);text-transform:none;letter-spacing:0}
+tr.bucket.now th{color:var(--m1)}
+tr.sum td{color:var(--fg);font-weight:600;border-bottom:2px solid var(--line)}
+tr.flash td,tr.flash th{background:rgba(200,160,60,.17)}
+td.model,td.proj{white-space:nowrap}
+td.model i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:7px}
+.hint{color:var(--dim);font-size:11px;margin:6px 0 0}
+</style>
+<main>
+<p class="crumb"><a href="index.html">claude-html</a> / token usage <button id="theme" class="th" title="theme">◐</button></p>
+<h1>Token usage</h1>
+<p class="sub" id="sub"></p>
+
+<p class="view" id="view">period ·
+<button id="pweek">week</button><button id="pmonth">month</button><button id="pall">all</button></p>
+
+<div class="cards" id="cards"></div>
+<p class="ymax" id="ymax"></p>
+<div class="chart" id="chart"></div>
+<div class="xaxis" id="xaxis"></div>
+<div class="legend" id="legend"></div>
+<p class="hint">Cache reads are most of the volume and the cheapest part of it — output is the work.</p>
+
+<h2 id="bh">By period</h2>
+<table><thead><tr><th>Model</th><th class="num">Input</th><th class="num">Output</th>
+<th class="num">Cache read</th><th class="num">Cache write</th><th class="num">Replies</th><th class="num">Total</th></tr></thead>
+<tbody id="buckets"></tbody></table>
+
+<h2 id="ph">By project</h2>
+<table><thead><tr><th>Project</th><th class="num">Input</th><th class="num">Output</th>
+<th class="num">Cache read</th><th class="num">Cache write</th><th class="num">Replies</th><th class="num">Total</th></tr></thead>
+<tbody id="projects"></tbody></table>
+
+<p class="none" id="empty" hidden>No usage recorded yet — it comes from the raw transcripts, so sessions whose
+transcript Claude Code has already deleted cannot report theirs.</p>
+</main>
+<script type="application/json" id="usage-data">/*{{data}}*/</script>
+<script>/*{{viewer}}*/</script>
+<script>/*{{usage}}*/</script>

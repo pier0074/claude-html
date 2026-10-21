@@ -1,0 +1,27 @@
+<!doctype html><meta charset="utf-8">
+<title>session</title>
+<style>/*{{css}}*/</style>
+<header><div class="hw">
+<h1 class="crumbs" id="crumbs"></h1>
+<div class="meta" id="subtitle"></div>
+<div class="meta"><span id="counts"></span> · <a href="../index.html">all sessions</a></div>
+<div class="resume" id="resume" hidden><code id="rc"></code><button id="copy">copy</button></div>
+<div class="bar">
+<span class="modes"><button id="mtalk">Conversation</button><button id="mall">Everything</button></span>
+<span class="find"><span class="fbox" id="fbox"><input id="fq" type="search" placeholder="find in this conversation   /" autocomplete="off" spellcheck="false">
+<label class="case" title="match upper and lower case exactly"><input type="checkbox" id="fcs"> match case</label></span>
+<span class="group"><button id="ffirst" title="first match">«</button>
+<button id="fprev" title="previous match (shift+enter)">‹</button>
+<span id="fc"></span><button id="fnext" title="next match (enter)">›</button>
+<button id="flast" title="last match">»</button></span></span>
+<span class="nav"><span class="lbl">prompts</span><button id="first" title="first prompt">«</button>
+<button id="prev" title="previous prompt (k)">‹</button>
+<span id="pc"></span><button id="next" title="next prompt (j)">›</button>
+<button id="last" title="last prompt">»</button></span>
+<button id="theme" class="th" title="theme">◐</button>
+</div>
+</div></header>
+<main id="main"></main>
+<script type="application/json" id="session-data">/*{{data}}*/</script>
+<script>/*{{viewer}}*/</script>
+<script>/*{{page}}*/</script>
