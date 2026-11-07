@@ -1,0 +1,27 @@
+__pycache__/
+*.pyc
+
+# Generated pages. The folder you clone into is also where they are written,
+# so they are ignored rather than committed: they are rebuildable from your
+# transcripts, and they contain the full text of your conversations.
+/*.html
+/search-index.js
+/search/
+/sessions/
+/resume/
+/.manifest.json
+/.last-save
+/.last-open
+/.last-resume
+/.build-errors.json
+/.archive-errors/
+/.cache/
+
+# Conversation archives. The save hook writes them into whatever folder a
+# session ran in, the clone or any folder inside it, and they hold the same
+# full text. A rule with a slash in it only matches at the top unless it
+# starts with **/.
+**/.claude/.claude-conversations/
+
+# Built by install.sh from helper.applescript.
+/Claude HTML.app/

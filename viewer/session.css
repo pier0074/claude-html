@@ -1,0 +1,222 @@
+:root{--bg:#faf9f7;--fg:#1c1a17;--dim:#6b665e;--line:#e6e2dc;--u:#2f6f4f;--a:#7a4f2a;--code:#f2efe9;--hit:#f6e2a8;--cur:#f0b429}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#16150f;--fg:#e8e4dc;--dim:#8f887c;--line:#2b2922;--u:#7fc79b;--a:#d3a06a;--code:#211f18;--hit:#5c4a1e;--cur:#c98a12}}
+:root[data-theme=dark]{--bg:#16150f;--fg:#e8e4dc;--dim:#8f887c;--line:#2b2922;--u:#7fc79b;--a:#d3a06a;--code:#211f18;--hit:#5c4a1e;--cur:#c98a12}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}
+header{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--line);padding:14px 0;z-index:5}
+h1{margin:0;font-size:17px;font-weight:600}
+/* claude-html / weather-app / 7c21a9b4-… : the path to this page. */
+.crumbs{display:flex;flex-wrap:wrap;align-items:baseline;gap:7px;line-height:1.35}
+.crumbs a{text-decoration:none}
+.crumbs a:hover{text-decoration:underline}
+.crumbs .brand{color:var(--fg)}
+.crumbs .sep{color:var(--dim);opacity:.5;font-weight:400}
+.crumbs .proj{color:var(--fg);font-weight:500}
+.crumbs .sid{font-size:13px;font-weight:400;color:var(--dim);word-break:break-all}
+.crumbs .here{opacity:.8}
+.meta{color:var(--dim);font-size:12px;margin-top:3px}
+/* The column follows the window instead of stopping at a thousand pixels:
+   on a wide screen a diff, a command and a table all get the room they
+   want, and the same measure is used by the index and the dashboard. */
+:root{--col:min(1320px,92vw)}
+main{width:100%;max-width:var(--col);margin:0 auto;padding:20px}
+/* The header sits on the same column as the conversation, so the path
+   at the top lines up with the text under it — and matches the index,
+   which is the same width. */
+/* The same box as main, padding included, so the path at the top starts on
+   the same pixel as the conversation under it. Padding outside the centred
+   box instead of inside it put the two twenty pixels apart. */
+.hw{width:100%;max-width:var(--col);margin:0 auto;padding:0 20px}
+/* Rows sit in a column whose margins never collapse, so a block's room is
+   the same whether its neighbour is built yet or still a placeholder, and
+   what it measured is what it gives back when it is taken down. The
+   prompt's own top margin is set so the gaps add up to what they were. */
+main,.blk{display:flex;flex-direction:column}
+/* An unbroken run — a long identifier in backticks, a path in a list — folds
+   at the edge instead of pushing the whole page sideways. */
+.m{margin:0 0 20px;overflow-wrap:anywhere}
+/* Rows not built yet: just the height they will take, in whichever mode
+   is showing. */
+.blk.ph{height:var(--h);flex:none}
+body.talk .blk.ph{height:var(--t)}
+/* The page keeps what you are reading still itself as rows are built and
+   taken down; the browser doing it as well would move it twice. */
+html.win{overflow-anchor:none}
+/* The question is the landmark on the page: a rule and real space above it,
+   its number in the margin, and larger type than the answer beneath. */
+.m.prompt{border-top:1px solid var(--line);margin-top:14px;padding-top:24px}
+/* Anything jumped to stops just under the sticky header, whose height the
+   page measures, rather than behind it. */
+.m{scroll-margin-top:calc(var(--hh,130px) + 12px)}
+.m.prompt .t{font-size:16px;font-weight:600;border-left-width:3px;padding-left:14px}
+.pn{color:var(--u);font-weight:600;margin-right:8px;letter-spacing:0}
+/* Machinery is quieter than the conversation it belongs to. */
+.tool summary{font-size:11.5px}
+.tool .code{font-size:12px}
+/* Conversation mode: prompts and replies only. */
+body.talk .tool,body.talk .res,body.talk .think,body.talk .m.notext{display:none}
+body.talk .m.prompt{margin-top:6px;padding-top:18px}
+/* The first prompt has no gap above it to share, so it keeps its own. */
+.blk:first-child>.m.prompt:first-child{margin-top:34px}
+body.talk .blk:first-child>.m.prompt:first-child{margin-top:26px}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:9px;font-size:12px}
+.bar button{background:var(--code);color:var(--dim);border:1px solid var(--line);
+border-radius:4px;padding:3px 10px;font:inherit;font-size:11px;cursor:pointer}
+.bar button:hover{color:var(--fg)}
+.bar button.on{color:var(--fg);border-color:var(--dim)}
+.who{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin-bottom:5px}
+.user .who{color:var(--u)} .asst .who{color:var(--a)}
+.ts{opacity:.6;margin-left:6px;letter-spacing:0;text-transform:none}
+.m:target,.m.tgt{background:rgba(200,160,60,.15);border-radius:4px;box-shadow:0 0 0 8px rgba(200,160,60,.15)}
+.sys .who{color:var(--dim)}
+.sys .t{color:var(--dim);font-size:13px;border-left:2px dotted var(--line);padding-left:12px;white-space:pre-wrap}
+.side{opacity:.72;border-left:1px dashed var(--line);padding-left:12px;margin-left:2px}
+.user .t{border-left:2px solid var(--u);padding:2px 0 2px 12px;white-space:pre-wrap;word-break:break-word}
+.asst .t{white-space:pre-wrap;word-break:break-word;margin-bottom:8px}
+.h{font-weight:600;margin:14px 0 4px}
+.asst ul{margin:4px 0 10px;padding-left:20px} .asst li{margin:1px 0}
+.ic{background:var(--code);border-radius:3px;padding:1px 4px;font-size:13px}
+.code{background:var(--code);border:1px solid var(--line);border-radius:4px;padding:9px 11px;
+font-size:12.5px;line-height:1.5;margin:6px 0;
+/* Wrap rather than scroll sideways: indentation is kept, but a long command
+   or an unbroken path folds onto the next line instead of hiding off-screen. */
+white-space:pre-wrap;overflow-wrap:anywhere}
+details{margin:6px 0}
+summary{cursor:pointer;color:var(--dim);font-size:12px;padding:2px 0;list-style:none}
+summary::-webkit-details-marker{display:none}
+summary::before{content:"▸ ";opacity:.6}
+details[open]>summary::before{content:"▾ "}
+.tool summary{color:var(--a)}
+.think .t{color:var(--dim);font-size:13.5px;border-left:2px solid var(--line);padding-left:12px}
+.tn{font-weight:600} .td{color:var(--dim);margin-left:8px;overflow-wrap:anywhere}
+.oldfmt{font-size:12px;color:var(--dim);opacity:.75;padding:2px 0}
+.diff{border:1px solid var(--line);border-radius:4px;overflow:hidden;margin:6px 0;font-size:12.5px}
+/* Recovered output, so it can run long. 36em is 24 lines at this size:
+   past the 8-line median, so most blocks never scroll, and deep enough
+   that the ones that do show a useful window rather than a keyhole.
+   In em, so it tracks the text rather than a guess in pixels. */
+/* No scrollbar inside a scrollbar. Output was capped at 36em with its own
+   scroller, which meant a box you had to scroll inside a page you were
+   already scrolling. The text is capped when it is read in, so letting it
+   stand costs nothing, and off-screen blocks are skipped by the browser. */
+.out{overflow-wrap:anywhere}
+.dp{background:var(--code);padding:5px 10px;color:var(--dim);border-bottom:1px solid var(--line);
+overflow-wrap:anywhere}
+/* A wrapped diff line is indented under itself, so the +/- in column one
+   stays the only thing at the left margin and the shape still reads. */
+.dl{padding:1px 10px 1px 22px;text-indent:-12px;
+white-space:pre-wrap;overflow-wrap:anywhere}
+.add{background:rgba(64,160,96,.16)} .del{background:rgba(200,72,72,.16)}
+.hunk{color:var(--dim)} .ctx{opacity:.75}
+a{color:inherit}
+.resume{display:flex;gap:8px;align-items:center;margin-top:8px}
+/* display:flex outranks the hidden attribute, which left an empty box and a
+   copy button on every page that cannot be resumed — a sub-agent's, a web chat's. */
+.resume[hidden]{display:none}
+.resume code{flex:1;background:var(--code);border:1px solid var(--line);border-radius:4px;
+padding:5px 9px;font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--dim)}
+.resume button{background:var(--code);color:var(--fg);border:1px solid var(--line);
+border-radius:4px;padding:5px 12px;font:inherit;font-size:12px;cursor:pointer}
+.resume button:hover{border-color:var(--dim)}
+.resume a.go{background:var(--code);color:var(--fg);border:1px solid var(--line);border-radius:4px;
+padding:5px 12px;font-size:12px;text-decoration:none}
+.resume a.go:hover{border-color:var(--dim)}
+
+.find{display:flex;gap:6px;align-items:center;flex:1;max-width:620px}
+/* The two navigators are the same control: « ‹ n / m › », same buttons, the
+   count between the arrows. One steps through questions, the other through
+   matches, and neither should look like a different kind of thing. */
+.find .group,.nav{display:flex;gap:6px;align-items:center}
+/* Two identical clusters side by side need one word to tell them apart;
+   the other sits against the field it searches, so it needs none. */
+.nav .lbl{color:var(--dim);font-size:11px;opacity:.75;margin-right:1px}
+.nav{margin-left:auto}
+.find .group button,.nav button{padding:3px 9px;font-size:13px;line-height:1}
+#fc,#pc{color:var(--dim);font-size:11px;min-width:62px;text-align:center;white-space:nowrap}
+/* Match case sits inside the field, as it does on the index, and appears once
+   there is something to match. */
+.fbox{position:relative;flex:1;min-width:0;display:flex}
+.find.on .fbox #fq{padding-right:112px}
+.fbox .case{position:absolute;right:9px;top:50%;transform:translateY(-55%);display:none;
+align-items:center;gap:5px;color:var(--dim);font-size:11px;cursor:pointer;user-select:none}
+.fbox .case input{margin:0}
+/* Nothing typed, nothing to step through: the option and the arrows stay out
+   of the way rather than sitting there greyed out around an empty counter. */
+.find .group{display:none}
+.find.on .group,.find.on .case{display:flex}
+#fq{flex:1;min-width:0;background:var(--code);color:var(--fg);border:1px solid var(--line);
+border-radius:4px;padding:3px 8px;font:inherit;font-size:12px}
+#fq:focus{outline:none;border-color:var(--dim)}
+mark.hit{background:var(--hit);color:inherit;border-radius:2px}
+mark.hit.cur{background:var(--cur);color:#1c1a17}
+a.agent{display:block;margin:6px 0 2px;padding:5px 9px;font-size:12px;
+background:var(--code);border:1px solid var(--line);border-radius:4px;
+color:var(--a);text-decoration:none}
+a.agent:hover{border-color:var(--dim);text-decoration:none}
+a.agent .ad{color:var(--dim)}
+.m.agents .who{color:var(--a)}
+/* The ◐ button: follow the system, or insist. */
+.th{background:none;border:1px solid var(--line);border-radius:4px;color:var(--dim);
+font:inherit;font-size:13px;line-height:1;padding:3px 8px;cursor:pointer}
+.th:hover{color:var(--fg);border-color:var(--dim)}
+/* The token line: quieter than the counts above it, and the separators
+   quieter still, so the figures carry. */
+.meta.tok{font-size:11.5px;opacity:.95}
+.meta.tok .sep{opacity:.4}
+.meta.tok a{color:var(--dim);text-decoration:none;border-bottom:1px dotted var(--line);
+white-space:nowrap}
+.meta.tok a:hover{color:var(--fg);border-bottom-color:var(--dim)}
+
+/* A flex item keeps the margins of what ends it inside it, where a block
+   let them fold into the gap below; the gap is the row's to give. Last in
+   the file so it outranks the margins it cancels. */
+.m :last-child{margin-bottom:0}
+/* In Conversation mode a reply often ends in tool calls that are hidden, so
+   the last thing showing is not the last child, and its margin would add to
+   the gap under the reply instead of folding into it as it used to. */
+body.talk .m>:not(.tool,.think,.res):not(:has(~ :not(.tool,.think,.res))){margin-bottom:0}
+
+/* Scrolled into the conversation, the header is one line: the path, find
+   and the prompt arrows. The rest, match case included, is a click on ▾
+   away, and comes back at the top of the page. The space it gave up stays in the page as a margin
+   the script sets, so nothing under it moves as it changes. */
+.hx{display:none}
+header.mini{padding:6px 0}
+header.mini .hx,header.open .hx{display:inline-block}
+header.mini .hw{display:flex;align-items:center;gap:10px}
+header.mini .meta,header.mini .resume,header.mini .modes,header.mini .th,
+header.mini .find.on .case{display:none}
+header.mini .find.on .fbox #fq{padding-right:8px}
+header.mini .crumbs{display:block;flex:1 1 0;min-width:40px;font-size:14px;
+white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+header.mini .crumbs .sep{margin:0 5px}
+header.mini .crumbs .sid{word-break:normal}
+header.mini .bar{margin-top:0;flex:0 1 auto;min-width:0;flex-wrap:nowrap;gap:8px}
+header.mini .find{order:0;flex:0 1 auto;max-width:none;min-width:0;flex-wrap:nowrap}
+header.mini .fbox{flex:0 1 auto;width:clamp(84px,20vw,280px);min-width:70px}
+header.mini .nav{margin-left:0}
+
+/* A narrow window has no room for the field between the two button rows:
+   it takes a line of its own under them, rather than pushing the prompt
+   arrows off the right-hand edge. */
+@media (max-width:900px){
+.find{order:9;flex:1 1 100%;max-width:none;flex-wrap:wrap}
+.fbox{min-width:200px}
+.nav .lbl{display:none}
+}
+/* One line at phone width means the arrows to the ends wait in the full
+   header; the counters stay, being the point of the line. */
+/* Short of room, the project is the crumb worth keeping: the brand is the
+   way home, and the full header still has it. */
+@media (max-width:900px){
+header.mini .crumbs .brand,header.mini .crumbs .brand+.sep{display:none}
+}
+@media (max-width:700px){
+header.mini #first,header.mini #last,header.mini #ffirst,header.mini #flast{display:none}
+header.mini #fc,header.mini #pc{min-width:0}
+}
+/* Narrower still, a search under way has the line to itself: its arrows
+   and count, rather than two counters squeezed into each other. */
+@media (max-width:640px){
+header.mini .find.on~.nav{display:none}
+}
