@@ -38,7 +38,7 @@ printf '{"agentType":"general-purpose","description":"check the backend","toolUs
   > "$H/.claude/projects/$D/$P/subagents/agent-abc123.meta.json"
 
 build() { HOME="$H" run_js "$HERE/convert.js" \
-  "{\"root\":\"$ROOT\",\"out\":\"$OUT\",\"here\":\"$HERE\",\"exportPath\":\"/nonexistent\"}"; }
+  "{\"root\":\"$ROOT\",\"out\":\"$OUT\",\"here\":\"$HERE\",\"exportPath\":\"/nonexistent\",\"actions\":true}"; }
 field() { python3 -c "
 import json,sys,pathlib
 m=json.loads(pathlib.Path('$OUT/.manifest.json').read_text())
@@ -73,6 +73,9 @@ check "  and its own page has the new message" \
 # The breadcrumb at the top of a page is built from meta, so what the page
 # can do depends on what the converter put there. A sub-agent has no folder of
 # its own, and has to borrow its parent's to be able to open the project.
+# The crumb only carries a link where something can act on it, so the build is
+# told that something can: a Linux runner with no handler installed would
+# otherwise, correctly, leave it empty.
 check "the session carries what its project crumb opens" \
   "$(grep -c "\"open\":\"$P\"" "$OUT/sessions/$P.html")" 1
 check "  and the sub-agent inherits it, having no folder of its own" \

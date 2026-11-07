@@ -46,7 +46,36 @@ $PB -c "Add :CFBundleURLTypes array" \
 # this Mac made it, so no developer identity is involved.
 codesign --force --sign - "$APP" >/dev/null 2>&1
 
+# Registering tells macOS "send claude-html:// links to THIS copy". A copy
+# built in a temp folder — by a test, a sandbox install, a try-out clone in
+# /tmp — must never win that: the folder is deleted, the registration is not,
+# and every delete button then launches an app that no longer exists. So a
+# temp path is refused outright, and CLAUDE_HTML_NO_REGISTER lets the tests
+# say so explicitly as well.
+case "$(cd "$(dirname "$APP")" 2>/dev/null && pwd -P)/" in
+  /tmp/*|/private/tmp/*|/var/folders/*|/private/var/folders/*) REGISTER=0 ;;
+esac
+[ -n "${CLAUDE_HTML_NO_REGISTER:-}" ] && REGISTER=0
+
+# And only the installed copy may claim the links. A second checkout of this
+# repository — a working copy someone develops in — builds a helper of its
+# own the moment the tool is run there, and two apps registered for one
+# scheme means macOS picks whichever it likes. The installed copy is the one
+# the claude-html command on PATH points at.
+for link in "$HOME/.local/bin/claude-html" /usr/local/bin/claude-html; do
+  [ -L "$link" ] || continue
+  target="$(cd "$(dirname "$(readlink "$link")")" 2>/dev/null && pwd -P)"
+  [ -n "$target" ] && [ "$target" != "$(cd "$HERE" && pwd -P)" ] && REGISTER=0
+  break
+done
+
 if [ "$REGISTER" = 1 ] && [ -x "$LSREG" ]; then
+  # Drop registrations whose app is gone before adding ours, so a ghost left
+  # by an older version cannot shadow the real one.
+  "$LSREG" -dump 2>/dev/null | sed -n 's/^path: *\(.*Claude HTML\.app\) (0x.*/\1/p' | sort -u |
+    while IFS= read -r old; do
+      [ -d "$old" ] || "$LSREG" -u "$old" >/dev/null 2>&1 || true
+    done
   "$LSREG" -f "$APP"
 fi
 exit 0

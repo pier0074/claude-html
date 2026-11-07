@@ -7,30 +7,37 @@
 [![stars](https://img.shields.io/github/stars/pier0074/claude-html?style=flat&color=f6e2a8&labelColor=6b665e)](https://github.com/pier0074/claude-html/stargazers)
 
 Every Claude Code conversation you have, kept forever and readable in your
-browser — searchable, diffed, resumable with one copy-paste command. One-line
-install, zero dependencies, and it builds itself while you work.
+browser: searchable, diffed, costed, and resumable with one click. One-line
+install, nothing to add, and it builds itself while you work.
 
-![The index: every session, full-text searchable, grouped by project if you like](docs/index-dark.png)
+![The index: every session, full-text search, cost and tokens, a resume button per row](docs/index-dark.png)
 
-![A session: prompts numbered, tool calls labelled, every edit a real diff](docs/session-dark.png)
+![A session: numbered prompts, labelled tool calls, real diffs, and what it cost](docs/session-dark.png)
+
+![The token dashboard: by week, month or all time, stacked by model](docs/usage-dark.png)
+
+![The same tokens by project](docs/usage-project-dark.png)
 
 ## Why
 
 Claude Code deletes transcripts after 30 days, and raw JSONL is unreadable.
-This keeps everything, locally, as plain HTML files: no server, no database,
+This keeps everything as plain HTML on your own disk: no server, no database,
 no dependencies, and not one byte leaves your machine.
 
-- **Automatic** — hooks save after every reply (`Stop`), when a session ends
-  (`SessionEnd`) and before the context is compacted (`PreCompact`), so a page
-  is never more than one reply behind — and they are **added beside** any hooks
-  you already have, never over them
-- **Search everything** — full text across every conversation, results jump to the exact message
-- **Readable** — numbered prompts, labelled tool calls, real diffs; one click hides all the machinery
-- **Resumable** — every page carries its `cd … && claude --resume …` command
-  with a copy button: paste it into a terminal and you are back in the session
-- **Permanent** — archives live beside your projects, past the 30-day cleanup
-- **Token dashboard** — how many tokens you burn, charted by week, month or
-  day, broken down by model and by project, from your own transcripts
+- **Automatic** — hooks save after every reply, when a session ends and before
+  compaction, so a page is never more than one reply behind. Saves read only
+  what was appended: a few seconds at most, even for a 160 MB session
+- **Search everything** — full text across all conversations, straight to the message
+- **Readable** — numbered prompts, labelled tool calls, real diffs; one click hides the machinery
+- **Fast, even at 16 MB** — a conversation of fifteen thousand messages opens in half a second
+- **Resumable** — a **resume** button reopens the conversation in a terminal, in
+  the right folder; **copy** gives you the `cd … && claude --resume …` line
+- **Permanent** — archives live beside your projects, past the 30-day cleanup,
+  with thinking and token counts
+- **Token dashboard** — by week, month or all time, by model or by project;
+  weeks can start when your plan's allowance resets
+- **Cost** — where Claude Code records it, shown on the index, the session and
+  the dashboard; never estimated
 - **Private** — static files, zero network requests; light and dark, with a ◐ toggle
 
 ## Install
@@ -40,30 +47,28 @@ git clone https://github.com/pier0074/claude-html ~/claude-html
 cd ~/claude-html && ./install.sh
 ```
 
-No questions asked, nothing else to install: macOS needs nothing at all,
-Linux only `node`, which a machine running Claude Code already has.
+Nothing else to install. macOS uses its own `osascript`; Linux uses `node`,
+which a machine running Claude Code already has. A Mac that happens to have
+node uses it too, being faster — node is never installed for you.
 
-**Where you clone it is the configuration.** The folder you clone into is
-where the pages are written — `index.html` appears right there — and its
-*parent* becomes the projects root: every Claude Code session started
-anywhere under it is archived, whatever the project. Clone into
-`~/Sites/claude-html` and everything under `~/Sites` is covered; clone into
-`~/claude-html` and everything under your home is. To set either explicitly:
-`./install.sh --out DIR --root DIR`.
+**Where you clone it is the configuration.** The pages are written in the
+clone folder (`index.html` appears right there), and its *parent* is the
+projects root: every session started anywhere under it is archived. Clone
+into `~/Sites/claude-html` and everything under `~/Sites` is covered. Or say
+so: `./install.sh --out DIR --root DIR`.
 
-The installer only adds. Its hooks are appended beside whatever is already in
-your `settings.json`, nothing of yours is rewritten, and
-`./install.sh --uninstall` removes exactly its own hooks and nothing else.
+The installer only adds: its hooks go beside the ones you have, and a second
+run keeps `~/.claude/claude-html.conf` as you left it.
 
 ## Use
 
-Day to day: nothing. The hooks keep every page current while you work — just
-open `index.html` and read. The command exists for the exceptions:
+Day to day: nothing — open `index.html` and read. The command is for the exceptions:
 
 ```bash
-claude-html              # rebuild now instead of waiting for the next reply, and open the index
-claude-html --force      # rebuild every page from scratch, e.g. after updating the tool
-bash tests/run-all.sh    # the test suite, on macOS and on Linux
+claude-html              # rebuild now and open the index
+claude-html --force      # rebuild every page from scratch
+claude-html --doctor     # what this machine is and which of its tools does each job
+bash tests/run-all.sh    # every test suite, macOS and Linux
 ```
 
 ## Uninstall
@@ -72,24 +77,16 @@ bash tests/run-all.sh    # the test suite, on macOS and on Linux
 cd ~/claude-html && ./install.sh --uninstall
 ```
 
-That removes what was installed — the `claude-html` command, the helper app
-and the hooks it added (only its own; the rest of your `settings.json` is
-untouched) — and deliberately keeps what is yours: the pages, the archives
-and your `cleanupPeriodDays`. Nothing saves anymore from that point; what was
-already saved stays readable.
-
-To erase every trace as well:
-
-- delete the clone folder — the tool and all its pages go with it
-- delete `~/.claude/claude-html.conf` (and `~/.claude/claude-html.hidden`, if you hid claude.ai chats)
-- the permanent archives live in each project, in `<project>/.claude/.claude-conversations/` — delete those folders to lose the conversations for good
-- `cleanupPeriodDays` in `~/.claude/settings.json` stays at 3650 (set only if you had none); put it back to taste
+Removes the command, the helper app or link handler, and its own hooks; keeps
+the pages, the archives and your conf. Details, including how to erase every
+trace, are in [docs/DETAILS.md](docs/DETAILS.md#uninstall).
 
 ## More
 
 **[docs/DETAILS.md](docs/DETAILS.md)** — how saving works and why no message
-can be lost, search, deleting a conversation to the Trash, sub-agents,
-claude.ai exports, configuration, and what is macOS-only.
+can be lost, the engine choice, search, long conversations, the dashboard,
+deleting to the Trash, sub-agents, claude.ai exports, configuration, and what
+each Linux desktop gets.
 
 ## License
 

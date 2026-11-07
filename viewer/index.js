@@ -7,10 +7,55 @@
   var sessions = data.sessions || [];
   var home = data.home || "";
   var errors = data.errors || [];
+  // The bin, the project links and the resume links are claude-html://
+  // links, which need something to receive them: the helper app on macOS, the
+  // desktop handler on Linux. Without one they would be controls that do
+  // nothing while promising to delete things, so they are not drawn. An index
+  // built before "actions" existed said "mac", and one before that came from
+  // a mac.
+  var mac = "actions" in data ? !!data.actions : data.mac !== false;
 
   function esc(s) { return CH.esc(s); }
 
   CH.themeInit(document.getElementById("theme"));
+
+  function stamp(secs) {
+    if (!secs) return "";
+    var d = new Date(secs * 1000);
+    return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" +
+      ("0" + d.getDate()).slice(-2) + " " + ("0" + d.getHours()).slice(-2) + ":" +
+      ("0" + d.getMinutes()).slice(-2);
+  }
+
+  // How old the page is, in the one unit that reads at a glance.
+  function ago(secs) {
+    var m = Math.floor((Date.now() / 1000 - secs) / 60);
+    if (m < 1) return "just now";
+    if (m < 60) return m + " min ago";
+    if (m < 60 * 48) return Math.floor(m / 60) + " h ago";
+    return Math.floor(m / 1440) + " days ago";
+  }
+
+  // When the page was built. A hook that has stopped firing leaves the index
+  // looking perfectly healthy, only old, and this is the one place that says so.
+  if (data.built) {
+    var bt = document.getElementById("built");
+    bt.textContent = " · built " + stamp(data.built) + " (" + ago(data.built) + ")";
+    bt.title = "when claude-html last wrote this page";
+  }
+  // How to reopen a conversation, said plainly. Every build that carries
+  // "actions" also wrote a launcher per conversation into resume/.
+  var launch = document.getElementById("launch");
+  if (mac) {
+    launch.innerHTML = " · to reopen a conversation, click its <b>resume</b>," +
+      " or double-click its file in <code>resume/</code>";
+  } else if ("actions" in data) {
+    launch.innerHTML = " · to reopen a conversation, paste its <b>copy</b> into a terminal," +
+      " or double-click its file in <code>resume/</code>";
+  } else {
+    launch.hidden = true;
+  }
+  if (!mac) document.getElementById("ix").classList.add("nomac");
 
   // ── failures are never silent ──────────────────────────────────────
   if (errors.length) {
@@ -28,6 +73,7 @@
   // files, so the helper app receives it, shows what would go, and waits for
   // you to confirm in a dialog of its own.
   function bin(s) {
+    if (!mac) return "";
     var web = s.kind === "web";
     return '<a class="del" href="claude-html://delete/' + esc(s.id) + '" title="' +
       (web ? "hide this chat from the index" : "delete this conversation and its history") +
@@ -38,18 +84,30 @@
   // the pseudo-projects (~ and the projects root itself) are not projects.
   function project(s) {
     var name = esc(s.project || "");
-    if (!s.cwd || s.kind === "web") return name;
+    if (!mac || !s.cwd || s.kind === "web") return name;
     return '<a class="proj" href="claude-html://open/' + esc(s.id) + '" title="open this ' +
       'project: its server if one is running, otherwise its page or its folder">' + name + "</a>";
   }
 
+  // What Claude Code recorded the session cost, at API list prices. Most
+  // sessions predate the record and say "—", never "$0.00"; "≥" marks one
+  // whose record covers only part of it. Whole dollars from ten up, so the
+  // column stays narrow enough for the title to keep its room.
+  function cost(s) {
+    if (!s.tok || s.tok.length < 6) return '<td class="num cost d">—</td>';
+    return '<td class="num cost" title="' + (s.costPart
+      ? "at least: some replies fall outside what Claude Code recorded"
+      : "as Claude Code recorded it, at API list prices") + '">' +
+      (s.costPart ? "≥ " : "≈ ") + CH.fmtMoney(s.tok[5], true) + "</td>";
+  }
+
   function row(s, inGroup) {
-    var date = new Date((s.mtime || 0) * 1000);
-    var stamp = date.getFullYear() + "-" +
-      ("0" + (date.getMonth() + 1)).slice(-2) + "-" + ("0" + date.getDate()).slice(-2) +
-      " " + ("0" + date.getHours()).slice(-2) + ":" + ("0" + date.getMinutes()).slice(-2);
+    // Copy puts the command on the clipboard; resume runs it, through the
+    // launcher in resume/, by way of the helper.
     var action = CH.resumable(s)
-      ? '<button class="cp" data-c="' + esc(CH.resumeCmd(s, home)) + '">copy</button>'
+      ? '<button class="cp" data-c="' + esc(CH.resumeCmd(s, home)) + '">copy</button>' +
+        (mac ? '<a class="go" href="claude-html://resume/' + esc(s.id) +
+               '" title="reopen this conversation in a terminal">resume</a>' : "")
       : (s.url ? '<a href="' + esc(s.url) + '">open ↗</a>' : '<span class="d">—</span>');
     // A page built before its source changed is saying something out of date.
     var stale = s.stale ? ' <span class="stale" title="the source has changed since this was built">stale</span>' : "";
@@ -57,12 +115,19 @@
     // so it is left empty — but the name is still on the row, in data-proj,
     // because searching for a project has to keep working either way.
     return '<tr data-href="sessions/' + esc(s.id) + '.html" data-proj="' +
-      esc(s.project || "") + '"><td class="dt">' + stamp + "</td><td>" +
+      esc(s.project || "") + '"><td class="dt">' + stamp(s.mtime) + "</td><td>" +
       (inGroup ? "" : project(s)) + "</td>" +
-      '<td><span class="ti">' + esc(s.title || "") +
-      (s.agents ? ' <span class="nag">· ' + s.agents + " sub-agents</span>" : "") +
-      "</span></td>" +
-      "<td>" + (s.prompts || 0) + '</td><td class="d">' + esc(s.kind) + stale + "</td>" +
+      // The title truncates; the sub-agent count sits beside it and does not,
+      // so a long title can never hide how many agents a session spawned.
+      // The flex row lives in a div inside the cell. A <td> made display:flex
+      // stops being a table cell at all, and the whole row comes apart.
+      '<td class="what"><div class="wl"><span class="ti">' + esc(s.title || "") + "</span>" +
+      (s.agents ? '<span class="nag">' + s.agents + " agent" + (s.agents === 1 ? "" : "s") +
+        "</span>" : "") + "</div></td>" +
+      '<td class="num">' + (s.prompts || 0) + "</td>" +
+      '<td class="num tok">' + (s.tok ? CH.fmtTokens(s.tok[0] + s.tok[1] + s.tok[2] + s.tok[3]) : "") +
+      "</td>" + cost(s) +
+      '<td class="d">' + esc(s.kind) + stale + "</td>" +
       '<td><a href="sessions/' + esc(s.id) + '.html">' + esc(s.id.slice(0, 8)) + "…</a></td>" +
       "<td>" + action + "</td><td>" + bin(s) + "</td></tr>";
   }
@@ -96,10 +161,14 @@
     // The heading opens the project, like the name on a row does. It uses the
     // most recent session, since the link carries a session id.
     var openable = list.filter(function (s) { return s.cwd && s.kind !== "web"; })[0];
-    return '<tr class="grp"><th colspan="8">' +
+    var tok = list.reduce(function (t, s) {
+      return t + (s.tok ? s.tok[0] + s.tok[1] + s.tok[2] + s.tok[3] : 0);
+    }, 0);
+    return '<tr class="grp"><th colspan="10">' +
       (openable ? project(openable) : esc(name || "—")) +
       ' <span class="gc">' + list.length + " session" + (list.length === 1 ? "" : "s") +
-      " · " + prompts + " prompts</span></th></tr>";
+      " · " + prompts + " prompts" +
+      (tok ? " · " + CH.fmtTokens(tok) + " tokens" : "") + "</span></th></tr>";
   }
 
   function draw() {
@@ -216,6 +285,7 @@
   (function resumeDelete() {
     var p = pending();
     if (!p) return;
+    if (!mac) { pending(null); return; }
     var still = sessions.some(function (s) { return s.id === p.id; });
     if (!still || p.tries >= LIMIT || Date.now() - p.at > WINDOW_MS) { pending(null); return; }
     armReload(p);
@@ -238,7 +308,7 @@
       n = document.getElementById("n"),
       mh = document.getElementById("mh"),
       mr = document.getElementById("mr"),
-      LC = null, loading = false, timer;
+      LC = null, loading = false, noIndex = false, missing = 0, timer;
 
   // Match case, or not. Everything that compares text goes through fold(), so
   // the table filter, the message search and the highlighting always agree.
@@ -292,17 +362,30 @@
   var parts = {};
   window.CH_SEARCH = function (id, rows) { parts[id] = rows; };
 
-  function need(cb) {
+  // Nothing could be loaded at all: say so in both places, every time, rather
+  // than leave "searching…" standing forever.
+  function noSearch(shown) {
+    mr.innerHTML = '<p class="d">no search index — run <code>claude-html</code> to build one</p>';
+    n.textContent = shown + " of " + rows.length + " sessions · messages not searchable";
+  }
+
+  function need(cb, shown) {
     if (window.SEARCH) { cb(); return; }
+    if (noIndex) { noSearch(shown); return; }
     if (loading) return;
     loading = true;
     mh.hidden = false;
     mr.innerHTML = '<p class="d">loading conversations…</p>';
-    var pending = sessions.length, loaded = 0;
-    function settle() { if (--pending === 0) done(); }
+    var left = sessions.length, loaded = 0;
+    function settle() { if (--left === 0) done(); }
     function done() {
+      loading = false;
+      // A part that is missing, or that loaded without handing over its rows,
+      // is a conversation the results below cannot contain.
+      missing = sessions.filter(function (s) { return !parts[s.id]; }).length;
       if (sessions.length && !loaded) {
-        mr.innerHTML = '<p class="d">no search index — run <code>claude-html</code> to build one</p>';
+        noIndex = true;
+        run();
         return;
       }
       window.SEARCH = sessions
@@ -315,7 +398,7 @@
       // while this loaded is what should be shown.
       run();
     }
-    if (!pending) { done(); return; }
+    if (!left) { done(); return; }
     sessions.forEach(function (s) {
       var tag = document.createElement("script");
       tag.src = "search/" + encodeURIComponent(s.id) + ".js";
@@ -326,14 +409,6 @@
   }
 
   var WHO = { u: "You", t: "Claude", k: "thinking" };
-
-  function stamp(secs) {
-    if (!secs) return "";
-    var d = new Date(secs * 1000);
-    return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" +
-      ("0" + d.getDate()).slice(-2) + " " + ("0" + d.getHours()).slice(-2) + ":" +
-      ("0" + d.getMinutes()).slice(-2);
-  }
 
   function messages(ts) {
     var out = [], CAP = 200, PER = 5;
@@ -363,7 +438,9 @@
         '<span class="rs">' + snippet(r[2], h[2], ts) + "</span></a>";
     }).join("") || '<p class="d">no messages match</p>';
     n.textContent = shown + " of " + rows.length + " sessions · " + hits.length +
-      (hits.length >= 200 ? "+" : "") + " messages";
+      (hits.length >= 200 ? "+" : "") + " messages" +
+      (missing ? " · " + missing + " conversation" + (missing === 1 ? "" : "s") +
+        " not searched, search file missing — run claude-html" : "");
   }
 
   function run() {
@@ -385,7 +462,7 @@
     syncGroups();
     n.textContent = shown + " of " + rows.length + " sessions · searching…";
     mh.hidden = false;
-    need(function () { render(messages(ts), ts, shown); });
+    need(function () { render(messages(ts), ts, shown); }, shown);
   }
 
   q.addEventListener("input", function () {

@@ -80,6 +80,24 @@ check "the index no longer lists it" "$(listed "$A")" absent
 check "the neighbour is still listed" "$(listed "$B")" listed
 check "  and still has its transcript" "$(gone "$H/.claude/projects/$D/$B.jsonl")" still-there
 
+# ── a nested project's archive ──────────────────────────────────────
+# Its transcript has expired, and the archive sits two levels below the
+# root: found where the build finds it, through the list of folders that
+# have held archives — not only through a manifest that can be lost.
+C=dddddddd-4444-4444-4444-000000000004
+NEST="$ROOT/group/site"
+mkdir -p "$NEST/.claude/.claude-conversations"
+printf '{"sessionId":"%s","project":"%s","messages":[{"role":"user","text":"nested and archived"}]}\n' "$C" "$NEST" \
+  > "$NEST/.claude/.claude-conversations/$C.json"
+printf '%s\n' "$NEST" >> "$H/.claude/claude-html.archives"
+build
+check "a nested archive-only session is listed" "$(listed "$C")" listed
+rm -f "$OUT/.manifest.json"
+check "  its plan names the nested archive, manifest or not" \
+  "$(cli --delete-plan "$C" | grep -c "group/site/.claude/.claude-conversations/$C.json")" 1
+cli --delete "$C" --yes >/dev/null
+check "  and the delete takes it" "$(gone "$NEST/.claude/.claude-conversations/$C.json")" gone
+
 # ── a claude.ai chat ────────────────────────────────────────────────
 W=cccccccc-3333-3333-3333-000000000003
 X="$T/conversations.json"

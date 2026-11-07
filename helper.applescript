@@ -1,4 +1,4 @@
--- The claude-html delete helper.
+-- The claude-html helper: deletes, opens and resumes from the index.
 --
 -- A page opened from disk is not allowed to delete files, so the bin on the
 -- index is a claude-html://delete/<session id> link, which macOS hands to this
@@ -26,6 +26,24 @@ on open location theURL
 		on error errText
 			activate
 			display dialog "Could not open that project." & return & return & errText buttons {"OK"} default button 1 with icon stop with title "claude-html"
+		end try
+		return
+	end if
+
+	-- Resuming: no dialog either. It can only open Terminal on a conversation
+	-- the index already lists, through the launcher claude-html wrote for it;
+	-- the command checks the id against the manifest before anything opens.
+	set resumePrefix to "claude-html://resume/"
+	if theURL starts with resumePrefix then
+		set sid to text ((length of resumePrefix) + 1) thru -1 of theURL
+		if sid ends with "/" then set sid to text 1 thru -2 of sid
+		if not my isSessionId(sid) then return
+		set here to do shell script "dirname " & quoted form of POSIX path of (path to me)
+		try
+			do shell script quoted form of (here & "/claude-html") & " --resume-session " & quoted form of sid
+		on error errText
+			activate
+			display dialog "Could not resume that conversation." & return & return & errText buttons {"OK"} default button 1 with icon stop with title "claude-html"
 		end try
 		return
 	end if

@@ -12,35 +12,52 @@ while [ -L "$SOURCE" ]; do
 done
 HERE="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 
-# The JavaScript runs through whichever engine is here: osascript on macOS,
-# node anywhere else. Same files, same bytes out.
-if [ -z "${CLAUDE_HTML_FORCE_NODE:-}" ] && command -v osascript >/dev/null 2>&1; then
-  run_js() { osascript -l JavaScript "$@"; }; MAC=true
-else
-  run_js() { node "$@"; }; MAC=false
-fi
+# Where install.sh was told things live, decided as the hook decides it.
+# shellcheck source=conf.sh
+. "$HERE/conf.sh"
 
-# Where install.sh was told things live; an environment variable wins.
-CONF="${CLAUDE_HTML_CONF:-$HOME/.claude/claude-html.conf}"
-_env_root="${CLAUDE_HTML_ROOT:-}"
-_env_out="${CLAUDE_HTML_OUT:-}"
-# shellcheck disable=SC1090
-[ -f "$CONF" ] && . "$CONF"
-ROOT="${_env_root:-${CLAUDE_HTML_ROOT:-$HOME/Sites}}"
-OUT="${_env_out:-${CLAUDE_HTML_OUT:-$HERE}}"
-# convert.js reads this from the environment, and a sourced conf only
-# sets a shell variable — so hand it over explicitly.
-export CLAUDE_HTML_WEEK_RESET="${CLAUDE_HTML_WEEK_RESET:-}"
-ROOT="${ROOT/#\~/$HOME}"
-OUT="${OUT/#\~/$HOME}"
+# The data work - reading transcripts, building pages - is the same bytes
+# under osascript and node, and platform.sh picks which runs it, exactly as
+# for the hook. The helper app is a Mac's whichever engine that is.
+# shellcheck source=platform.sh
+. "$HERE/platform.sh"
+ch_pick_engine
+run_js() { ch_js "$@"; }
+MAC=false
+[ -z "${CLAUDE_HTML_FORCE_NODE:-}" ] && command -v osascript >/dev/null 2>&1 && MAC=true
 
 # Keep the helper app in step with its source: it holds a copy inside it.
 [ "$MAC" = true ] && [ -x "$HERE/helper-build.sh" ] &&
   "$HERE/helper-build.sh" "$HERE/Claude HTML.app" --register --if-stale >/dev/null 2>&1 || true
 
+# A build keeps a cache of what it parsed, which only one build at a time
+# may write. The saves take turns through this lock, so the command waits
+# for its turn as well; one that does not get it within a minute builds
+# without the cache, reading everything, as every build once did.
+LOCK="$HOME/.claude/.claude-html.lock"; OWN_LOCK=0; NOCACHE=""
+take_lock() {
+  local waited=0 pid
+  mkdir -p "$(dirname "$LOCK")" 2>/dev/null || true
+  while ! mkdir "$LOCK" 2>/dev/null; do
+    pid="$(cat "$LOCK/pid" 2>/dev/null || true)"
+    if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then rm -rf "$LOCK"; continue; fi
+    if [ -z "$pid" ] && [ -n "$(find "$LOCK" -maxdepth 0 -mmin +2 2>/dev/null)" ]; then
+      rm -rf "$LOCK"; continue
+    fi
+    waited=$((waited + 1))
+    if [ "$waited" -ge 120 ]; then NOCACHE=',"cache":false'; return 1; fi
+    sleep 0.5
+  done
+  echo $$ > "$LOCK/pid"
+  OWN_LOCK=1
+  trap 'release_lock' EXIT
+}
+release_lock() { [ "$OWN_LOCK" = 1 ] && rm -rf "$LOCK"; OWN_LOCK=0; return 0; }
+
 FORCE=false
 DELETE=""; PLAN=""; YES=false
 OPEN=""; OPENPLAN=""
+RESUME=""; RESUMEPLAN=""; DOCTOR=""
 ONLY=""
 for arg in "$@"; do
   case "$arg" in
@@ -48,33 +65,101 @@ for arg in "$@"; do
     --delete) DELETE=1 ;;
     --open) OPEN=1 ;;
     --open-plan) OPENPLAN=1 ;;
+    --resume-session) RESUME=1 ;;
+    --resume-plan) RESUMEPLAN=1 ;;
     --delete-plan) PLAN=1 ;;
+    --doctor) DOCTOR=1 ;;
     --yes|-y) YES=true ;;
     -h|--help)
       echo "claude-html            rebuild what changed, open the index"
       echo "claude-html --force    rebuild every session"
       echo "claude-html <id>       rebuild one session"
-      echo "claude-html --delete <full id>   move a conversation and its history to the Trash"
-      echo "claude-html --open <full id>     open that session's project: its server, page or folder"
+      echo "claude-html --delete <full id>          move a conversation and its history to the Trash"
+      echo "claude-html --open <full id>            open that session's project: its server, page or folder"
+      echo "claude-html --resume-session <full id>  reopen that conversation in a terminal"
+      echo "claude-html --doctor   what this machine is, and which of its tools does each job"
       exit 0 ;;
     *) ONLY="$arg" ;;
   esac
 done
 
+# ── what this machine has ────────────────────────────────────────────
+# The actions behind the index's links are done with the machine's own
+# tools, and which tools those are is worked out here, each time, by
+# platform.sh. On macOS they run through osascript whatever engine builds
+# the pages: they need the Finder and the helper, which node cannot reach.
+actions_setup() {
+  ch_detect
+  if [ "$CH_OS" = darwin ] && command -v osascript >/dev/null 2>&1; then
+    act_js() { osascript -l JavaScript "$@"; }; ACT_MAC=true
+  else
+    act_js() { ch_node_run "${CH_NODE:-node}" "$@"; }; ACT_MAC=false
+  fi
+}
+full_id() {
+  if ! printf '%s' "$ONLY" | grep -Eqx '[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}' ||
+     [ "$(printf '%s' "$ONLY" | wc -l | tr -d ' ')" != 0 ]; then
+    echo "give the full session id, as it appears in the index's links" >&2
+    exit 2
+  fi
+}
+
+if [ -n "$DOCTOR" ]; then
+  actions_setup
+  ch_doctor
+  echo
+  echo "  pages     $OUT"
+  echo "  projects  $ROOT"
+  exit 0
+fi
+
+# ── resume a conversation ────────────────────────────────────────────
+# The launcher convert.js wrote for it, opened as a double-click would: on
+# macOS by Terminal, on Linux in the terminal platform.sh found. Nothing
+# from the link is run; the id only picks which launcher, and only one the
+# manifest knows and that can be resumed.
+if [ -n "$RESUME$RESUMEPLAN" ]; then
+  full_id
+  actions_setup
+  EXT=.sh; [ "$ACT_MAC" = true ] && EXT=.command
+  RESULT="$(act_js "$HERE/resume.js" \
+    "{\"id\":\"$ONLY\",\"out\":\"$OUT\",\"ext\":\"$EXT\"}" 2>&1)" || {
+    echo "$RESULT" >&2; exit 1; }
+  LAUNCHER="$(printf '%s\n' "$RESULT" | sed -n 's/^LAUNCHER	//p')"
+  COMMAND="$(printf '%s\n' "$RESULT" | sed -n 's/^COMMAND	//p')"
+  # Both ways go through ch_run, so the plan prints exactly the command the
+  # real thing would run, and runs nothing.
+  if [ "$ACT_MAC" = true ]; then
+    HOW="Terminal"; set -- ch_run /usr/bin/open "$LAUNCHER"
+  elif [ -n "$CH_TERM" ]; then
+    HOW="$CH_TERM"; set -- ch_term_run sh "$LAUNCHER"
+  else
+    # No terminal to open (a server, an ssh session): say what to type.
+    echo "run: $COMMAND"; exit 0
+  fi
+  if [ -n "$RESUMEPLAN" ]; then
+    printf 'launcher: %s\nopens with: %s\ncommand: %s\n' "$LAUNCHER" "$HOW" "$(CH_DRY=1 "$@")"
+    exit 0
+  fi
+  "$@" >/dev/null 2>&1 || { echo "could not open $HOW for $LAUNCHER" >&2; exit 1; }
+  # Run from the helper or a desktop link, where nothing is visible if it goes
+  # wrong, so it leaves a note beside .last-open saying what it did.
+  printf '%s  %s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$HOW" "$LAUNCHER" > "$OUT/.last-resume" 2>/dev/null || true
+  echo "resumed in $HOW: $LAUNCHER"
+  exit 0
+fi
+
 # ── open a project ───────────────────────────────────────────────────
 # What "the project" means is decided now rather than when the index was
 # built: a port does not exist until its server starts.
 if [ -n "$OPEN$OPENPLAN" ]; then
-  if [ "$MAC" != true ]; then
-    echo "opening a project this way is macOS-only for now" >&2; exit 2
-  fi
-  if ! printf '%s' "$ONLY" | grep -Eq '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$'; then
-    echo "give the full session id, as it appears in the index's links" >&2
-    exit 2
-  fi
+  full_id
+  actions_setup
   MODE=apply; [ -n "$OPENPLAN" ] && MODE=plan
-  RESULT="$(run_js "$HERE/open.js" \
-    "{\"id\":\"$ONLY\",\"mode\":\"$MODE\",\"root\":\"$ROOT\",\"out\":\"$OUT\"}" 2>&1)" || {
+  # Nothing here can open anything (a server): it says where, and stops.
+  if [ "$ACT_MAC" != true ] && [ -z "$CH_OPENER" ]; then MODE=plan; fi
+  RESULT="$(act_js "$HERE/open.js" \
+    "{\"id\":\"$ONLY\",\"mode\":\"$MODE\",\"root\":\"$ROOT\",\"out\":\"$OUT\",\"opener\":\"$CH_OPENER\"}" 2>&1)" || {
     echo "$RESULT" >&2; exit 1; }
   printf '%s\n' "$RESULT" | awk -F'\t' '{ print $1 ": " $2 }'
   exit 0
@@ -84,18 +169,15 @@ fi
 # Needs the full session id: a prefix that happens to match the wrong
 # conversation is not a risk worth taking when the result is deletion.
 if [ -n "$DELETE$PLAN" ]; then
-  if [ "$MAC" != true ]; then
-    echo "deleting this way is macOS-only for now: it moves things to the Trash" >&2; exit 2
-  fi
-  if ! printf '%s' "$ONLY" | grep -Eq '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$'; then
-    echo "give the full session id, as it appears in the index's links" >&2
-    exit 2
-  fi
+  full_id
+  actions_setup
+  # The trash method rides along for node; the macOS side has the Finder's.
   opts() {
-    printf '{"id":"%s","mode":"%s","root":"%s","out":"%s"%s}' "$ONLY" "$1" "$ROOT" "$OUT" \
+    printf '{"id":"%s","mode":"%s","root":"%s","out":"%s","trashMethod":"%s"%s}' \
+      "$ONLY" "$1" "$ROOT" "$OUT" "$CH_TRASH" \
       "${CLAUDE_HTML_TRASH:+,\"trash\":\"$CLAUDE_HTML_TRASH\"}"
   }
-  PLANTXT="$(run_js "$HERE/delete.js" "$(opts plan)" 2>&1)" || {
+  PLANTXT="$(act_js "$HERE/delete.js" "$(opts plan)" 2>&1)" || {
     echo "$PLANTXT" >&2; exit 1; }
   if [ -n "$PLAN" ]; then printf '%s\n' "$PLANTXT"; exit 0; fi
 
@@ -123,7 +205,7 @@ if [ -n "$DELETE$PLAN" ]; then
   # Whatever happens next, the index is rebuilt: anything that did move must
   # leave it, even if a later step failed.
   STATUS=0
-  RESULT="$(run_js "$HERE/delete.js" "$(opts apply)" 2>&1)" || {
+  RESULT="$(act_js "$HERE/delete.js" "$(opts apply)" 2>&1)" || {
     STATUS=1; echo "$RESULT" >&2; }
   printf '%s\n' "$RESULT" | awk -F'\t' '
     $1 == "DONE" && $4 == "1" { print "hidden from the index" }
@@ -132,20 +214,23 @@ if [ -n "$DELETE$PLAN" ]; then
                                 print "" }
     $1 == "FAILED" { print "could not: " $2 > "/dev/stderr" }'
   printf '%s\n' "$RESULT" | grep -q '^FAILED' && STATUS=1
+  take_lock || true
   run_js "$HERE/convert.js" \
-    "{\"root\":\"$ROOT\",\"out\":\"$OUT\",\"here\":\"$HERE\"}" >/dev/null 2>&1 || true
+    "{\"root\":\"$ROOT\",\"out\":\"$OUT\",\"here\":\"$HERE\"$NOCACHE}" >/dev/null 2>&1 || true
   exit "$STATUS"
 fi
 
 # The build is one interpreter for every session, so it starts once rather
 # than sixty-nine times.
+take_lock || echo "a save is still running; building without the cache" >&2
 REPORT="$(run_js "$HERE/convert.js" "$(cat <<EOF
-{"root":"$ROOT","out":"$OUT","here":"$HERE","force":$FORCE,"only":"$ONLY"}
+{"root":"$ROOT","out":"$OUT","here":"$HERE","force":$FORCE,"only":"$ONLY"$NOCACHE}
 EOF
 )" 2>&1)" || {
   echo "build failed: $REPORT" >&2
   exit 1
 }
+release_lock
 
 case "$REPORT" in
   *'"error"'*)

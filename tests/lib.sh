@@ -11,10 +11,14 @@
 #   need_osascript          end a macOS-only suite as a clean skip
 
 # CLAUDE_HTML_FORCE_NODE=1 pretends osascript is not there, so the Linux
-# code paths can be exercised on a Mac. The GNU userland it cannot fake is
+# code paths, and node doing the data work, can be exercised on a Mac. The GNU userland it cannot fake is
 # what the Linux half of CI is for.
 if [ -z "${CLAUDE_HTML_FORCE_NODE:-}" ] && command -v osascript >/dev/null 2>&1; then
   run_js() { osascript -l JavaScript "$@"; }; HAVE_OSASCRIPT=true
+  # Left to itself, a save on a Mac with node would build with node, and the
+  # osascript half of every suite would go untested. engine.test.sh is where
+  # the choice itself is tested.
+  export CLAUDE_HTML_ENGINE=osascript
 else
   run_js() { node "$@"; }; HAVE_OSASCRIPT=false
 fi
@@ -35,3 +39,9 @@ need_osascript() {
     exit 0
   fi
 }
+
+# No suite may tell macOS to route claude-html:// links to an app it built in
+# a temp folder: the folder goes, the routing stays, and the real delete
+# button breaks. helper-build.sh refuses temp paths on its own; this says it
+# out loud for everything a test launches.
+export CLAUDE_HTML_NO_REGISTER=1

@@ -12,8 +12,16 @@ __pycache__/
 /.manifest.json
 /.last-save
 /.last-open
+/.last-resume
 /.build-errors.json
 /.archive-errors/
+/.cache/
+
+# Conversation archives. The save hook writes them into whatever folder a
+# session ran in, the clone or any folder inside it, and they hold the same
+# full text. A rule with a slash in it only matches at the top unless it
+# starts with **/.
+**/.claude/.claude-conversations/
 
 # Built by install.sh from helper.applescript.
 /Claude HTML.app/

@@ -25,6 +25,7 @@ handles() { osadecompile "$SCPT" 2>/dev/null | grep -c "claude-html://$1/"; }
 check "it builds" "$([ -f "$SCPT" ] && echo yes || echo no)" yes
 check "  and handles the delete links" "$([ "$(handles delete)" -gt 0 ] && echo yes || echo no)" yes
 check "  and the open-a-project links" "$([ "$(handles open)" -gt 0 ] && echo yes || echo no)" yes
+check "  and the resume links" "$([ "$(handles resume)" -gt 0 ] && echo yes || echo no)" yes
 check "  and declares the scheme to macOS" \
   "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes:0:CFBundleURLSchemes:0' "$APP/Contents/Info.plist" 2>/dev/null)" \
   claude-html

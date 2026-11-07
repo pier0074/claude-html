@@ -60,6 +60,58 @@ check "readable again, it builds and the error clears" "$(build "$CF" | errors)"
 check "  with the newer reply on its page" \
   "$(grep -q 'a newer reply' "$PAGE" && echo yes || echo no)" yes
 
+# ── a transcript the parser no longer understands keeps its page ────
+# Claude Code renaming its record types would make every transcript parse to
+# nothing. That must read as a failure to report, never as "every session is
+# gone" — which used to prune the whole site and call it success.
+mkdir -p "$T/z/out" "$T/z/projects/-x-app"
+ID=eeeeeeee-0000-0000-0000-000000000005
+J="$T/z/projects/-x-app/$ID.jsonl"
+PAGE="$T/z/out/sessions/$ID.html"
+{
+  printf '%s\n' '{"type":"user","cwd":"/x/app","timestamp":"2026-09-11T10:00:00Z","message":{"role":"user","content":"a question in the old format"}}'
+  printf '%s\n' '{"type":"assistant","cwd":"/x/app","timestamp":"2026-09-11T10:00:01Z","message":{"role":"assistant","content":[{"type":"text","text":"an answer"}]}}'
+} > "$J"
+CZ="{\"root\":\"$T/z/none\",\"out\":\"$T/z/out\",\"projects\":\"$T/z/projects\",\"here\":\"$HERE\",\"exportPath\":\"/nonexistent\"}"
+build "$CZ" >/dev/null
+sed 's/"type":"user"/"type":"human"/; s/"type":"assistant"/"type":"model"/' "$J" > "$J.new" && mv "$J.new" "$J"
+R="$(build "$CZ")"
+check "a transcript that now parses to nothing is reported" "$(printf '%s' "$R" | errors)" 1
+check "  nothing is removed" "$(printf '%s' "$R" | sed -n 's/.*"removed":\([0-9]*\).*/\1/p')" 0
+check "  its last good page is kept" "$(has "$PAGE")" yes
+check "  with its search file" "$(has "$T/z/out/search/$ID.js")" yes
+check "  and it stays on the index" \
+  "$(grep -q "$ID" "$T/z/out/index.html" && echo listed || echo gone)" listed
+check "  and the error is left for the next look" "$(has "$T/z/out/.build-errors.json")" yes
+
+# A run that finds no session at all, where pages exist, is a run that lost
+# sight of them: a moved folder, a wrong HOME. It must not prune.
+rm "$J"
+R="$(build "$CZ")"
+check "finding nothing where pages exist removes nothing" \
+  "$(printf '%s' "$R" | sed -n 's/.*"removed":\([0-9]*\).*/\1/p')" 0
+check "  and says so" "$(printf '%s' "$R" | grep -c 'nothing was removed')" 1
+check "  the page is still there" "$(has "$PAGE")" yes
+check "  and still listed" "$(grep -q "$ID" "$T/z/out/index.html" && echo listed || echo gone)" listed
+check "  the manifest still knows it" "$(grep -c "$ID" "$T/z/out/.manifest.json")" 1
+
+# The same with the manifest gone too: the pages on disk are what count.
+rm "$T/z/out/.manifest.json"
+R="$(build "$CZ")"
+check "finding nothing with no manifest removes nothing either" \
+  "$(printf '%s' "$R" | sed -n 's/.*"removed":\([0-9]*\).*/\1/p')" 0
+check "  and says so" "$(printf '%s' "$R" | grep -c 'nothing was removed')" 1
+check "  the page is still there" "$(has "$PAGE")" yes
+check "  with its search file" "$(has "$T/z/out/search/$ID.js")" yes
+
+# A brand-new transcript with nothing to show yet is not an error: only one
+# that used to have a page is.
+mkdir -p "$T/n/out" "$T/n/projects/-x-app"
+printf '%s\n' '{"type":"user","isMeta":true,"cwd":"/x/app","timestamp":"2026-09-11T10:00:00Z","message":{"role":"user","content":"harness context"}}' \
+  > "$T/n/projects/-x-app/ffffffff-0000-0000-0000-000000000006.jsonl"
+CN="{\"root\":\"$T/n/none\",\"out\":\"$T/n/out\",\"projects\":\"$T/n/projects\",\"here\":\"$HERE\",\"exportPath\":\"/nonexistent\"}"
+check "a new transcript with nothing in it yet is no error" "$(build "$CN" | errors)" 0
+
 echo
 echo "  $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

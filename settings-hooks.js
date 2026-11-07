@@ -89,7 +89,30 @@ function run(argv) {
     return "removed " + removed;
   }
 
-  var save = "bash " + here + "/save-conversation.sh";
+  // Claude Code hands the command to a shell, so a clone path with a space in
+  // it would split into words and the hook would never run. isOurs and
+  // already match on the script's name, which survives the quoting.
+  function quote(p) { return "'" + String(p).replace(/'/g, "'\\''") + "'"; }
+  var save = "bash " + quote(here + "/save-conversation.sh");
+
+  // Hooks written before the path was quoted are repaired in place, but only
+  // where the missing quotes break them: elsewhere they run as they are, and
+  // the file is the user's.
+  var legacy = "bash " + here + "/save-conversation.sh";
+  var repaired = 0;
+  if (/[^A-Za-z0-9_.\/+,:@%=-]/.test(here)) {
+    Object.keys(hooks).forEach(function (event) {
+      groups(event).forEach(function (g) {
+        (g.hooks || []).forEach(function (h) {
+          if (h.command === legacy) { h.command = save; repaired++; }
+          else if (h.command === legacy + " --background") {
+            h.command = save + " --background"; repaired++;
+          }
+        });
+      });
+    });
+  }
+
   function already(event, script, matcher) {
     return groups(event).some(function (g) {
       if (matcher !== undefined && g.matcher !== matcher) return false;
@@ -128,6 +151,7 @@ function run(argv) {
     data.cleanupPeriodDays = 3650;
     added.push("cleanupPeriodDays=3650");
   }
+  if (repaired) added.push("quoted " + repaired + " older hook(s)");
 
   data.hooks = hooks;
   if (!writeFile(settingsPath, JSON.stringify(data, null, 2) + "\n")) return "unwritable";
