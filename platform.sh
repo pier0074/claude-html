@@ -45,6 +45,36 @@ ch_quote_args() {
   for _a in "$@"; do printf '%s%s' "$_sep" "$(ch_quote "$_a")"; _sep=" "; done
 }
 
+# A string as JSON writes one, quotes included: a folder's name may hold
+# a quote, a backslash or a line break, and must reach the JavaScript whole.
+ch_json_str() {
+  printf '%s' "$1" | LC_ALL=C awk 'BEGIN { ORS = ""; printf "\"" }
+    { gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); gsub(/\t/, "\\t"); gsub(/\r/, "\\r")
+      if (NR > 1) printf "\\n"; print }
+    END { printf "\"" }'
+}
+# An object from pairs of arguments, each value a string; a key written
+# :key takes its value as it is (true, false, a number).
+#   ch_json_obj id "$ID" :force true    {"id":"…","force":true}
+ch_json_obj() {
+  _o="{"; _s=""
+  while [ $# -ge 2 ]; do
+    case "$1" in
+      :*) _o="$_o$_s$(ch_json_str "${1#:}"):$2" ;;
+      *) _o="$_o$_s$(ch_json_str "$1"):$(ch_json_str "$2")" ;;
+    esac
+    _s=","; shift 2
+  done
+  printf '%s}' "$_o"
+}
+# The options every run of convert.js starts from - where the projects
+# are, where the pages go, which clone - and its own after them.
+#   ch_js_opts <clone> [key value]…
+ch_js_opts() {
+  _h="$1"; shift
+  ch_json_obj root "$ROOT" out "$OUT" here "$_h" "$@"
+}
+
 # os-release is shell syntax, but it is not ours to run: read the three keys
 # that matter as plain text and take their quotes off.
 ch_os_release_value() {
@@ -336,6 +366,45 @@ ch_engine_line() {
   esac
 }
 
+# ── yours alone ───────────────────────────────────────────────────────
+# Everything claude-html writes holds conversations, so it is written for
+# its owner only (umask 077 in every script), as Claude Code keeps its own
+# transcripts. What an earlier release wrote readable by others is made so
+# too: only the files and folders it writes in the pages folder, never
+# anything else kept there, and every archive folder it writes to.
+CH_PAGE_FILES="index.html usage.html sessions search resume .cache .manifest.json .build-errors.json
+  .archive-errors .last-save .last-open .last-resume"
+# Of a path and what is under it, what others may read, write or enter:
+# printed, or (with -exec) made the owner's alone.
+ch_loose() {   # path [find action…]
+  [ -e "$1" ] || return 0
+  _p="$1"; shift
+  [ $# -gt 0 ] || set -- -print
+  find "$_p" \( -perm -040 -o -perm -020 -o -perm -010 -o -perm -004 -o -perm -002 -o -perm -001 \) \
+    ! -type l "$@" 2>/dev/null
+}
+ch_private() { ch_loose "$1" -exec chmod go-rwx {} +; return 0; }
+ch_private_out() {   # the pages folder
+  for _f in $CH_PAGE_FILES; do ch_private "$1/$_f"; done
+}
+ch_loose_out() {   # the pages folder: how many of its own files others can reach
+  for _f in $CH_PAGE_FILES; do ch_loose "$1/$_f"; done | wc -l | tr -d ' '
+}
+
+# ── git ────────────────────────────────────────────────────────────
+# ch_git_ok is release.sh's: source it first.
+# Archive folders git would take into a commit: under a work tree, and not
+# ignored. One per line. Asks nothing of a git that cannot run quietly.
+ch_archives_tracked() {   # project folders…
+  ch_git_ok || return 0
+  for _d in "$@"; do
+    [ -d "$_d/.claude/.claude-conversations" ] || continue
+    git -C "$_d" rev-parse --is-inside-work-tree >/dev/null 2>&1 || continue
+    git -C "$_d" check-ignore -q ".claude/.claude-conversations/x.json" 2>/dev/null ||
+      printf '%s\n' "$_d/.claude/.claude-conversations"
+  done
+}
+
 # ── the redaction's signature ─────────────────────────────────────────
 # Which rules and which own list an archive was redacted by, as convert.js
 # and the archiver work it out: "off", or the md5 of redact.js and of the
@@ -377,11 +446,12 @@ ch_can_ask() {
 # minutes, well inside the hooks' own timeout; past it the window closes
 # and the answer is "timeout". Prints cancel, allow, safe, stop, timeout, or
 # nothing when no dialog could be shown. It names the kinds of secret,
-# never one. CH_DRY prints the command instead, for the tests.
-#   ch_choose prompt|bash <project> <found>
+# never one; for a command, it shows its first line, masked. CH_DRY prints
+# the command instead, for the tests.
+#   ch_choose prompt|bash <project> <found> [<command>]
 CH_GUARD_LIMIT="${CLAUDE_HTML_GUARD_TEST_LIMIT:-600}"
 ch_choose() {
-  _kind="$1"; _proj="$2"; _found="$3"
+  _kind="$1"; _proj="$2"; _found="$3"; _cmd="${4:-}"
   if [ "$_kind" = bash ]; then
     _verb=run; _head="Claude's command has been interrupted"; _where="a command from Claude"
   else
@@ -397,18 +467,21 @@ Sensitive information detected
 
 Where:  $_where
 Found:  $_found"
+  [ -n "$_cmd" ] && _text="$_text
+Command:  $_cmd"
   case "$CH_DIALOG" in
     # A window of osascript's own, whichever engine does the data work:
     # AppleScript's dialogs have no radio buttons.
-    osascript) set -- osascript -l JavaScript "$CH_HERE/dialog.js" "$_kind" "$_proj" "$_found" ;;
+    osascript) set -- osascript -l JavaScript "$CH_HERE/dialog.js" "$_kind" "$_proj" "$_found"
+               [ -z "$_cmd" ] || set -- "$@" "$_cmd" ;;
     # zenity, yad and kdialog keep a Cancel button of their own, which
     # answers as the Cancel choice does. Their look is the desktop's.
     zenity) set -- zenity --list --radiolist --title=claude-html --no-markup --text="$_text" \
               --ok-label=OK --column=" " --column=Choice \
               TRUE "$_c1" FALSE "$_c2" FALSE "$_c3" FALSE "$_c4" ;;
-    yad) set -- yad --list --radiolist --title=claude-html --text="$_text" --print-column=2 --separator= \
+    yad) set -- yad --list --radiolist --title=claude-html --text="$(printf "%s" "$_text" | sed -e "s/&/\\&amp;/g" -e "s/</\\&lt;/g" -e "s/>/\\&gt;/g")" --print-column=2 --separator= \
            --button=OK:0 --column=" " --column=Choice TRUE "$_c1" FALSE "$_c2" FALSE "$_c3" FALSE "$_c4" ;;
-    kdialog) set -- kdialog --title claude-html --ok-label OK --radiolist "$_text" \
+    kdialog) set -- kdialog --title claude-html --ok-label OK --radiolist "$(printf "%s" "$_text" | sed -e "s/</‹/g" -e "s/>/›/g")" \
                cancel "$_c1" on allow "$_c2" off safe "$_c3" off stop "$_c4" off ;;
     # No radio buttons: four buttons, Cancel the default.
     xmessage) set -- xmessage -center -title claude-html \
@@ -416,22 +489,25 @@ Found:  $_found"
     *) return 1 ;;
   esac
   if [ -n "${CH_DRY:-}" ]; then ch_quote_args "$@"; echo; return 0; fi
-  _out="$(mktemp "${TMPDIR:-/tmp}/chguard.XXXXXX")" || return 1
+  # Both files made by mktemp, in a folder of their own: a name another
+  # user of a shared /tmp could guess is one they could make first.
+  _dir="$(mktemp -d "${TMPDIR:-/tmp}/chguard.XXXXXX")" || return 1
+  _out="$_dir/answer"; _late="$_dir/late"
   "$@" >"$_out" 2>/dev/null &
   _pid=$!
   # Past the limit it is closed, and that is noted, so the answer is known
   # to be "nobody", not "Cancel".
-  rm -f "$_out.late"
   ( _n=0
     while [ "$_n" -lt $((CH_GUARD_LIMIT * 10)) ]; do
       sleep 0.1; kill -0 "$_pid" 2>/dev/null || exit 0; _n=$((_n + 1))
     done
-    : > "$_out.late"; kill "$_pid" ) >/dev/null 2>&1 &
+    : > "$_late"; kill "$_pid" ) >/dev/null 2>&1 &
   _watch=$!
   wait "$_pid"; _rc=$?
   wait "$_watch" 2>/dev/null
-  _ans="$(tr -d '\n' < "$_out")"; rm -f "$_out"
-  if [ -f "$_out.late" ]; then rm -f "$_out.late"; echo timeout; return 0; fi
+  _ans="$(tr -d '\n' < "$_out")"
+  if [ -f "$_late" ]; then rm -rf "$_dir"; echo timeout; return 0; fi
+  rm -rf "$_dir"
   if [ "$CH_DIALOG" = xmessage ]; then
     case "$_rc" in 1) _ans=cancel ;; 2) _ans=allow ;; 3) _ans=safe ;; 4) _ans=stop ;; *) _ans="" ;; esac
   fi
@@ -478,6 +554,18 @@ ch_term_run() {
   ch_run "$@"
 }
 
+# Open a file as a double-click would, with the opener picked: on Debian,
+# /usr/bin/open is openvt, so a command named open is no proof of a Mac.
+ch_open_file() {   # path
+  case "$CH_OPENER" in
+    open) set -- /usr/bin/open "$1" ;;
+    gio) set -- gio open "$1" ;;
+    xdg-open|wslview) set -- "$CH_OPENER" "$1" ;;
+    *) return 1 ;;
+  esac
+  ch_run "$@" >/dev/null 2>&1
+}
+
 # How a file goes to the trash with the tool picked, for --doctor to show.
 # delete.js does the moving; this only describes it.
 ch_trash_line() {
@@ -491,6 +579,23 @@ ch_trash_line() {
 }
 
 ch_trash_home() { printf '%s/Trash' "${XDG_DATA_HOME:-$HOME/.local/share}"; }
+
+# ── the helper app, on a Mac ────────────────────────────────────────
+# Built, or rebuilt when its source is newer, by the command, the save and
+# the installer alike, and only where it can be: a Mac (as uname says),
+# with osascript, and not when told to register nothing - macOS registers
+# an app by itself soon after one appears, so to build one is to register
+# it. Says whether there was one to build.
+#   ch_helper_refresh <clone> [--if-stale]
+ch_helper_can() {
+  [ "${CLAUDE_HTML_UNAME:-$(uname -s 2>/dev/null)}" = Darwin ] || return 1
+  [ -z "${CLAUDE_HTML_FORCE_NODE:-}" ] && ch_have osascript || return 1
+  [ -z "${CLAUDE_HTML_NO_REGISTER:-}" ]
+}
+ch_helper_refresh() {
+  ch_helper_can && [ -x "$1/helper-build.sh" ] || return 1
+  "$1/helper-build.sh" "$1/Claude HTML.app" --register ${2:+"$2"} >/dev/null 2>&1
+}
 
 # ── the link handler, on Linux ─────────────────────────────────────────
 # A desktop file in the user's own applications folder that claims the

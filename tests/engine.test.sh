@@ -147,7 +147,7 @@ save() {   # then VAR=value…
     PATH="$SYS" CLAUDE_HTML_NODE_DIRS="$T/good one" "$@" \
     /bin/bash -c "cd '$APP' && /bin/bash '$HERE/save-conversation.sh' --try" >/dev/null 2>&1
 }
-ran() { grep -c "$1" "$T/good one/runs" 2>/dev/null || echo 0; }
+ran() { cat "$T/good one/runs" 2>/dev/null | grep -c "$1"; }
 saved() { [ -s "$APP/.claude/.claude-conversations/$ID.json" ] && [ -s "$ROOT/pages/sessions/$ID.html" ] && echo yes || echo no; }
 
 echo "saving"

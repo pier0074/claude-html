@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Build the delete helper: a small app that receives claude-html:// links.
 #
 #   helper-build.sh "<path>/Claude HTML.app"              build it

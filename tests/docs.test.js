@@ -36,6 +36,24 @@ check("every variable the code reads is in SETUP.md (" + Object.keys(inCode).len
       "missing: " + missing.map(function (n) { return n + " (" + inCode[n] + ")"; }).join(", "));
 check("SETUP.md names no variable the code does not read", !extra.length, "unknown: " + extra.join(", "));
 
+// ── the command's flags ──
+// Every flag claude-html and install.sh take is in SETUP.md's table of
+// commands, and the table names none they do not take.
+function flags(file) {
+  var out = {}, re = /(--[a-z][-a-z]*)(?=[|)])/g, m, t = fs.readFileSync(path.join(HERE, file), "utf8");
+  while ((m = re.exec(t)) !== null) out[m[1]] = true;
+  return out;
+}
+var taken = Object.assign(flags("claude-html"), flags("install.sh"));
+var cmds = setup.slice(setup.indexOf("## Commands"), setup.indexOf("\n## ", setup.indexOf("## Commands") + 5));
+var tabled = {};
+(cmds.match(/--[a-z][-a-z]*/g) || []).forEach(function (f) { tabled[f] = true; });
+var untabled = Object.keys(taken).filter(function (f) { return !tabled[f]; });
+var unknown = Object.keys(tabled).filter(function (f) { return !taken[f]; });
+check("every flag of claude-html and install.sh is in SETUP.md's commands (" + Object.keys(taken).length + ")",
+      !untabled.length, "missing: " + untabled.join(", "));
+check("SETUP.md's commands name no flag they do not take", !unknown.length, "unknown: " + unknown.join(", "));
+
 // ── links ──
 // A heading's anchor as GitHub makes it: lower case, punctuation gone,
 // spaces as hyphens, and -1, -2 … after a repeat.

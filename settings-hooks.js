@@ -11,23 +11,43 @@
 //                      taken out if an earlier install put them in
 //   … add keep-guard   the saves only: the guard's hooks left as they are,
 //                      for an install whose conf has the guard off
+//
+// remove takes out this clone's hooks and nothing else. add takes out the
+// hooks of any other copy of claude-html - an earlier clone somewhere else -
+// and puts this clone's in their place, so the hooks are always one set.
 
 function run(argv) {
   var settingsPath = argv[0], here = argv[1], mode = argv[2], noGuard = argv[3] === "no-guard";
   var keepGuard = argv[3] === "keep-guard";
-  // save-session-link.sh is gone, but an early install may still have its
-  // hook in settings.json; recognising the name lets remove clean it up.
-  var OURS = ["save-conversation.sh", "save-session-link.sh", "guard.sh"];
 
   var JXA = typeof $ !== "undefined";
+  var fm = JXA ? $.NSFileManager.defaultManager : null, nfs = JXA ? null : require("fs");
+
+  function env(name) {
+    if (!JXA) return process.env[name] || "";
+    var v = $.NSProcessInfo.processInfo.environment.objectForKey(name);
+    try { return v && v.js ? v.js : ""; } catch (e) { return ""; }
+  }
+  function exists(path) {
+    if (JXA) return !!fm.fileExistsAtPath(path);
+    try { nfs.statSync(path); return true; } catch (e) { return false; }
+  }
+  // A path as the file system has it, links followed, for comparing two
+  // spellings of one folder; as given when it is not there.
+  function real(path) {
+    path = String(path || "").replace(/\/+$/, "") || "/";
+    if (!exists(path)) return path;
+    if (JXA) return $(path).stringByResolvingSymlinksInPath.js;
+    try { return nfs.realpathSync(path); } catch (e) { return path; }
+  }
 
   function readFile(path) {
     if (!JXA) {
-      try { return require("fs").readFileSync(path, "utf8"); } catch (e) { return null; }
+      try { return nfs.readFileSync(path, "utf8"); } catch (e) { return null; }
     }
     // A missing file yields an ObjC nil that is truthy in JS and whose .js is
     // undefined, so check it exists first and guard the unwrap.
-    if (!$.NSFileManager.defaultManager.fileExistsAtPath(path)) return null;
+    if (!fm.fileExistsAtPath(path)) return null;
     try {
       var s = $.NSString.stringWithContentsOfFileEncodingError(path, 4, null);
       var text = s ? $.CFMakeCollectable(s).js : null;
@@ -37,22 +57,28 @@ function run(argv) {
     }
   }
 
+  // Written beside the file and moved over it. A settings.json kept as a
+  // symlink - into a dotfiles repository, say - is written where it points,
+  // so the link stays a link.
   function writeFile(path, text) {
-    if (!JXA) {
-      var nfs = require("fs"), npath = require("path");
-      try {
-        nfs.mkdirSync(npath.dirname(path), { recursive: true });
-        var tmp = path + ".tmp" + process.pid;
-        nfs.writeFileSync(tmp, text, "utf8");
-        nfs.renameSync(tmp, path);
-        return true;
-      } catch (e) { return false; }
+    var target = path;
+    if (JXA) {
+      var dest = $(path).stringByResolvingSymlinksInPath.js;
+      if (dest) target = dest;
+      var dir = $.NSString.alloc.initWithUTF8String(target).stringByDeletingLastPathComponent;
+      fm.createDirectoryAtPathWithIntermediateDirectoriesAttributesError(dir, true, $(), null);
+      return $.NSString.alloc.initWithUTF8String(text)
+        .writeToFileAtomicallyEncodingError(target, true, 4, null);
     }
-    var dir = $.NSString.alloc.initWithUTF8String(path).stringByDeletingLastPathComponent;
-    $.NSFileManager.defaultManager
-      .createDirectoryAtPathWithIntermediateDirectoriesAttributesError(dir, true, $(), null);
-    return $.NSString.alloc.initWithUTF8String(text)
-      .writeToFileAtomicallyEncodingError(path, true, 4, null);
+    var npath = require("path");
+    try { target = nfs.realpathSync(path); } catch (e) { target = path; }
+    try {
+      nfs.mkdirSync(npath.dirname(target), { recursive: true });
+      var tmp = target + ".tmp" + process.pid;
+      nfs.writeFileSync(tmp, text, "utf8");
+      nfs.renameSync(tmp, target);
+      return true;
+    } catch (e) { return false; }
   }
 
   var data = {};
@@ -70,33 +96,84 @@ function run(argv) {
 
   var hooks = data.hooks || {};
   function groups(event) { return hooks[event] || []; }
-  function isOurs(cmd) {
-    cmd = cmd || "";
-    return OURS.some(function (o) { return cmd.indexOf(o) > -1; });
-  }
 
-  if (mode === "remove") {
-    var removed = 0;
+  // ── which hooks are claude-html's ──
+  // Recognised by the whole command, never by a script's name alone: a hook
+  // of the user's own called prompt-guard.sh, or a guard.sh of theirs, is
+  // theirs. A command is claude-html's when it has the shape the installer
+  // writes - bash, a path ending in one of its scripts, and that script's
+  // own argument - and its folder is a copy of claude-html (it holds files
+  // only claude-html has), or, in the quoted form only this installer
+  // writes, a copy that has since gone. This clone's are the ones in this
+  // folder; any other is left from an install somewhere else.
+  // save-session-link.sh is gone, but an early install may still have its
+  // hook in settings.json: it is recognised so that it can go.
+  var ARGS = { "save-conversation.sh": ["", "--background"], "guard.sh": ["prompt", "bash"],
+               "save-session-link.sh": [""] };
+  var HOMEDIR = env("HOME");
+  function parse(cmd) {
+    // Unquoted, the path may hold a space: an install from before the
+    // quoting wrote it so, and it is still this one's to repair or remove.
+    var m = /^\s*bash\s+(?:'((?:[^']|'\\'')*)'|([^\s'"][^'"]*?))(?:\s+(--background|prompt|bash))?\s*$/
+      .exec(String(cmd || ""));
+    if (!m) return null;
+    var p = m[1] !== undefined ? m[1].replace(/'\\''/g, "'") : m[2], arg = m[3] || "";
+    if (p.indexOf("~/") === 0 && HOMEDIR) p = HOMEDIR + p.slice(1);
+    var slash = p.lastIndexOf("/"), script = p.slice(slash + 1);
+    if (slash < 1 || !Object.prototype.hasOwnProperty.call(ARGS, script) ||
+        ARGS[script].indexOf(arg) < 0) return null;
+    return { dir: p.slice(0, slash), script: script, arg: arg, quoted: m[1] !== undefined };
+  }
+  function looksOurs(dir) {
+    return exists(dir + "/convert.js") || exists(dir + "/guard.js") ||
+           (exists(dir + "/save-conversation.sh") && exists(dir + "/save-session-link.sh"));
+  }
+  var HERE_REAL = real(here);
+  var infoMemo = {};
+  function info(cmd) {
+    cmd = String(cmd || "");
+    if (Object.prototype.hasOwnProperty.call(infoMemo, cmd)) return infoMemo[cmd];
+    var p = parse(cmd);
+    if (p) {
+      if (real(p.dir) === HERE_REAL) p.mine = true;
+      else if (looksOurs(p.dir) || (p.quoted && !exists(p.dir + "/" + p.script))) p.mine = false;
+      else p = null;
+    }
+    infoMemo[cmd] = p;
+    return p;
+  }
+  function isOurs(cmd) { return !!info(cmd); }
+  function isMine(cmd, script, arg) {
+    var p = info(cmd);
+    return !!p && p.mine && (script === undefined || p.script === script) &&
+           (arg === undefined || p.arg === arg);
+  }
+  // Takes out the hooks a test picks, and any group left empty by it: a
+  // group that still holds somebody else's hook is kept.
+  function drop(test) {
+    var n = 0;
     Object.keys(hooks).forEach(function (event) {
       var kept = [];
       groups(event).forEach(function (g) {
         var before = (g.hooks || []).length;
-        // A group may hold somebody else's hook alongside ours; keep the group
-        // when anything of theirs survives.
-        g.hooks = (g.hooks || []).filter(function (h) { return !isOurs(h.command); });
-        removed += before - g.hooks.length;
+        g.hooks = (g.hooks || []).filter(function (h) { return !test(h.command || ""); });
+        n += before - g.hooks.length;
         if (g.hooks.length) kept.push(g);
       });
       if (kept.length) hooks[event] = kept; else delete hooks[event];
     });
+    return n;
+  }
+
+  if (mode === "remove") {
+    var removed = drop(function (c) { return isMine(c); });
     if (Object.keys(hooks).length) data.hooks = hooks; else delete data.hooks;
     if (!writeFile(settingsPath, JSON.stringify(data, null, 2) + "\n")) return "unwritable";
     return "removed " + removed;
   }
 
   // Claude Code hands the command to a shell, so a clone path with a space in
-  // it would split into words and the hook would never run. isOurs and
-  // already match on the script's name, which survives the quoting.
+  // it would split into words and the hook would never run.
   function quote(p) { return "'" + String(p).replace(/'/g, "'\\''") + "'"; }
   var save = "bash " + quote(here + "/save-conversation.sh");
 
@@ -118,31 +195,45 @@ function run(argv) {
     });
   }
 
-  function already(event, script, matcher) {
+  var added = [];
+  // Another copy's hooks, from an install somewhere else: taken out as a
+  // set, and this clone's put in below. Whether that copy had the guard
+  // decides it for keep-guard, which leaves the guard as it was.
+  var hadGuard = false, others = {};
+  Object.keys(hooks).forEach(function (event) {
+    groups(event).forEach(function (g) {
+      (g.hooks || []).forEach(function (h) {
+        var p = info(h.command);
+        if (p && p.script === "guard.sh") hadGuard = true;
+        if (p && !p.mine) others[p.dir] = true;
+      });
+    });
+  });
+  var replaced = drop(function (c) { var p = info(c); return !!p && !p.mine; });
+  if (replaced) added.push("replaced " + replaced + " hook(s) of " + Object.keys(others).join(", "));
+
+  function already(event, script, arg, matcher) {
     return groups(event).some(function (g) {
       if (matcher !== undefined && g.matcher !== matcher) return false;
-      return (g.hooks || []).some(function (h) {
-        return (h.command || "").indexOf(script) > -1;
-      });
+      return (g.hooks || []).some(function (h) { return isMine(h.command, script, arg); });
     });
   }
 
   // Appended alongside whatever is already configured. Existing groups are
   // read, never rewritten, so another tool's hooks keep working unchanged.
-  var added = [];
-  if (!already("SessionEnd", "save-conversation.sh")) {
+  if (!already("SessionEnd", "save-conversation.sh", "")) {
     hooks.SessionEnd = groups("SessionEnd").concat([
       { hooks: [{ type: "command", command: save, timeout: 60 }] }]);
     added.push("SessionEnd");
   }
   // After every reply. It returns at once and saves in the background.
-  if (!already("Stop", "save-conversation.sh")) {
+  if (!already("Stop", "save-conversation.sh", "--background")) {
     hooks.Stop = groups("Stop").concat([
       { hooks: [{ type: "command", command: save + " --background", timeout: 10 }] }]);
     added.push("Stop");
   }
   ["auto", "manual"].forEach(function (matcher) {
-    if (!already("PreCompact", "save-conversation.sh", matcher)) {
+    if (!already("PreCompact", "save-conversation.sh", "", matcher)) {
       hooks.PreCompact = groups("PreCompact").concat([
         { matcher: matcher, hooks: [{ type: "command", command: save, timeout: 60 }] }]);
       added.push("PreCompact/" + matcher);
@@ -159,19 +250,19 @@ function run(argv) {
       var keptGroups = [];
       groups(event).forEach(function (g) {
         var before = (g.hooks || []).length;
-        g.hooks = (g.hooks || []).filter(function (h) { return (h.command || "").indexOf("guard.sh") < 0; });
+        g.hooks = (g.hooks || []).filter(function (h) { return !isMine(h.command, "guard.sh"); });
         if (g.hooks.length < before) added.push("removed guard/" + event);
         if (g.hooks.length) keptGroups.push(g);
       });
       if (keptGroups.length) hooks[event] = keptGroups; else delete hooks[event];
     });
-  } else if (!keepGuard) {
-    if (!already("UserPromptSubmit", "guard.sh")) {
+  } else if (!keepGuard || hadGuard) {
+    if (!already("UserPromptSubmit", "guard.sh", "prompt")) {
       hooks.UserPromptSubmit = groups("UserPromptSubmit").concat([
         { hooks: [{ type: "command", command: guard + " prompt", timeout: 660 }] }]);
       added.push("UserPromptSubmit");
     }
-    if (!already("PreToolUse", "guard.sh", "Bash")) {
+    if (!already("PreToolUse", "guard.sh", "bash", "Bash")) {
       hooks.PreToolUse = groups("PreToolUse").concat([
         { matcher: "Bash", hooks: [{ type: "command", command: guard + " bash", timeout: 660 }] }]);
       added.push("PreToolUse/Bash");

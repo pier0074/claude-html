@@ -173,7 +173,17 @@ test("a web chat is not resumable", () => {
 test("the resume command shortens home", () => {
   assert.strictEqual(
     CH.resumeCmd({ id: "abc", cwd: "/Users/x/Sites/app" }, "/Users/x"),
-    "cd ~/Sites/app && claude --resume abc");
+    "cd ~/'Sites/app' && claude --resume abc");
+  assert.strictEqual(CH.resumeCmd({ id: "abc", cwd: "/Users/x" }, "/Users/x/"), "cd ~ && claude --resume abc");
+});
+
+test("the resume command quotes the folder, and takes ~ only for the home folder", () => {
+  assert.strictEqual(
+    CH.resumeCmd({ id: "abc", cwd: "/Users/xavier/app" }, "/Users/x"),
+    "cd '/Users/xavier/app' && claude --resume abc");
+  assert.strictEqual(
+    CH.resumeCmd({ id: "abc", cwd: "/Users/x/my app; $(touch pwned) it's" }, "/Users/x"),
+    "cd ~/'my app; $(touch pwned) it'\\''s' && claude --resume abc");
 });
 
 // A stylesheet that does not close a brace does not fail — it quietly applies

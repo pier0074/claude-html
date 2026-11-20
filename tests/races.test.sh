@@ -84,6 +84,81 @@ check "the archive records how much transcript it was made from" \
 BEFORE="$(mtime_of "$A")"; sleep 1.1; save
 check "an unchanged transcript is not archived again" "$(mtime_of "$A")" "$BEFORE"
 
+# ── two saves of one session at once ────────────────────────────────
+# The session-end save waits for the lock, and past its wait saves without
+# it, so two can archive one session together. A stand-in node runs the
+# real archiver but holds the first save's output half written until the
+# second save has finished, with the transcript grown in between: the
+# archive left must be whole, and the second save's, which read more.
+ROOTC="$T/c/root"; APPC="$ROOTC/app"; HC="$T/c/home"
+DC="$(printf '%s' "$APPC" | tr '/' '-')"
+mkdir -p "$HC/.claude/projects/$DC" "$APPC" "$T/c/bin"
+SID=cccccccc-0000-0000-0000-000000000003
+JC="$HC/.claude/projects/$DC/$SID.jsonl"; AC="$APPC/.claude/.claude-conversations/$SID.json"
+printf '%s\n' "$USER_LINE" > "$JC"
+REAL_NODE="$(command -v node)"
+cat > "$T/c/bin/node" <<STUB
+#!/bin/bash
+case "\$1" in
+  */archive.js)
+    if [ -n "\${HOLD:-}" ]; then
+      "$REAL_NODE" "\$@" > "\$HOLD.out"; rc=\$?
+      head -c 40 "\$HOLD.out"; : > "\$HOLD.started"
+      n=0; while [ ! -f "\$HOLD" ] && [ "\$n" -lt 3000 ]; do sleep 0.1; n=\$((n + 1)); done
+      tail -c +41 "\$HOLD.out"; exit \$rc
+    fi
+    exec "$REAL_NODE" "\$@" ;;
+  */convert.js) exit 0 ;;
+  *) exec "$REAL_NODE" "\$@" ;;
+esac
+STUB
+chmod +x "$T/c/bin/node"
+# A lock held by a save that is running, so both go on without it at once.
+sleep 600 & HOLDER=$!
+mkdir -p "$HC/.claude/.claude-html.lock"; echo "$HOLDER" > "$HC/.claude/.claude-html.lock/pid"
+csave() {
+  env HOME="$HC" CLAUDE_HTML_ROOT="$ROOTC" CLAUDE_HTML_OUT="$T/c/out" CLAUDE_HTML_ENGINE=node \
+    CLAUDE_HTML_NODE_DIRS="$T/c/bin" PATH="$T/c/bin:$PATH" CLAUDE_HTML_DETACHED=1 CLAUDE_HTML_LOCK_WAIT=0 \
+    CLAUDE_HTML_TRANSCRIPT="$JC" "$@" /bin/bash -c "cd '$APPC' && exec bash '$HERE/save-conversation.sh'" </dev/null >/dev/null 2>&1
+}
+csave HOLD="$T/c/hold" & FIRST=$!
+n=0; while [ ! -f "$T/c/hold.started" ] && [ "$n" -lt 1200 ]; do sleep 0.1; n=$((n + 1)); done
+reply "A LATER REPLY" >> "$JC"
+csave
+: > "$T/c/hold"; wait "$FIRST"
+kill "$HOLDER" 2>/dev/null; wait "$HOLDER" 2>/dev/null
+check "two saves of one session at once leave a whole archive" \
+  "$(node -e 'try { JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); console.log("whole"); } catch (e) { console.log("broken"); }' "$AC")" whole
+check "  the one made from more of the transcript" \
+  "$(head -c 200 "$AC" | sed -n 's/.*"sourceBytes":\([0-9]*\).*/\1/p') $(grep -c 'A LATER REPLY' "$AC")" "$(size_of "$JC") 1"
+check "  and no half-written file behind" "$(ls -A "$APPC/.claude/.claude-conversations" | grep -c partial)" 0
+
+# ── a lock whose process is gone, or whose pid is someone else's now ──
+rm -rf "$HC/.claude/.claude-html.lock" "$AC"
+mkdir -p "$HC/.claude/.claude-html.lock"
+echo $$ > "$HC/.claude/.claude-html.lock/pid"
+printf '%s Thu Jan  1 00:00:00 1970\n' $$ > "$HC/.claude/.claude-html.lock/owner"
+env HOME="$HC" CLAUDE_HTML_ROOT="$ROOTC" CLAUDE_HTML_OUT="$T/c/out" CLAUDE_HTML_TRANSCRIPT="$JC" \
+  /bin/bash -c "cd '$APPC' && exec bash '$HERE/save-conversation.sh' --try" </dev/null >/dev/null 2>&1
+check "a lock whose pid now names another process does not stop a save" \
+  "$([ -f "$AC" ] && echo saved) $([ -d "$HC/.claude/.claude-html.lock" ] && echo locked)" "saved "
+sleep 600 & HOLDER=$!
+mkdir -p "$HC/.claude/.claude-html.lock"; echo "$HOLDER" > "$HC/.claude/.claude-html.lock/pid"
+env HOME="$HC" CLAUDE_HTML_ROOT="$ROOTC" CLAUDE_HTML_OUT="$T/c/out" CLAUDE_HTML_TRANSCRIPT="$JC" \
+  /bin/bash -c "cd '$APPC' && exec bash '$HERE/save-conversation.sh' --try" </dev/null >/dev/null 2>&1
+kill "$HOLDER" 2>/dev/null; wait "$HOLDER" 2>/dev/null
+check "a reply's save that gives way says so, and who holds the lock" \
+  "$(grep -c "mode=gave-way holder=$HOLDER\$" "$T/c/out/.last-save" 2>/dev/null)" 1
+rm -rf "$HC/.claude/.claude-html.lock"
+# Two waiters that both found the lock left over: the second, finding it
+# is no longer the one it judged, leaves the new one alone.
+( HOME="$HC"; . "$HERE/lock.sh"
+  mkdir "$CH_LOCK"; printf '%s %s\n' $$ "$(ch_proc_start $$)" > "$CH_LOCK/owner"
+  ch_lock_reclaim "999999 Thu Jan  1 00:00:00 1970" )
+check "a left-over lock is taken away only while it is the one judged so" \
+  "$([ -f "$HC/.claude/.claude-html.lock/owner" ] && echo kept)" kept
+rm -rf "$HC/.claude/.claude-html.lock"
+
 echo
 echo "  $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

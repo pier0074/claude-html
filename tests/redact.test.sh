@@ -14,6 +14,7 @@ set -u
 . "$(dirname "$0")/lib.sh"
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
+AF="$(. "$HERE/release.sh"; printf "%s" "$CH_ARCHIVE_FORMAT")"
 pass=0; fail=0
 check() {
   if [ "$2" = "$3" ]; then pass=$((pass + 1)); printf '  ok    %s\n' "$1"
@@ -71,9 +72,9 @@ check "  while their text is still there" "$(grep -c 'Here is everything' "$CONV
 check "the title is masked where it is shown" \
   "$(grep -c 'Fix the login, using \*\*\*' "$OUT/index.html") $(grep -c 'Fix the login, using \*\*\*' "$OUT/sessions/$S1.html")" "1 1"
 check "an archive records the redaction it was made with" \
-  "$(head -c 200 "$CONV/$S1.json" | grep -c "\"format\":4,\"redact\":\"$(ch_redact_sig "$HERE")\",")" 1
+  "$(head -c 200 "$CONV/$S1.json" | grep -c "\"format\":$AF,\"redact\":\"$(ch_redact_sig "$HERE")\",")" 1
 check "an old archive beside its transcript is made again, not carried on" \
-  "$(head -c 200 "$CONV/$S3.json" | grep -c '"format":4,') $(leaky "$CONV/$S3.json")" "1 0"
+  "$(head -c 200 "$CONV/$S3.json" | grep -c "\"format\":$AF,") $(leaky "$CONV/$S3.json")" "1 0"
 check "the archive whose transcript is gone is not rewritten by a save" \
   "$(cmp -s "$CONV/$Q.json" "$T/q.before" && echo kept)" kept
 check "  but its page is masked" "$(leaky "$OUT/sessions/$Q.html" "$OUT/search/$Q.js")" 0
@@ -87,13 +88,9 @@ check "the save left Claude Code's transcripts byte for byte as they were" \
 # An archive the next save would carry on from, turned back into format 3
 # with a secret in it, its state left as it was: a save after one more
 # reply must make it again, not extend it.
-python3 - "$CONV/$S1.json" "$(head -1 "$T/probes.txt")" <<'PY'
-import json, sys
-p, secret = sys.argv[1], sys.argv[2]
-a = json.load(open(p)); a["format"] = 3; a.pop("redact", None)
-a["messages"][0]["text"] += " " + secret
-open(p, "w").write(json.dumps(a, separators=(",", ":")))
-PY
+node -e 'var fs=require("fs"),p=process.argv[1],a=JSON.parse(fs.readFileSync(p,"utf8"));
+  a.format=3; delete a.redact; a.messages[0].text += " " + process.argv[2]; fs.writeFileSync(p,JSON.stringify(a))' \
+  "$CONV/$S1.json" "$(head -1 "$T/probes.txt")"
 printf '%s\n' '{"type":"user","cwd":"'"$APP"'","sessionId":"'"$S1"'","timestamp":"2026-11-02T09:00:00Z","message":{"role":"user","content":"one more"}}' \
   >> "$PROJ/$(printf '%s' "$APP" | tr '/' '-')/$S1.jsonl"
 BEFORE="$(fingerprint)"

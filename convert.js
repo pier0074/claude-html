@@ -108,19 +108,29 @@ function run(argv) {
     remove = function (path) { fm.removeItemAtPathError(path, null); };
     // A transcript from a byte offset to its end: what was appended since the
     // last build. Also where the last whole line ends, in bytes, which is
-    // where the next build will start. Text that is not UTF-8 is refused, as
-    // read refuses it, so the two ways of reading a file always agree.
+    // where the next build will start. The whole lines are decoded apart
+    // from what follows them: a last line still being written can end in
+    // the middle of a character, which is no reason to refuse the rest (node
+    // does not); that unfinished line is no record yet either way. Whole
+    // lines that are not UTF-8 are refused, as read refuses them.
+    var NL = $("\n").dataUsingEncoding(4);
     readFrom = function (path, offset) {
       var h = $.NSFileHandle.fileHandleForReadingAtPath(path);
       if (!h || h.isNil()) return null;
       try {
         h.seekToFileOffset(offset);
         var data = h.readDataToEndOfFile, n = Number(data.length);
-        var s = $.NSString.alloc.initWithDataEncoding(data, 4);
-        if (!s || s.isNil()) return null;
-        var text = s.js;
-        if (typeof text !== "string") return null;
-        return { text: text, bytes: n, cut: n - utf8Length(text.slice(text.lastIndexOf("\n") + 1)) };
+        var loc = Number(data.rangeOfDataOptionsRange(NL, 1, $.NSMakeRange(0, n)).location);
+        var at = loc < n ? loc + 1 : 0;
+        var dec = function (from, len) {
+          var s = $.NSString.alloc.initWithDataEncoding(data.subdataWithRange($.NSMakeRange(from, len)), 4);
+          var t = !s || s.isNil() ? null : s.js;
+          return typeof t === "string" ? t : null;
+        };
+        var head = dec(0, at);
+        if (head === null) return null;
+        var tail = dec(at, n - at);
+        return { text: head + (tail || ""), bytes: n, cut: at };
       } catch (e) { return null; } finally { h.closeFile; }
     };
     // Exactly len bytes from start, as base64, or null when the file is
@@ -338,25 +348,25 @@ function run(argv) {
   function newRedactor(on) { return REDACTOR(OWN_LIST, on, !JXA); }
   var RED = newRedactor(REDACT_ON);
   function red(s) { return RED.text(s); }
-  // A long text that is about to be cut: only what is kept needs reading,
-  // and enough after it that a secret the cut would halve is still seen
-  // whole. The rest is only counted.
-  // Longer than any password, URL or name=value a rule matches. What is
-  // longer still — a key block, a long token — is masked from where it
-  // starts: the text as cut is looked at once more, and what is left of a
-  // token right before the cut, or of a key block, goes.
-  var RED_MARGIN = 1024;
-  function capRed(s, n) {
-    s = s == null ? "" : String(s);
-    var r = null;
-    if (s.length > n + RED_MARGIN) {
-      var head = red(s.slice(0, n + RED_MARGIN));
-      if (head.length >= n + RED_MARGIN / 2) r = head + s.slice(n + RED_MARGIN);
-    }
-    if (r === null) r = red(s);
-    var c = cap(r, n);
-    return c === r ? r : red(c);
+
+  // ── what a transcript says ──────────────────────────────────────────
+  // parse.js: the messages of a record, the tokens and the cost, the cuts
+  // and the harness's tags taken out. The archiver carries the same file,
+  // so a page made from an archive is the page made from its transcript.
+  // Handed the redactor by asking, since the commands below swap it.
+  var PARSE_SRC = read(HERE + "/parse.js");
+  if (PARSE_SRC === null) {
+    return JSON.stringify({ error: "parse.js is missing from " + HERE + ", so nothing was built" });
   }
+  var P = new Function(PARSE_SRC + "\nreturn claudeHtmlParse;")()(function () { return RED; });
+  var cap = P.cap, capRed = P.capRed, hashText = P.hashText;
+  var cleanUserText = P.cleanUserText, blocksToText = P.blocksToText, messagesOf = P.messagesOf;
+  var PEEK_LINES = P.PEEK_LINES, peekLine = P.peekLine, newReplies = P.newReplies, usageLine = P.usageLine;
+  var newCost = P.newCost, costLine = P.costLine;
+  // The first archive format written through parse.js: from it on, an
+  // archive's messages are the page's. (The format a release writes is
+  // CH_ARCHIVE_FORMAT, in release.sh.)
+  var PARSED_FORMAT = 5;
   // The text of a message read back from an archive or an export.
   function redMessage(m) {
     if (!m || typeof m !== "object") return m;
@@ -369,49 +379,8 @@ function run(argv) {
   }
 
   // ── text ────────────────────────────────────────────────────────────
-  function cap(s, n) {
-    s = s == null ? "" : String(s);
-    // Count code points, not UTF-16 units: Python does, and slicing by units
-    // can cut an emoji in half and leave a lone surrogate behind. A string no
-    // longer than n units has no more than n code points. A longer one is
-    // counted without being split into an array of characters, which under
-    // osascript cost a second for every few megabytes of tool output: the
-    // pairs are found by the regex engine, and only the n kept are walked.
-    if (s.length <= n) return s;
-    var pairs = s.match(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g);
-    var total = s.length - (pairs ? pairs.length : 0);
-    if (total <= n) return s;
-    var at = 0;
-    for (var k = 0; k < n; k++) {
-      var c = s.charCodeAt(at);
-      at += c >= 0xD800 && c <= 0xDBFF && (s.charCodeAt(at + 1) & 0xFC00) === 0xDC00 ? 2 : 1;
-    }
-    return s.slice(0, at) + "\n…[truncated, " + (total - n) + " more characters]";
-  }
-
-  // Bytes the text takes in UTF-8. Only ever asked of the end of a read,
-  // after its last line break: a loop over characters is slow under osascript.
-  function utf8Length(t) {
-    var n = 0;
-    for (var i = 0; i < t.length; i++) {
-      var c = t.charCodeAt(i);
-      if (c < 0x80) n += 1;
-      else if (c < 0x800) n += 2;
-      else if (c >= 0xD800 && c <= 0xDBFF && (t.charCodeAt(i + 1) & 0xFC00) === 0xDC00) { n += 4; i++; }
-      else n += 3;
-    }
-    return n;
-  }
-
-  // Injected by the harness, not typed by anyone.
-  var SYSTEM_BLOCK = /<system-reminder>[\s\S]*?<\/system-reminder>/g;
-  var COMMAND_BLOCK = /<command-(name|message|args)>[\s\S]*?<\/command-\1>/g;
-
-  function cleanUserText(text) {
-    return String(text == null ? "" : text)
-      .replace(SYSTEM_BLOCK, "").replace(COMMAND_BLOCK, "").trim();
-  }
-
+  // Injected by the harness, not typed by anyone: cleanUserText, in
+  // parse.js, takes it out of what a person said.
   var HARNESS = ["Launching skill:", "Base directory for this skill:",
     "Caveat: The messages below", "[Request interrupted",
     "This session is being continued from a previous",
@@ -420,17 +389,6 @@ function run(argv) {
   function looksLikeHarness(text) {
     var head = String(text == null ? "" : text).replace(/^\s+/, "").slice(0, 200);
     return HARNESS.some(function (p) { return head.indexOf(p) > -1; });
-  }
-
-  function blocksToText(content) {
-    if (typeof content === "string") return content;
-    if (!Array.isArray(content)) return "";
-    return content.map(function (b) {
-      if (!b || typeof b !== "object") return "";
-      if (b.type === "text") return b.text || "";
-      if (b.type === "image") return "[image]";
-      return "";
-    }).filter(Boolean).join("\n");
   }
 
   // ── project naming ──────────────────────────────────────────────────
@@ -469,12 +427,6 @@ function run(argv) {
 
   // Where the session ran and what Claude Code titled it, from the first 401
   // lines: both are stated early, and a long transcript is not read for them.
-  var PEEK_LINES = 400;
-  function peekLine(p, e) {
-    p.cwd = p.cwd || e.cwd || null;
-    p.title = p.title || red(e.aiTitle) || null;
-  }
-
   function peek(text) {
     var p = { cwd: null, title: null };
     eachLine(text, function (e, i) {
@@ -484,37 +436,9 @@ function run(argv) {
     return p;
   }
 
-  // Tokens, per hour and model, from a transcript's own records. The hour,
-  // not the day, because a usage week can start at 9am and because these
-  // timestamps are UTC — the page converts them to local time itself. A long reply
-  // is written as several records sharing one message id, each carrying the
-  // usage so far — so the last record per id wins, or one reply would be
-  // counted several times. Columns: input, output, cache read, cache write.
-  // One accumulator serves a session and all its sub-agents, so a reply that
-  // turns up in both is still one reply.
-  function newReplies() { return { by: {}, n: 0 }; }
-
-  // One record's part in it. Every reader of a transcript goes a line at a
-  // time, so a build can carry on from where the last one stopped.
-  function usageLine(acc, e) {
-    if (e.type !== "assistant" || !e.message || !e.message.usage) return;
-    var u = e.message.usage;
-    // Synthetic records (model "<synthetic>") carry no tokens; all zeros
-    // would only add noise rows to the dashboard.
-    if (!(u.input_tokens || u.output_tokens ||
-          u.cache_read_input_tokens || u.cache_creation_input_tokens)) return;
-    var mid = e.message.id ? String(e.message.id) : "";
-    acc.by[mid ? "m:" + mid : e.uuid ? "u:" + e.uuid : "r:" + (acc.n++)] = {
-      mid: mid,
-      hour: String(e.timestamp || "").slice(0, 13),   // 2026-10-21T14, UTC
-      model: e.message.model || "unknown",
-      // input, output, cache read, cache write, and the reply itself — one
-      // per message id, so "tokens per reply" means what it says.
-      t: [u.input_tokens || 0, u.output_tokens || 0,
-          u.cache_read_input_tokens || 0, u.cache_creation_input_tokens || 0, 1]
-    };
-  }
-
+  // Tokens, per hour and model, are counted by parse.js's usageLine, the
+  // last record of a reply winning; one accumulator serves a session and
+  // all its sub-agents, so a reply that turns up in both is one reply.
   // A sub-agent's replies, as the session's accumulator would take them in:
   // each key once, where it first appeared, holding its last record. A reply
   // with neither a message id nor a uuid is numbered by the accumulator, so
@@ -528,67 +452,9 @@ function run(argv) {
     ops.forEach(function (o) { acc.by[o[0] === null ? "r:" + (acc.n++) : o[0]] = o[1]; });
   }
 
-  // What the session cost, from Claude Code's own "cost-state" records: the
-  // dollars it worked out at API list prices, per model. Only recent versions
-  // write them, and only as a running total for the whole session — written
-  // when a session exits, with no timestamp — so each one is turned into the
-  // amount added since the one before, filed under the hour of the last
-  // record that had a time. A total that fell, or a new startTime, is a new
-  // counter, which starts again from nothing. Sub-agents spend on the
-  // session's counter, so only the session's own transcript is read, and a
-  // record whose sessionId is another session's is a copy carried over by a
-  // resume or a fork: that session counts it, this one must not.
-  // Kept in micro-dollars, whole numbers, so adding them up never drifts.
-  // "part" says some of the session's replies fall outside every counter —
-  // before the first began, or after the last was written — so the figure is
-  // a floor, not the whole.
-  //
-  // Read a line at a time into a state that a later build carries on from:
-  // the last time seen, the previous snapshot and its startTime, the replies
-  // since it, all plain data, so it survives being kept between saves.
-  function newCost() {
-    return { cells: {}, last: "", prev: null, pending: {}, part: false, seen: false, n: 0 };
-  }
-
-  function costLine(c, e, sid) {
-    if (e.timestamp) c.last = String(e.timestamp);
-    if (e.type === "assistant" && e.message && e.message.usage &&
-        (!e.sessionId || e.sessionId === sid)) {
-      var u = e.message.usage, at = Date.parse(e.timestamp);
-      if ((u.input_tokens || u.output_tokens || u.cache_read_input_tokens ||
-           u.cache_creation_input_tokens) && !isNaN(at)) {
-        c.pending[e.message.id ? "m:" + e.message.id : "r:" + (c.n++)] = at;
-      }
-      return;
-    }
-    if (e.type !== "cost-state" || e.sessionId !== sid ||
-        !e.modelUsage || typeof e.modelUsage !== "object") return;
-    c.seen = true;
-    var now = {}, start = Number(e.startTime) || 0, prev = c.prev;
-    Object.keys(e.modelUsage).forEach(function (m) {
-      var v = Math.round(Number((e.modelUsage[m] || {}).costUSD) * 1e6);
-      if (v >= 0) now[m] = v;
-    });
-    var fresh = !prev || prev.start !== start;
-    if (!fresh) {
-      Object.keys(now).forEach(function (m) { if (now[m] < (prev.c[m] || 0)) fresh = true; });
-    }
-    Object.keys(c.pending).forEach(function (k) { if (c.pending[k] < start) c.part = true; });
-    c.pending = {};
-    if (e.hasUnknownModelCost) c.part = true;
-    var hour = c.last.slice(0, 13);
-    Object.keys(now).forEach(function (m) {
-      var d = now[m] - (fresh ? 0 : prev.c[m] || 0);
-      if (d <= 0) return;
-      if (!/^\d{4}-\d\d-\d\dT\d\d$/.test(hour)) { c.part = true; return; }
-      var h = c.cells[hour] = c.cells[hour] || {};
-      h[m] = (h[m] || 0) + d;
-    });
-    // A model missing from this record has not been taken back.
-    if (!fresh) Object.keys(prev.c).forEach(function (m) { if (!(m in now)) now[m] = prev.c[m]; });
-    c.prev = { start: start, c: now };
-  }
-
+  // What the session cost is parse.js's costLine, from Claude Code's own
+  // cost-state records, in micro-dollars; "part" says some replies fall
+  // outside every counter, so the figure is a floor.
   function costOf(c) {
     if (!c.seen) return null;
     return { cells: c.cells, part: c.part || Object.keys(c.pending).length > 0 };
@@ -690,56 +556,6 @@ function run(argv) {
         for (var i = 0; i < from[slot][m].length; i++) a[i] = (a[i] || 0) + from[slot][m][i];
       });
     });
-  }
-
-  // The messages one record holds. Each depends on its own line alone, which
-  // is what lets a build parse only what was appended.
-  function messagesOf(e) {
-    var msgs = [];
-    var t = e.type, ts = e.timestamp, side = !!e.isSidechain;
-    var content = (e.message || {}).content;
-    if (t === "user") {
-      if (e.isMeta) return msgs;            // harness context, not a turn
-      if (typeof content === "string") {
-        var text1 = red(cleanUserText(content));
-        if (text1) msgs.push({ role: "user", timestamp: ts, side: side, text: text1 });
-      } else if (Array.isArray(content)) {
-        content.forEach(function (b) {
-          if (!b || typeof b !== "object") return;
-          if (b.type === "text") {
-            var tx = red(cleanUserText(b.text));
-            if (tx) msgs.push({ role: "user", timestamp: ts, side: side, text: tx });
-          } else if (b.type === "image") {
-            msgs.push({ role: "user", timestamp: ts, side: side, text: "[image]" });
-          } else if (b.type === "tool_result") {
-            msgs.push({ role: "tool_result", timestamp: ts, side: side,
-                        text: capRed(blocksToText(b.content), 6000) });
-          }
-        });
-      }
-    } else if (t === "assistant" && Array.isArray(content)) {
-      var text2 = red(content.filter(function (b) { return b && b.type === "text"; })
-                             .map(function (b) { return b.text || ""; }).join("\n"));
-      var think = red(content.filter(function (b) { return b && b.type === "thinking"; })
-                             .map(function (b) { return b.thinking || ""; }).join("\n\n"));
-      var tools = content.filter(function (b) { return b && b.type === "tool_use"; })
-                         .map(function (b) {
-                           return { id: b.id, name: b.name, input: RED.value(b.input || {}) };
-                         });
-      if (text2 || tools.length || think) {
-        msgs.push({ role: "assistant", timestamp: ts, side: side,
-                    text: text2, thinking: think, tools: tools });
-      }
-    }
-    return msgs;
-  }
-
-  function fromJsonl(text) {
-    var msgs = [];
-    eachLine(text, function (e) {
-      messagesOf(e).forEach(function (m) { msgs.push(m); });
-    });
-    return msgs;
   }
 
   // ── archives ────────────────────────────────────────────────────────
@@ -970,6 +786,7 @@ function run(argv) {
       if (!/\.json$/.test(f)) return;
       var id = f.replace(/\.json$/, ""), path = dir + "/" + f, when = mtime(path);
       everyArchive[path] = id;
+      (archivedAt[id] = archivedAt[id] || {})[cwd] = true;
       var prior = found[id];
       if (prior && (prior.kind !== "archive" || prior.mtime >= when)) return;
       found[id] = { id: id, project: projectFromCwd(cwd), cwd: cwd, title: "",
@@ -982,6 +799,8 @@ function run(argv) {
   // Every archive file seen, copies the newest one hides included, for the
   // commands that look for secrets in them. path → session id.
   var everyArchive = {};
+  // Every folder each session has an archive in: id → { folder: true }.
+  var archivedAt = {};
   // Set by the commands that only look: nothing is written, not even the
   // list of archive folders.
   var READONLY = false;
@@ -1029,7 +848,7 @@ function run(argv) {
           // Its page is already current, so nothing in the file can have
           // changed. Reading a hundred megabytes to re-learn the project name
           // is the whole cost of a build where nothing happened.
-          entry = { id: id, project: cached.project, cwd: cached.cwd,
+          entry = { id: id, project: cached.project, cwd: cached.cwd, tcwd: cached.tcwd || cached.cwd,
                     title: cached.title || "", path: path, kind: "transcript",
                     mtime: when, sig: sg, agents: kids, cached: true };
         } else {
@@ -1044,13 +863,13 @@ function run(argv) {
             // known, so the build reports it — dropping it here would have its
             // page pruned as if the session no longer existed.
             if (!cached) return;
-            entry = { id: id, project: cached.project, cwd: cached.cwd,
+            entry = { id: id, project: cached.project, cwd: cached.cwd, tcwd: cached.tcwd || cached.cwd,
                       title: cached.title || "", path: path, kind: "transcript",
                       mtime: when, sig: sg, agents: kids };
           } else {
             var p = pk || peek(text);
             var cwd = p.cwd || cwdFromDirname(name);
-            entry = { id: id, project: projectFromCwd(cwd), cwd: cwd,
+            entry = { id: id, project: projectFromCwd(cwd), cwd: cwd, tcwd: cwd,
                       title: p.title || "", path: path, kind: "transcript",
                       mtime: when, sig: sg, agents: kids };
           }
@@ -1061,8 +880,11 @@ function run(argv) {
         // running in the project as it is now, which makes it the authority
         // on where the work lives — while the transcript stays the better
         // source for the content, being uncapped.
+        // Of two archives of one session, the one in the folder the
+        // transcript names is where it lives: another came from a save run
+        // in a folder below it, and says nothing about the project.
         var prior = found[id];
-        if (prior && prior.kind === "archive") {
+        if (prior && prior.kind === "archive" && !(archivedAt[id] && archivedAt[id][entry.tcwd])) {
           entry.project = prior.project;
           entry.cwd = prior.cwd;
         }
@@ -1085,13 +907,19 @@ function run(argv) {
       saveArchiveList(newDirs, dropDirs);
     }
 
-    // claude.ai conversations
+    // claude.ai conversations. One chat can be in two exports, an older and
+    // a newer: the copy updated last is the one shown, whichever folder it
+    // is found in.
+    function newerChat(id, when) {
+      var had = found[id];
+      return !had || had.kind !== "web" || when > had.mtime;
+    }
     findExports().forEach(function (path) {
       var when = mtime(path), sg = sig(path);
       if (!force && exportsUnchanged(known, path, sg)) {
         Object.keys(known).forEach(function (id) {
           var e = known[id];
-          if (e.kind === "web" && e.source === path) {
+          if (e.kind === "web" && e.source === path && newerChat(id, e.mtime)) {
             found[id] = { id: id, project: e.project, cwd: "", title: e.title || "",
                           path: path, kind: "web", url: e.url, mtime: e.mtime,
                           sig: e.sig, source: path, sourceSig: sg, cached: true };
@@ -1113,12 +941,14 @@ function run(argv) {
           return;
         }
         var chatWhen = c.updated_at || c.created_at;
+        var chatMtime = chatWhen ? Math.round(new Date(chatWhen).getTime() / 1000) : when;
+        if (!newerChat(c.uuid, chatMtime)) return;
         found[c.uuid] = {
           id: c.uuid, project: "claude.ai", cwd: "", title: red(c.name || ""),
           path: path, kind: "web", chat: c,
           url: "https://claude.ai/chat/" + c.uuid,
           source: path, sourceSig: sg, sig: sg + ":" + (chatWhen || ""),
-          mtime: chatWhen ? Math.round(new Date(chatWhen).getTime() / 1000) : when
+          mtime: chatMtime
         };
       });
     });
@@ -1314,8 +1144,14 @@ function run(argv) {
         now[a.agentId] = k;
         return;
       }
-      var text = read(a.path);
-      if (text === null) return;
+      // Read as a transcript is, so one whose last line is cut inside a
+      // character is still read. One that cannot be read at all is said,
+      // not dropped with its tokens.
+      var got = readFrom(a.path, 0), text = got ? got.text : null;
+      if (text === null) {
+        errors.push({ id: s.id, source: a.path, error: "a sub-agent's transcript could not be read" });
+        return;
+      }
       // One pass for the messages and the replies, each line parsed once.
       var msgs = [], own = newReplies();
       eachLine(text, function (e) {
@@ -1513,15 +1349,12 @@ function run(argv) {
   // Pages carry the viewer inside them, so a page is only current if it was built
   // with the viewer as it is now. Without this, updating the tool would leave
   // every existing page on the old viewer until its conversation next changed.
-  function hashText(t) {
-    var h = 5381;
-    for (var i = 0; i < t.length; i++) h = ((h << 5) + h + t.charCodeAt(i)) | 0;
-    return (h >>> 0).toString(36);
-  }
   // Whether the page may offer link actions is part of it too, so installing
   // the Linux handler brings them to every page, not only the next one built.
+  // What the page holds is parse.js's making as much as the viewer's, so a
+  // change there is a new page too.
   var VIEWER = hashText(["page.html", "session.css", "viewer.js", "page.js"]
-    .map(asset).join("\u0000") + (ACTIONS ? "" : "\u0000no-actions"));
+    .map(asset).join("\u0000") + (ACTIONS ? "" : "\u0000no-actions") + "\u0000" + PARSE_SRC);
   // The shape of meta.usage. A change here makes every cached entry stale,
   // which is the only way a rebuild can notice the numbers are keyed
   // differently than they were.
@@ -1557,7 +1390,7 @@ function run(argv) {
   var USE_CACHE = opt.cache !== false;
   // The redaction's signature too: a cache holds text, redacted by the
   // rules and the list of the build that wrote it.
-  var CACHE_KEY = "1:" + USAGE_VERSION + ":" + hashText(String(run)) + ":" + RSIG;
+  var CACHE_KEY = "1:" + USAGE_VERSION + ":" + hashText(String(run)) + ":" + hashText(PARSE_SRC) + ":" + RSIG;
   var WINDOW = 4096;
 
   // The start, the middle and the end of the bytes a cache was made from.
@@ -1702,18 +1535,20 @@ function run(argv) {
   // One archive, redacted in memory: { archive, redactor }, or null when
   // it cannot be read as one.
   function redactedArchive(path) {
-    var a;
-    try { a = JSON.parse(read(path) || "null"); } catch (e) { a = null; }
+    var a, text = read(path);
+    try { a = JSON.parse(text || "null"); } catch (e) { a = null; }
     if (!a || typeof a !== "object" || !Array.isArray(a.messages)) return null;
     RED = newRedactor(true);
     a.messages.forEach(redMessage);
-    return { archive: a, redactor: RED };
+    return { archive: a, redactor: RED, text: text };
   }
   // Written by the archiver under these very rules and this list: nothing
   // in it can be redacted further.
+  // Format 4 was the first written redacted; the fields are looked for
+  // apart, whatever order they come in.
   function currentArchive(path) {
-    var head = String(read(path) || "").slice(0, 200);
-    return REDACT_ON && head.indexOf('"format":4,"redact":' + JSON.stringify(RSIG) + ",") > -1;
+    var head = String(read(path) || "").slice(0, 300), f = /"format":(\d+)[,}]/.exec(head);
+    return REDACT_ON && !!f && Number(f[1]) >= 4 && head.indexOf('"redact":' + JSON.stringify(RSIG) + ",") > -1;
   }
   function rulesLine() {
     var r = newRedactor(true), own = r.own + " own rule" + (r.own === 1 ? "" : "s");
@@ -1802,6 +1637,12 @@ function run(argv) {
       o.redact = RSIG;
       Object.keys(a).forEach(function (k) { if (!(k in o)) o[k] = a[k]; });
       var text = JSON.stringify(o);
+      // A save that ran without the lock may have written it meanwhile:
+      // that archive is newer than this one would be, and stays.
+      if (read(p) !== x.text) {
+        out2.push("left " + p + ": a save changed it meanwhile; run this again");
+        return;
+      }
       if (write(p, text) && read(p) === text) {
         rewrote++;
         out2.push("rewrote " + p + ": " + countsOf(x.redactor));
@@ -1857,7 +1698,7 @@ function run(argv) {
     }
     try {
       var msgs = null, kind = s.kind, replies = newReplies(), archived = null, carried = null;
-      var cost = null, costPart = false, sc = null, kept = null, unredacted = 0;
+      var cost = null, costPart = false, sc = null, kept = null, unredacted = 0, archTitle = "";
       var count, prompts, first;
       if (s.kind === "transcript") {
         kept = force ? null : keptFor(s.id, s.path);
@@ -1877,15 +1718,30 @@ function run(argv) {
         var arch = read(s.path);
         if (arch === null) throw new Error("cannot read " + s.path);
         var parsed = JSON.parse(arch);
+        var fmt = Number(parsed.format) || 0, amsgs = Array.isArray(parsed.messages) ? parsed.messages : [];
+        // Written before the archiver read transcripts through parse.js:
+        // what the harness put into a prompt was kept, and is taken out
+        // here, as the page from the transcript took it out.
+        if (fmt < PARSED_FORMAT) {
+          amsgs = amsgs.filter(function (m) {
+            if (!m || typeof m !== "object") return false;
+            if (m.role !== "user" || typeof m.text !== "string") return true;
+            m.text = cleanUserText(m.text);
+            return m.text !== "";
+          });
+        }
         // An archive written before redaction, or under other rules, is
         // redacted here, on its way to the page; the archive itself is only
         // ever rewritten by claude-html --redact-archives.
         var before = RED.total();
-        (Array.isArray(parsed.messages) ? parsed.messages : []).forEach(redMessage);
+        amsgs.forEach(redMessage);
         unredacted = RED.total() - before;
-        var fixed = repairArchiveRoles(parsed.messages || []);
+        // Its roles are to be trusted from the format that shares the
+        // transcript's parse; before it, they may have to be worked out.
+        var fixed = fmt >= PARSED_FORMAT ? { messages: amsgs, inferred: false } : repairArchiveRoles(amsgs);
         msgs = fixed.messages;
         if (fixed.inferred) kind = "archive (inferred)";
+        if (fmt >= PARSED_FORMAT && typeof parsed.title === "string") archTitle = parsed.title;
         // Tokens are recorded nowhere but the transcript. An archive written
         // since the archiver started keeping them has them; for an older one
         // the last build's numbers are the only copy left, so they are kept
@@ -1921,7 +1777,7 @@ function run(argv) {
       }
 
       var meta = { id: s.id, project: s.project, cwd: s.cwd, kind: kind,
-                   title: red(s.title) || first, mtime: s.mtime, sig: s.sig,
+                   title: red(s.title || archTitle) || first, mtime: s.mtime, sig: s.sig,
                    viewer: VIEWER,
                    // What the project crumb opens, when there is a folder to
                    // open: the same link the index's project name carries.
@@ -1970,6 +1826,9 @@ function run(argv) {
 
       meta.prompts = prompts;
       meta.rsig = RSIG;
+      // Where the transcript says the session ran, which the project may
+      // have been taken from an archive over: kept for the next build.
+      if (s.tcwd) meta.tcwd = s.tcwd;
       // What the archive still holds that the page does not show.
       if (unredacted) meta.unredacted = unredacted;
       delete meta.home;
@@ -2088,6 +1947,7 @@ function run(argv) {
     delete e.rsig;
     delete e.unredacted;
     delete e.lv;
+    delete e.tcwd;
     // A page built before its source changed is showing an old conversation.
     e.stale = live[id] !== undefined && live[id] !== e.sig;
     return e;
@@ -2103,6 +1963,13 @@ function run(argv) {
   var shown = errors.slice();
   list(OUT + "/.archive-errors").forEach(function (f) {
     if (!/\.json$/.test(f)) return;
+    // One for a session no longer here is not shown for ever: the session,
+    // and the reason to archive it, have gone.
+    var eid = f.replace(/\.json$/, "");
+    if (everything && !lostSight && SESSION_ID.test(eid) && !(eid in fresh)) {
+      remove(OUT + "/.archive-errors/" + f);
+      return;
+    }
     var t = read(OUT + "/.archive-errors/" + f);
     if (!t) return;
     try { var o = JSON.parse(t); if (o) shown.push(o); } catch (e) {}

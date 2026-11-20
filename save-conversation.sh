@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Save Claude conversation backup as clean JSON per session
 # Called by the Stop hook after every reply (--background), and by PreCompact
 # and SessionEnd
@@ -24,6 +24,8 @@
 #     reason: it is written into the transcript and nowhere else
 
 set -euo pipefail
+# What it writes holds conversations: for its owner only.
+umask 077
 
 # BSD stat and GNU stat disagree about everything, including how to ask for
 # a size in bytes. GNU goes first: BSD's -c genuinely fails, but GNU's -f
@@ -37,7 +39,6 @@ size_of() { stat -c %s "$1" 2>/dev/null || stat -f %z "$1"; }
 TRANSCRIPT="${CLAUDE_HTML_TRANSCRIPT:-}"
 PAYLOAD=""
 if [ -z "$TRANSCRIPT" ] && [ ! -t 0 ]; then
-  PAYLOAD=""
   IFS= read -r -t 2 -d '' PAYLOAD || true
   TRANSCRIPT="$(printf '%s' "$PAYLOAD" |
     sed -n 's/.*"transcript_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' |
@@ -65,7 +66,7 @@ if [ "${1:-}" = "--background" ]; then
       CH_UP_TOLD="$CH_UP_NOTICE"; ch_update_write
     fi
   fi
-  CLAUDE_HTML_TRANSCRIPT="$TRANSCRIPT" nohup /bin/bash "$0" --try </dev/null >/dev/null 2>&1 &
+  CLAUDE_HTML_TRANSCRIPT="$TRANSCRIPT" nohup "${BASH:-bash}" "$0" --try </dev/null >/dev/null 2>&1 &
   exit 0
 fi
 # The save at session end detaches as well, for a harder reason: Claude Code
@@ -75,12 +76,16 @@ fi
 # was the one being killed, after holding the terminal up. Detached, quitting
 # is instant and the save finishes on its own. Unlike the save after a reply it
 # does not give way to another save in progress: it waits its turn.
+# The save before a compaction detaches too: Claude Code waits for that hook,
+# up to a minute of a full build, while the compaction only adds to the
+# transcript - what it summarises stays in the file - so nothing is lost by
+# saving just after instead.
 EVENT="$(printf '%s' "$PAYLOAD" |
   sed -n 's/.*"hook_event_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
 if [ "${1:-}" = "--detach" ] ||
-   { [ -z "${1:-}" ] && [ "$EVENT" = "SessionEnd" ] && [ -z "${CLAUDE_HTML_DETACHED:-}" ]; }; then
+   { [ -z "${1:-}" ] && { [ "$EVENT" = SessionEnd ] || [ "$EVENT" = PreCompact ]; } && [ -z "${CLAUDE_HTML_DETACHED:-}" ]; }; then
   CLAUDE_HTML_DETACHED=1 CLAUDE_HTML_TRANSCRIPT="$TRANSCRIPT" \
-    nohup /bin/bash "$0" </dev/null >/dev/null 2>&1 &
+    nohup "${BASH:-bash}" "$0" </dev/null >/dev/null 2>&1 &
   exit 0
 fi
 # --try is best effort: if another save is running it gives up, because the
@@ -102,7 +107,7 @@ HERE_P="$(cd -P "$HERE" && pwd)"
 # at most five seconds. Before the lock, so no other save waits on it
 # either, and before the build at the end, which puts it on the index.
 if { [ "$MODE" = try ] || [ -n "${CLAUDE_HTML_DETACHED:-}" ]; } && [ -f "$HERE/update.sh" ]; then
-  /bin/bash "$HERE/update.sh" "$HERE_P" --daily </dev/null >/dev/null 2>&1 || true
+  "${BASH:-bash}" "$HERE/update.sh" "$HERE_P" --daily </dev/null >/dev/null 2>&1 || true
 fi
 if [[ "$(pwd)" != "$ROOT" && "$(pwd)" != "$ROOT"/* ]]; then
   exit 0
@@ -117,44 +122,31 @@ fi
 ch_pick_engine
 run_js() { ch_js "$@"; }
 
-# One save at a time: they share the pages. macOS has no flock, so the lock is a
-# directory — mkdir creates it or fails, atomically — holding the owner's PID,
-# so a lock left by a crashed run can be told apart from one still in use.
-LOCK="$HOME/.claude/.claude-html.lock"
+# One save at a time: they share the pages, and the build's cache. The lock
+# is lock.sh's, the one the command and the update take turns through too.
+# shellcheck source=lock.sh
+. "$HERE/lock.sh"
 OWN_LOCK=0
-acquire_lock() {
-  local waited=0 pid
-  while ! mkdir "$LOCK" 2>/dev/null; do
-    pid="$(cat "$LOCK/pid" 2>/dev/null || true)"
-    if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
-      rm -rf "$LOCK"; continue                  # its owner is gone
-    fi
-    if [ -z "$pid" ] && [ -n "$(find "$LOCK" -maxdepth 0 -mmin +2 2>/dev/null)" ]; then
-      rm -rf "$LOCK"; continue                  # died before saying who it was
-    fi
-    [ "$MODE" = try ] && return 1
-    waited=$((waited + 1))
-    [ "$waited" -ge 100 ] && return 1           # fifty seconds, inside the hook's minute
-    sleep 0.5
-  done
-  echo $$ > "$LOCK/pid"
+release_lock() { ch_lock_release; return 0; }
+# A reply's save gives way at once; the session end's waits fifty seconds,
+# inside the hook's minute (CLAUDE_HTML_LOCK_WAIT, for the tests).
+WAIT=0; [ "$MODE" = try ] || WAIT="${CLAUDE_HTML_LOCK_WAIT:-50}"
+if ch_lock_take "$WAIT"; then
   OWN_LOCK=1
-}
-release_lock() { [ "$OWN_LOCK" = 1 ] && rm -rf "$LOCK"; return 0; }
-
-if ! acquire_lock; then
-  # Busy and best effort: the running save covers this one. Busy for too long
-  # at session end: saving without the lock beats losing the final save.
-  [ "$MODE" = try ] && exit 0
+elif [ "$MODE" = try ]; then
+  # Busy and best effort: the running save covers this one. Said in
+  # .last-save, with who holds the lock, so one that never lets go shows.
+  [ -d "$OUT" ] && printf '%s mode=gave-way holder=%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$(ch_lock_holder)" \
+    > "$OUT/.last-save" 2>/dev/null
+  exit 0
 fi
+# Busy for too long at session end: saving without the lock beats losing the
+# final save. Each archive is then written under a name of its own, and
+# moved into place only if no newer one got there first.
 trap 'release_lock' EXIT
 
-# The transform, in a JavaScript engine the machine already has. This was jq,
-# but jq is Homebrew rather than macOS: a hook or a launchd job started with a
-# minimal PATH cannot see it, and would archive nothing while appearing to
-# work. osascript is in /usr/bin on every Mac; node carries it elsewhere.
-# osascript insists on a .js extension, and appending one to a mktemp name
-# would strand the file mktemp actually created — so make a directory.
+# The transform, in a JavaScript engine the machine already has, written to a
+# directory of its own: osascript insists on a .js extension.
 # Rebuild the pages, so closing a session is all it takes to see it. Only what
 # changed is rebuilt, which costs about a third of a second.
 #
@@ -165,27 +157,24 @@ trap 'release_lock' EXIT
 # it is not lost either, since convert.js records it in .build-errors.json and
 # the index shows a banner.
 rebuild_pages() {
-  # Not when told to register nothing: macOS registers an app by itself soon
-  # after one appears, so to build it here is to register it.
-  [ -z "${CLAUDE_HTML_NO_REGISTER:-}" ] && [ -x "$HERE/helper-build.sh" ] &&
-    "$HERE/helper-build.sh" "$HERE/Claude HTML.app" --register --if-stale >/dev/null 2>&1 || true
+  # The helper app kept in step with its source, where there is one.
+  ch_helper_refresh "$HERE" --if-stale || true
   [ -f "$HERE/convert.js" ] || return 0
   # The build keeps a cache that only one build at a time may write: one
   # that runs without the lock does without it, and reads everything.
   local nocache=""
-  [ "$OWN_LOCK" = 1 ] || nocache=',"cache":false'
-  run_js "$HERE/convert.js" \
-    "{\"root\":\"$ROOT\",\"out\":\"$OUT\",\"here\":\"$HERE_P\"$nocache}" >/dev/null 2>&1 || true
+  [ "$OWN_LOCK" = 1 ] || nocache=":cache false"
+  # shellcheck disable=SC2086
+  run_js "$HERE/convert.js" "$(ch_js_opts "$HERE_P" $nocache)" >/dev/null 2>&1 || true
+  ch_private_out "$OUT"
 }
 
 # A session that fails to archive is recorded, one file per session, so the
 # index can show it and a later success can clear exactly its own entry.
 ERRDIR="$OUT/.archive-errors"
-json_str() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n\t' '  '; }
 record_failure() {
   mkdir -p "$ERRDIR"
-  printf '{"id":"%s","source":"%s","error":"archiving failed: %s","kind":"archive"}\n' \
-    "$(json_str "$1")" "$(json_str "$2")" "$(json_str "${3:-no output}")" \
+  { ch_json_obj id "$1" source "$2" error "archiving failed: ${3:-no output}" kind archive; echo; } \
     > "$ERRDIR/$1.json"
 }
 
@@ -213,6 +202,9 @@ function run(argv) {
   // own list. "off" is no redaction; no signature at all, as when a test
   // runs this alone, is the built-in rules, and an archive no save trusts.
   var rsig = argv[6] || "", listPath = argv[7] || "";
+  // The format this release writes, from release.sh, by the save.
+  var FORMAT = Number(argv[8]) || 0;
+  if (!FORMAT) throw new Error("no archive format given: nothing archived");
 
   // ── the platform ──
   var JXA = typeof $ !== "undefined";
@@ -268,14 +260,22 @@ function run(argv) {
     if (JXA) {
       var h = $.NSFileHandle.fileHandleForReadingAtPath(p);
       if (!h || h.isNil()) return null;
+      // The whole lines decoded apart from an unfinished last one, which
+      // may end inside a character, as convert.js reads them.
       try {
         h.seekToFileOffset(offset);
         var data = h.readDataToEndOfFile, n = Number(data.length);
-        var s = $.NSString.alloc.initWithDataEncoding(data, 4);
-        if (!s || s.isNil()) return null;
-        var text = s.js;
-        if (typeof text !== "string") return null;
-        return { text: text, cut: n - utf8Length(text.slice(text.lastIndexOf("\n") + 1)) };
+        var loc = Number(data.rangeOfDataOptionsRange($("\n").dataUsingEncoding(4), 1, $.NSMakeRange(0, n)).location);
+        var at = loc < n ? loc + 1 : 0;
+        var dec = function (from, len) {
+          var s = $.NSString.alloc.initWithDataEncoding(data.subdataWithRange($.NSMakeRange(from, len)), 4);
+          var t = !s || s.isNil() ? null : s.js;
+          return typeof t === "string" ? t : null;
+        };
+        var head = dec(0, at);
+        if (head === null) return null;
+        var tail = dec(at, n - at);
+        return { text: head + (tail || ""), cut: at };
       } catch (e) { return null; } finally { h.closeFile; }
     }
     var fd;
@@ -342,31 +342,6 @@ function run(argv) {
     try { nfs.unlinkSync(p); } catch (e) {}
   }
 
-  // ── text ──
-  function utf8Length(t) {
-    var n = 0;
-    for (var i = 0; i < t.length; i++) {
-      var c = t.charCodeAt(i);
-      if (c < 0x80) n += 1;
-      else if (c < 0x800) n += 2;
-      else if (c >= 0xD800 && c <= 0xDBFF && (t.charCodeAt(i + 1) & 0xFC00) === 0xDC00) { n += 4; i++; }
-      else n += 3;
-    }
-    return n;
-  }
-  function hashText(t) {
-    var h = 5381;
-    for (var i = 0; i < t.length; i++) h = ((h << 5) + h + t.charCodeAt(i)) | 0;
-    return (h >>> 0).toString(36);
-  }
-
-  // Long values are kept, but bounded: a pasted file should not make the
-  // archive unopenable.
-  function cap(s, n) {
-    if (typeof s !== "string") return s;
-    return s.length > n ? s.slice(0, n) + "\n…[truncated]" : s;
-  }
-
   // ── secrets ──
   // redact.js is appended to this script by the save, so the archive is
   // redacted by the very rules the pages are. Every string that can carry
@@ -374,157 +349,18 @@ function run(argv) {
   // secret the cut would halve is still seen whole.
   if (typeof claudeHtmlRedactor !== "function") throw new Error("redact.js is missing: nothing archived");
   var RED = claudeHtmlRedactor(rsig !== "off" && listPath ? readText(listPath) || "" : "", rsig !== "off", !JXA);
-  function red(s) { return RED.text(s); }
-  // Only what the cut keeps needs reading, and enough after it to see a
-  // password or a name=value there whole; past that the text is dropped
-  // anyway. What is longer — a key block, a long token — is masked from
-  // where it starts: the text as cut is looked at once more, and what is
-  // left of a token right before the cut, or of a key block, goes.
-  function capRed(s, n) {
-    if (typeof s !== "string") return s;
-    var r = null;
-    if (s.length > n + 1024) {
-      var head = red(s.slice(0, n + 1024));
-      if (head.length >= n + 512) r = head;
-    }
-    if (r === null) r = red(s);
-    var c = cap(r, n);
-    return c === r ? r : red(c);
-  }
 
-  // The arguments worth keeping per tool. Anything else is dropped, so a new
-  // tool with a huge payload cannot bloat the archive silently.
-  function toolInput(inp) {
-    if (!inp || typeof inp !== "object") return {};
-    var out = {}, keep = {
-      file_path: 0, command: 0, description: 0, pattern: 0, query: 0,
-      url: 0, skill: 0
-    };
-    Object.keys(keep).forEach(function (k) {
-      if (inp[k] != null) out[k] = RED.value(inp[k], 0, k);
-    });
-    ["old_string", "new_string", "content"].forEach(function (k) {
-      if (inp[k] != null) out[k] = capRed(String(inp[k]), 4000);
-    });
-    if (inp.prompt != null) out.prompt = capRed(String(inp.prompt), 2000);
-    return out;
-  }
-
-  function textOfResult(c) {
-    if (typeof c === "string") return c;
-    if (Array.isArray(c)) {
-      return c.filter(function (x) { return x && x.type === "text"; })
-              .map(function (x) { return x.text || ""; }).join("\n");
-    }
-    return "";
-  }
-
-  // The messages one record holds, empty ones left out. Each depends on its
-  // own line alone, which is what lets a save read only what was appended.
+  // ── what a transcript says ──
+  // parse.js is appended too, and reads every record as convert.js does:
+  // the messages a page shows, cut and masked as it cuts and masks them,
+  // the tokens and the cost. So once the transcript is gone, the page made
+  // from this archive is the page that was made from the transcript.
+  if (typeof claudeHtmlParse !== "function") throw new Error("parse.js is missing: nothing archived");
+  var P = claudeHtmlParse(function () { return RED; });
+  var hashText = P.hashText, usageLine = P.usageLine;
+  function costLine(c, e) { P.costLine(c, e, sid); }
   function messagesOf(e, into) {
-    if (e.type !== "user" && e.type !== "assistant") return;
-    var content = (e.message || {}).content, msgs = [];
-    if (e.type === "user") {
-      if (typeof content === "string") {
-        // A prompt actually typed.
-        msgs.push({ role: "user", timestamp: e.timestamp, text: red(content) });
-      } else if (Array.isArray(content)) {
-        content.forEach(function (b) {
-          if (!b || typeof b !== "object") return;
-          if (b.type === "text") {
-            msgs.push({ role: "user", timestamp: e.timestamp, text: red(b.text || "") });
-          } else if (b.type === "tool_result") {
-            msgs.push({
-              role: "tool_result", timestamp: e.timestamp,
-              text: capRed(textOfResult(b.content), 4000)
-            });
-          }
-        });
-      }
-    } else if (Array.isArray(content)) {
-      var body = red(content.filter(function (b) { return b && b.type === "text"; })
-                            .map(function (b) { return b.text || ""; }).join("\n"));
-      var tools = content.filter(function (b) { return b && b.type === "tool_use"; })
-                         .map(function (b) {
-                           return { name: b.name, input: toolInput(b.input) };
-                         });
-      var think = content.filter(function (b) { return b && b.type === "thinking"; })
-                         .map(function (b) { return b.thinking || ""; }).join("\n\n");
-      var m = { role: "assistant", timestamp: e.timestamp, text: body };
-      if (tools.length) m.tools = tools;
-      // Only when there is some: most thinking reaches the transcript
-      // redacted to an empty string, and an empty field is just weight.
-      if (think) m.thinking = capRed(think, 6000);
-      msgs.push(m);
-    }
-    msgs.forEach(function (x) {
-      if ((x.text && x.text !== "") || (x.tools && x.tools.length) || x.thinking) into.push(x);
-    });
-  }
-
-  // The same count as convert.js's usageLine, which the build trusts in
-  // place of its own once the transcript is gone, so any difference here
-  // would show as history changing. A long reply is several records under
-  // one message id, each with the usage so far, so the last one wins.
-  function usageLine(acc, e) {
-    if (e.type !== "assistant" || !e.message || !e.message.usage) return;
-    var u = e.message.usage;
-    if (!(u.input_tokens || u.output_tokens ||
-          u.cache_read_input_tokens || u.cache_creation_input_tokens)) return;
-    var mid = e.message.id ? String(e.message.id) : "";
-    acc.by[mid ? "m:" + mid : e.uuid ? "u:" + e.uuid : "r:" + (acc.n++)] = {
-      mid: mid, hour: String(e.timestamp || "").slice(0, 13),
-      model: e.message.model || "unknown",
-      t: [u.input_tokens || 0, u.output_tokens || 0,
-          u.cache_read_input_tokens || 0, u.cache_creation_input_tokens || 0, 1]
-    };
-  }
-
-  // The cost, as convert.js's costLine works it out, for the same reason as
-  // the tokens: once the transcript is gone the build has only this. The
-  // records are running totals per model, written as a session exits, so
-  // each becomes what it added since the last, under the hour of the last
-  // record that had a time; a total that fell or a new startTime is a new
-  // counter. Only this session's own records count — one carried over by a
-  // resume or a fork is the other session's — and only the session's own
-  // transcript has them: sub-agents spend on its counter. Micro-dollars, so
-  // sums stay exact. part: some replies fall outside every counter.
-  function costLine(c, e) {
-    if (e.timestamp) c.last = String(e.timestamp);
-    if (e.type === "assistant" && e.message && e.message.usage &&
-        (!e.sessionId || e.sessionId === sid)) {
-      var u = e.message.usage, at = Date.parse(e.timestamp);
-      if ((u.input_tokens || u.output_tokens || u.cache_read_input_tokens ||
-           u.cache_creation_input_tokens) && !isNaN(at)) {
-        c.pending[e.message.id ? "m:" + e.message.id : "r:" + (c.n++)] = at;
-      }
-      return;
-    }
-    if (e.type !== "cost-state" || e.sessionId !== sid ||
-        !e.modelUsage || typeof e.modelUsage !== "object") return;
-    c.seen = true;
-    var now = {}, start = Number(e.startTime) || 0, prev = c.prev;
-    Object.keys(e.modelUsage).forEach(function (m) {
-      var v = Math.round(Number((e.modelUsage[m] || {}).costUSD) * 1e6);
-      if (v >= 0) now[m] = v;
-    });
-    var fresh = !prev || prev.start !== start;
-    if (!fresh) {
-      Object.keys(now).forEach(function (m) { if (now[m] < (prev.c[m] || 0)) fresh = true; });
-    }
-    Object.keys(c.pending).forEach(function (p) { if (c.pending[p] < start) c.part = true; });
-    c.pending = {};
-    if (e.hasUnknownModelCost) c.part = true;
-    var hour = c.last.slice(0, 13);
-    Object.keys(now).forEach(function (m) {
-      var d = now[m] - (fresh ? 0 : prev.c[m] || 0);
-      if (d <= 0) return;
-      if (!/^\d{4}-\d\d-\d\dT\d\d$/.test(hour)) { c.part = true; return; }
-      var h = c.cells[hour] = c.cells[hour] || {};
-      h[m] = (h[m] || 0) + d;
-    });
-    if (!fresh) Object.keys(prev.c).forEach(function (m) { if (!(m in now)) now[m] = prev.c[m]; });
-    c.prev = { start: start, c: now };
+    P.messagesOf(e).forEach(function (m) { into.push(m); });
   }
 
   // ── carrying on from the last save ──
@@ -542,7 +378,7 @@ function run(argv) {
   // start, and deleting the file is always safe.
   // The redaction's signature too: messages carried on from the last
   // archive were redacted by its rules and list, and must be these.
-  var KEY = "2:" + hashText(String(run)) + ":" + rsig;
+  var KEY = "3:" + FORMAT + ":" + hashText(String(run)) + ":" + hashText(String(claudeHtmlParse)) + ":" + rsig;
   var WINDOW = 4096;
   function fingerprint(off) {
     var w = Math.min(WINDOW, off);
@@ -552,20 +388,25 @@ function run(argv) {
     return off + ":" + parts.map(hashText).join(":");
   }
   function newScan() {
-    return { off: 0, msgs: 0, started: null, usage: { by: {}, n: 0 },
-             cost: { cells: {}, last: "", prev: null, pending: {}, part: false, seen: false, n: 0 } };
+    return { off: 0, msgs: 0, lines: 0, started: null, peek: { cwd: null, title: null },
+             usage: P.newReplies(), cost: P.newCost() };
   }
+  // The title as the build finds it: Claude Code's own, said within the
+  // first PEEK_LINES lines, or none.
   function scanChunk(st, text, messages) {
-    text.split("\n").forEach(function (line) {
+    var lines = text.split("\n");
+    lines.forEach(function (line, j) {
       if (!line) return;
       var e;
       try { e = JSON.parse(line); } catch (err) { return; }
       if (!e || typeof e !== "object") return;
       if (!st.started && e.timestamp) st.started = e.timestamp;
+      if (st.lines + j <= P.PEEK_LINES && !(st.peek.cwd && st.peek.title)) P.peekLine(st.peek, e);
       messagesOf(e, messages);
       usageLine(st.usage, e);
       costLine(st.cost, e);
     });
+    st.lines += lines.length - 1;
     st.msgs = messages.length;
   }
 
@@ -583,7 +424,7 @@ function run(argv) {
   }
   var st = null, messages = [];
   if (state && prev && state.path === path && state.archive === prevPath && state.scan &&
-      prev.format === 4 && prev.redact === rsig && prev.sourceBytes === state.sourceBytes &&
+      prev.format === FORMAT && prev.redact === rsig && prev.sourceBytes === state.sourceBytes &&
       prev.messageCount === state.messageCount && Array.isArray(prev.messages) &&
       prev.messages.length >= state.scan.msgs && typeof state.fp === "string" &&
       state.fp === fingerprint(state.scan.off)) {
@@ -629,7 +470,8 @@ function run(argv) {
       ops = was.ops;
     } else {
       var own = { by: {}, n: 0 };
-      String(readText(kids + "/" + f) || "").split("\n").forEach(function (line) {
+      var got = readFrom(kids + "/" + f, 0);
+      String(got ? got.text : "").split("\n").forEach(function (line) {
         if (line.indexOf('"usage"') < 0) return;
         var e; try { e = JSON.parse(line); } catch (err) { return; }
         if (e && typeof e === "object") usageLine(own, e);
@@ -677,17 +519,18 @@ function run(argv) {
 
   var archive = JSON.stringify({
     sourceBytes: sourceBytes,
-    // 2: also thinking, usage and replies. 3: usage may carry the cost.
-    // 4: redacted, by the rules and the list the signature names.
-    // Read by the skip check below, which is why both sit near the top.
-    format: 4,
+    // CH_ARCHIVE_FORMAT, in release.sh, says what each format added.
+    // Read by the save's skip check, which is why both sit near the top.
+    format: FORMAT,
     redact: rsig,
     sessionId: sid,
     project: project,
+    // Claude Code's own title, as the page from the transcript has it.
+    title: st.peek.title || "",
     startedAt: startedAt,
     endedAt: messages.length ? messages[messages.length - 1].timestamp : null,
     messageCount: messages.length,
-    promptCount: messages.filter(function (m) { return m.role === "user"; }).length,
+    promptCount: messages.filter(function (m) { return m.role === "user" && !m.side; }).length,
     messages: messages,
     usage: usage,
     replies: replies,
@@ -729,9 +572,14 @@ ARCHIVEREOF
 # Worked out before either is read, so that one changed in between leaves
 # the older signature, and the next save makes the archive again.
 RSIG="$(ch_redact_sig "$HERE")"
-# The redactor, after the archiver: a function declaration is there for
-# run() wherever in the file it stands. Missing, the archiver refuses.
-cat "$HERE/redact.js" >> "$ARCHIVER" 2>/dev/null || true
+# The redactor and the parse, after the archiver: a function declaration
+# is there for run() wherever in the file it stands. Missing, the archiver
+# refuses.
+cat "$HERE/redact.js" "$HERE/parse.js" >> "$ARCHIVER" 2>/dev/null || true
+# The archive format this release writes, from release.sh: the archiver
+# writes it, and the check below skips only what is in it already.
+# shellcheck source=release.sh
+. "$HERE/release.sh"
 
 PROJECT_PATH=$(pwd)
 
@@ -743,9 +591,32 @@ SOURCE_DIR="$HOME/.claude/projects/$PROJECT_FOLDER_NAME"
 # launch directory under the new name, and its sessions are found by cwd
 # below instead. Bail only when nothing at all turns up.
 
-# Output directory
-CONV_DIR="$PROJECT_PATH/.claude/.claude-conversations"
-mkdir -p "$CONV_DIR"
+# Where a session's archive goes: the folder it was launched in, which its
+# transcript states first, and the project it belongs to. A hook runs in
+# the session's current folder, and Claude may have gone into app/src: that
+# is no project of its own. Only when the launch folder is gone (a project
+# renamed since) or outside the root does the folder this runs in decide.
+launch_dir() {   # transcript
+  local c
+  c="$(head -c 262144 "$1" 2>/dev/null | grep -o '"cwd":"[^"\\]*"' | head -1 |
+       sed 's/^"cwd":"//; s/"$//')" || c=""
+  [ -n "$c" ] && [ -d "$c" ] && { [ "$c" = "$ROOT" ] || [[ "$c" == "$ROOT"/* ]]; } || return 1
+  printf '%s' "$c"
+}
+# The archive folder: made for its owner only, and ignoring itself, so a
+# project's git never takes a conversation into a commit. What a save that
+# died half way left there goes after an hour.
+conv_dir() {   # project folder
+  local d="$1/.claude/.claude-conversations"
+  mkdir -p "$d"
+  ch_private "$d"
+  [ -f "$d/.gitignore" ] || printf '# Written by claude-html: the conversations stay out of git.\n*\n' \
+    > "$d/.gitignore" 2>/dev/null || true
+  find "$d" -maxdepth 1 -name '.*.json.partial*' -mmin +60 -exec rm -f {} + 2>/dev/null
+  printf '%s' "$d"
+}
+CONV_DIR=""
+USED_DIRS=()
 
 SAVED=0
 
@@ -785,10 +656,22 @@ if [ ${#CANDIDATES[@]} -eq 0 ]; then
   exit 0
 fi
 
+# Whether the archive there now was made from more of the transcript than
+# this save read: another save, one that ran without the lock, got further,
+# and its archive stays.
+newer_there() {   # archive, bytes this save read
+  local was
+  [ -f "$1" ] || return 1
+  was="$(head -c 300 "$1" | sed -n 's/^{"sourceBytes":\([0-9][0-9]*\),.*/\1/p')"
+  [ -n "$was" ] && [ "$was" -gt "$2" ]
+}
 for jsonl in "${CANDIDATES[@]+"${CANDIDATES[@]}"}"; do
   [[ -f "$jsonl" ]] || continue
 
   SESSION_ID=$(basename "$jsonl" .jsonl)
+  PROJ="$(launch_dir "$jsonl")" || PROJ="$PROJECT_PATH"
+  CONV_DIR="$(conv_dir "$PROJ")"
+  USED_DIRS+=("$PROJ")
   OUTPUT_FILE="$CONV_DIR/${SESSION_ID}.json"
 
   # Skip only if the archive was made from exactly this much transcript.
@@ -802,8 +685,9 @@ for jsonl in "${CANDIDATES[@]+"${CANDIDATES[@]}"}"; do
   # transcript is still here to supply what that format did not keep —
   # and so is one redacted by other rules or another list, or not at all.
   SIZE=$(size_of "$jsonl")
-  if [[ -f "$OUTPUT_FILE" ]] && HEAD="$(head -c 200 "$OUTPUT_FILE")" &&
-     [[ "$HEAD" == *"\"format\":4,\"redact\":\"$RSIG\","* ]] &&
+  if [[ -f "$OUTPUT_FILE" ]] && HEAD="$(head -c 300 "$OUTPUT_FILE")" &&
+     [[ "$HEAD" == *"\"format\":$CH_ARCHIVE_FORMAT,"* ]] &&
+     [[ "$HEAD" == *"\"redact\":\"$RSIG\","* ]] &&
      [[ "$(printf '%s' "$HEAD" |
        sed -n 's/.*"sourceBytes":\([0-9]*\).*/\1/p')" == "$SIZE" ]]; then
     continue
@@ -816,15 +700,18 @@ for jsonl in "${CANDIDATES[@]+"${CANDIDATES[@]}"}"; do
   # Complete means it ends as the archiver's object ends. That rules out the
   # empty result of a transcript it cannot read, and the cut-off one a full
   # disk leaves, which osascript does not report as a failure.
-  PARTIAL="$CONV_DIR/.${SESSION_ID}.json.partial"
+  # A name of its own: two saves of one session, one without the lock, must
+  # never write the same file, or the one still writing spoils the other's.
+  PARTIAL="$CONV_DIR/.${SESSION_ID}.json.partial.$$.$RANDOM"
   # What lets the next save read only what this one did not: kept with the
   # build's cache, which only a save holding the lock may write.
   STATE=""
   [ "$OWN_LOCK" = 1 ] && STATE="$OUT/.cache/$SESSION_ID.archive"
-  if run_js "$ARCHIVER" "$jsonl" "$SESSION_ID" "$PROJECT_PATH" "$SIZE" "$OUTPUT_FILE" "$STATE" \
-       "$RSIG" "$CLAUDE_HTML_REDACT_FILE" \
+  if run_js "$ARCHIVER" "$jsonl" "$SESSION_ID" "$PROJ" "$SIZE" "$OUTPUT_FILE" "$STATE" \
+       "$RSIG" "$CLAUDE_HTML_REDACT_FILE" "$CH_ARCHIVE_FORMAT" \
        > "$PARTIAL" 2>"$ARCHIVE_TMP/err" && [[ "$(tail -c 2 "$PARTIAL")" == *"}" ]] &&
-     mv -f "$PARTIAL" "$OUTPUT_FILE"; then
+     { newer_there "$OUTPUT_FILE" "$SIZE" || mv -f "$PARTIAL" "$OUTPUT_FILE"; }; then
+    rm -f "$PARTIAL"
     rm -f "$ERRDIR/$SESSION_ID.json"
   else
     rm -f "$PARTIAL"
@@ -840,10 +727,12 @@ done
 # Only on a list that exists: a missing one tells the build to walk the root,
 # and starting one here with this folder alone would stop that walk for ever.
 ARCHIVES_LIST="$HOME/.claude/claude-html.archives"
-if [ -f "$ARCHIVES_LIST" ] && compgen -G "$CONV_DIR/*.json" >/dev/null &&
-   ! grep -qxF "$PROJECT_PATH" "$ARCHIVES_LIST"; then
-  printf '%s\n' "$PROJECT_PATH" >> "$ARCHIVES_LIST" 2>/dev/null || true
-fi
+for d in "${USED_DIRS[@]+"${USED_DIRS[@]}"}"; do
+  if [ -f "$ARCHIVES_LIST" ] && compgen -G "$d/.claude/.claude-conversations/*.json" >/dev/null &&
+     ! grep -qxF "$d" "$ARCHIVES_LIST"; then
+    printf '%s\n' "$d" >> "$ARCHIVES_LIST" 2>/dev/null || true
+  fi
+done
 
 # Hook stdout lands in the transcript, so say one line, not one per session.
 [ "$SAVED" -gt 0 ] && echo "Archived $SAVED session(s) to $CONV_DIR"

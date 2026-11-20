@@ -53,7 +53,7 @@ git clone https://github.com/pier0074/claude-html ~/claude-html
 cd ~/claude-html && ./install.sh
 ```
 
-For a given release, add `--branch v3.1.2` to the clone;
+For a given release, add `--branch v3.1.3` to the clone;
 [CHANGELOG.md](CHANGELOG.md) says what each one brought.
 
 Nothing else to install. macOS uses its own `osascript`; Linux uses `node`,
@@ -81,7 +81,7 @@ claude-html --update status     # what is installed, what is newest
 
 Once a day the tool asks GitHub whether a newer release exists and says so
 on the index; `claude-html --update off` stops that. From a release before
-3.1.0: `git pull && ./install.sh`. Details in
+3.1.0: `git checkout main && git pull && ./install.sh` in the clone. Details in
 [docs/SETUP.md](docs/SETUP.md#updating).
 
 ## Use

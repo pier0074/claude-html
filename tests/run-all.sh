@@ -19,8 +19,9 @@ export CLAUDE_HTML_UPDATE_REMOTE="${TMPDIR:-/tmp}/claude-html-tests-no-such-remo
 # tests' own homes the "only the installed copy registers" rule cannot see
 # the real install, and a second app claiming claude-html:// links breaks them.
 export CLAUDE_HTML_NO_REGISTER=1
-# On a Mac the command keeps a helper app beside itself, so the suites build
-# one in this clone. One that was not here before the run is taken away after.
+# No suite may build the helper app in this clone either: macOS registers an
+# app as soon as it appears. One that was not here before the run is a
+# failure, said below, and taken away, unregistered first.
 CLONE="$(cd "$HERE/.." && pwd -P)"
 HAD_APP=no; [ -e "$CLONE/Claude HTML.app" ] && HAD_APP=yes
 
@@ -39,7 +40,7 @@ T0="$(date +%s)"
 
 # The longest start first, so the last one to end is not a long one begun late.
 QUICK="viewer diff index docs"
-SUITES="incremental guard linux update usage engine install hooks backend redact races build agents delete open helper safety"
+SUITES="incremental guard linux update usage engine install hooks backend archive redact races build agents delete open helper safety"
 run_one() {   # name
   local t="$1" s rc
   s="$(date +%s)"
@@ -79,6 +80,7 @@ if [ "$HAD_APP" = no ] && [ -e "$CLONE/Claude HTML.app" ]; then
   LSREG_U=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
   [ -x "$LSREG_U" ] && "$LSREG_U" -u "$CLONE/Claude HTML.app" 2>/dev/null
   rm -rf "$CLONE/Claude HTML.app"
+  printf '%-9s FAIL  a suite built the helper app in this clone\n' "app"; failed=1
 fi
 
 # The suites build helper apps in temp folders. None of them may be left

@@ -151,6 +151,54 @@ check "remove takes quoted and unquoted alike" \
   "$(CLAUDE_HTML_FORCE_NODE=1 run_js "$C/settings-hooks.js" "$H/.claude/settings.json" "$C" remove)" "removed 6"
 install
 
+# ── which hooks are ours: the whole command, never a script's name ──
+# Under the engine lib.sh picked, osascript on a Mac: settings-hooks.js is
+# run by both. A user's own scripts named like ours are theirs; another
+# clone's hooks are replaced as a set; nothing else is touched.
+S2="$T/hooks/settings.json"; OLD="$T/old clone"; GONE="$T/gone clone"; MINE="$T/u dir"
+mkdir -p "$T/hooks" "$OLD" "$MINE"
+: > "$OLD/convert.js"; : > "$OLD/guard.js"; : > "$MINE/guard.sh"
+sh_js() { HOME="$H" run_js "$C/settings-hooks.js" "$S2" "$C" "$@"; }
+mk_settings() {
+  node -e 'function q(p){return "\x27"+p+"\x27";}
+    var o=process.argv[1], g=process.argv[2], m=process.argv[3];
+    function h(c){return {hooks:[{type:"command",command:c}]};}
+    var s={hooks:{
+      UserPromptSubmit:[h("bash ~/bin/prompt-guard.sh"), h("bash "+q(m+"/guard.sh")+" prompt"), h("bash "+q(o+"/guard.sh")+" prompt")],
+      PreToolUse:[{matcher:"Bash",hooks:[{type:"command",command:"bash "+q(o+"/guard.sh")+" bash"}]}],
+      Stop:[h("bash "+q(o+"/save-conversation.sh")+" --background"), h("/usr/local/bin/save-conversation.sh")],
+      SessionEnd:[h("bash "+q(g+"/save-conversation.sh"))],
+      PreCompact:[{matcher:"auto",hooks:[{type:"command",command:"bash "+q(o+"/save-conversation.sh")}]}]}};
+    require("fs").writeFileSync(process.argv[4], JSON.stringify(s,null,2));' \
+    "$OLD" "$GONE" "$MINE" "$S2"
+}
+theirs3() {
+  printf '%s %s %s' "$(grep -c 'bash ~/bin/prompt-guard.sh"' "$S2")" \
+    "$(grep -cF "$MINE/guard.sh' prompt" "$S2")" "$(grep -c '"/usr/local/bin/save-conversation.sh"' "$S2")"
+}
+mk_settings
+R="$(sh_js add)"
+check "install adds its guard though the user has a prompt-guard.sh and a guard.sh of their own" \
+  "$(grep -cF "$C/guard.sh' prompt" "$S2") $(grep -cF "$C/guard.sh' bash" "$S2")" "1 1"
+check "  the user's three hooks are left exactly as they were" "$(theirs3)" "1 1 1"
+check "  another clone's hooks, and a gone one's, are replaced as a set by this clone's" \
+  "$(grep -cF "$OLD/" "$S2") $(grep -cF "$GONE/" "$S2") $(grep -cF "$C/" "$S2")" "0 0 6"
+check "  and the installer says so" "$(printf '%s' "$R" | grep -c 'replaced 5 hook(s) of')" 1
+check "  counting the user's as theirs" "$(printf '%s' "$R" | sed -n 's/.*"theirs":\([0-9]*\).*/\1/p')" 3
+sh_js add no-guard >/dev/null
+check "--no-guard takes out this clone's guard only" \
+  "$(grep -cF "$C/guard.sh" "$S2") $(theirs3)" "0 1 1 1"
+sh_js add >/dev/null
+check "remove takes out this clone's hooks only" "$(sh_js remove) $(grep -cF "$C/" "$S2") $(theirs3)" "removed 6 0 1 1 1"
+mk_settings
+sh_js remove >/dev/null
+check "  and never another clone's" "$(grep -cF "$OLD/" "$S2") $(theirs3)" "4 1 1 1"
+# A settings.json kept in a dotfiles folder, as a symlink, stays one.
+mkdir -p "$T/dots2"; mv "$S2" "$T/dots2/settings.json"; ln -s "$T/dots2/settings.json" "$S2"
+sh_js add >/dev/null
+check "a symlinked settings.json stays a symlink, its file takes the hooks" \
+  "$([ -L "$S2" ] && echo link) $(grep -cF "$C/" "$T/dots2/settings.json")" "link 6"
+
 # ── one rule for where things go: environment, then conf, then default ──
 rm -rf "$PAGES"
 run_hook "$APP" SessionEnd CLAUDE_HTML_OUT="$T/env pages"
@@ -180,6 +228,46 @@ check "  and pages in the clone" "$(exists "$C/sessions/$ID.html")" yes
 rm -rf "$C/sessions"
 cli
 check "the command: with no conf, pages in the clone" "$(exists "$C/sessions/$ID.html")" yes
+
+# ── folders with a quote or a backslash, and relative ones ──
+# Every option handed to the JavaScript is JSON made by one helper: a name
+# that holds a quote or a backslash once broke every build, silently in the
+# hook. And --out and --root are written whole, or each project would read
+# them from its own folder.
+mv "$T/conf.away" "$CONF"
+Q="$T/we\"ird \\dir"; QAPP="$Q/app"; mkdir -p "$QAPP"
+install --root "$Q" --out "$Q/pages"
+check "a root and pages folder with a quote and a backslash are kept as given" \
+  "$(conf_get CLAUDE_HTML_ROOT)|$(conf_get CLAUDE_HTML_OUT)" "$Q|$Q/pages"
+run_hook "$QAPP" SessionEnd
+check "  the hook archives there and builds the pages" \
+  "$(exists "$QAPP/.claude/.claude-conversations/$ID.json") $(exists "$Q/pages/sessions/$ID.html")" "yes yes"
+rm -rf "$Q/pages/sessions"
+cli
+check "  and so does the command" "$(exists "$Q/pages/sessions/$ID.html")" yes
+mkdir -p "$T/here"
+( cd "$T/here" && install --out "rel pages" --root ./projs/ )
+check "relative --out and --root are written whole" \
+  "$(conf_get CLAUDE_HTML_OUT)|$(conf_get CLAUDE_HTML_ROOT)" "$T/here/rel pages|$T/here/projs"
+
+# ── another install's command is its own ──
+mkdir -p "$T/other/claude-html"; printf '#!/bin/sh\necho other\n' > "$T/other/claude-html/claude-html"
+chmod +x "$T/other/claude-html/claude-html"
+ln -sf "$T/other/claude-html/claude-html" "$H/.local/bin/claude-html"
+install
+check "an install from a second clone leaves the first's command where it is" \
+  "$(readlink "$H/.local/bin/claude-html") $(grep -c "another install's" "$T/install.out")" "$T/other/claude-html/claude-html 1"
+clean_env bash "$C/install.sh" --uninstall > "$T/install.out" 2>&1
+check "  and uninstalling from it leaves that command too" "$(readlink "$H/.local/bin/claude-html")" "$T/other/claude-html/claude-html"
+rm -f "$H/.local/bin/claude-html"; install
+check "with none there, it puts its own" "$(readlink "$H/.local/bin/claude-html")" "$C/claude-html"
+for f in .claude-html.update .claude-html.guard .claude-html.guard-engine .claude-html-update.command; do : > "$H/.claude/$f"; done
+mkdir -p "$H/.claude/.claude-html-guard"; : > "$H/.claude/.claude-html-guard/sess"
+: > "$H/.claude/claude-html.archives"
+clean_env bash "$C/install.sh" --uninstall > "$T/install.out" 2>&1
+check "  and uninstalling takes its own away" "$([ -L "$H/.local/bin/claude-html" ] && echo there || echo gone)" gone
+check "  and its own state in ~/.claude, leaving the conf and the archive list" \
+  "$(ls -A "$H/.claude" | grep -c "^\.claude-html") $(exists "$CONF") $(exists "$H/.claude/claude-html.archives")" "0 yes yes"
 
 echo
 echo "  $pass passed, $fail failed"

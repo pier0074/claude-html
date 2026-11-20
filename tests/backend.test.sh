@@ -215,6 +215,21 @@ check "  the call is in the turn before its output" \
   '"Let me look.|tu_1"'
 check "  and the text after it, after it" "$(data "$E/out/sessions/$EW.html" 'd.messages[3].text')" '"Two files."'
 
+# ── one chat in two exports: the copy updated last wins ─────────────
+E2="$T/two"; mkdir -p "$E2/home/Downloads" "$E2/root"
+EC=eeeeeeee-0000-0000-0000-000000000006
+chat2() {   # name, updated_at
+  printf '[{"uuid":"%s","name":"%s","created_at":"2026-05-01T10:00:00Z","updated_at":"%s","chat_messages":[{"sender":"human","created_at":"2026-05-01T10:00:00Z","content":[{"type":"text","text":"%s"}]}]}]\n' "$EC" "$1" "$2" "$1"
+}
+chat2 "The newer copy" "2026-06-01T10:00:00Z" > "$E2/home/Downloads/conversations.json"
+chat2 "The older copy" "2026-05-01T11:00:00Z" > "$E2/root/conversations.json"
+E2OPT="{\"root\":\"$E2/root\",\"out\":\"$E2/out\",\"projects\":\"$E2/projects\",\"here\":\"$HERE\"}"
+build "$E2OPT" "$E2/home" >/dev/null
+check "a chat in two exports is shown from the one updated last" \
+  "$(data "$E2/out/sessions/$EC.html" 'd.meta.title')" '"The newer copy"'
+touch "$E2/root/conversations.json"; build "$E2OPT" "$E2/home" >/dev/null
+check "  also when only the older export changed since" "$(data "$E2/out/sessions/$EC.html" 'd.meta.title')" '"The newer copy"'
+
 # ── a reply copied into a resumed session counts once on the dashboard ──
 U="$T/dup"; UR="$U/root"; UAPP="$UR/app"; UH="$U/home"; UO="$U/out"
 UD="$(printf '%s' "$UAPP" | tr '/' '-')"

@@ -28,7 +28,7 @@ trap 'rm -rf "$T"' EXIT
 # ── the basic tools, and nothing else ───────────────────────────────
 SYS="$T/sys"; mkdir -p "$SYS"
 for t in sh bash env cat sed awk grep tr head tail cut wc dirname basename readlink \
-         mkdir rm mv cp ln chmod touch date uname node ls sort id stat sleep mktemp od; do
+         mkdir rm mv cp ln chmod touch date uname node ls sort id stat sleep mktemp od find ps; do
   p="$(command -v "$t" 2>/dev/null)"
   case "$p" in /*) ln -s "$p" "$SYS/$t" ;; esac
 done
@@ -448,21 +448,31 @@ check "update, headless: prints the command to type instead" \
 clearlog ubuntu; rm -f "$UL"
 inenv ubuntu bash "$HERE/claude-html" --update-terminal >/dev/null 2>&1
 check "update really calls the terminal, on a launcher" "$(log ubuntu)" "gnome-terminal [--] [sh] [$UL]"
-check "  which runs this clone's --update, then exec's the shell, last" \
-  "$(grep -v '^#' "$UL" | head -1) | $(tail -1 "$UL")" "'$CLIP' --update | exec \"\$s\" -i"
+check "  which runs this clone's --update on a yes, then exec's the shell, last" \
+  "$(grep -c "y|Y|yes|YES) '$CLIP' --update ;;" "$UL") | $(tail -1 "$UL")" "1 | exec \"\$s\" -i"
+clearlog ubuntu
+check "  a second window within a minute is refused" \
+  "$(inenv ubuntu bash "$HERE/claude-html" --update-terminal >/dev/null 2>&1; echo $?) $(log ubuntu)" "1 "
 # Run it, with a stand-in for this clone's command that fails.
 UF="$T/upd"; mkdir -p "$UF"; printf '#!/bin/sh\necho "the update says $1"; exit 1\n' > "$UF/claude-html"; chmod +x "$UF/claude-html"
-sed "s|^'$CLIP' --update|'$UF/claude-html' --update|" "$UL" > "$T/ul.sh"
+sed "s|'$CLIP' --update|'$UF/claude-html' --update|" "$UL" > "$T/ul.sh"
 rm -f "$T/shell"
-o="$(cd "$T" && HOME="$H" SHELL="$STUBSH" PATH="$SYS" sh "$T/ul.sh")"
+o="$(cd "$T" && echo yes | HOME="$H" SHELL="$STUBSH" PATH="$SYS" sh "$T/ul.sh")"
 check "  its output stays above the shell, which it ends as, even after a failure" \
-  "$(printf '%s' "$o" | head -1) | $(cat "$T/shell" 2>/dev/null)" "the update says --update | $(cd "$T" && pwd -P)|-i"
+  "$(printf '%s' "$o" | head -1 | sed 's/.*\] //') | $(cat "$T/shell" 2>/dev/null)" "the update says --update | $(cd "$T" && pwd -P)|-i"
 
 # ── 5. open ─────────────────────────────────────────────────────────
 echo "open"
 clearlog ubuntu
 inenv ubuntu bash "$HERE/claude-html" --open "$A" >/dev/null 2>&1
 check "ubuntu: xdg-open gets the folder" "$(log ubuntu)" "xdg-open [$PLAIN]"
+# The index after a build, by the opener picked: on Debian /usr/bin/open is
+# openvt, and a command named open says nothing about the machine.
+stub "$T/env/ubuntu/bin" open
+clearlog ubuntu
+inenv ubuntu bash "$HERE/claude-html" >/dev/null 2>&1
+check "the built index opens with the desktop's opener, not a command named open" "$(log ubuntu)" "xdg-open [$OUT/index.html]"
+rm -f "$T/env/ubuntu/bin/open"
 check "  and .last-open says so" "$(sed 's/^[0-9-]* [0-9:]*  //' "$OUT/.last-open")" "folder  $PLAIN"
 check "headless: says where, opens nothing" "$(inenv headless bash "$HERE/claude-html" --open "$A" 2>&1)" \
   "folder: $PLAIN"

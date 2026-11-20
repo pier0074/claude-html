@@ -46,8 +46,8 @@ gitx() { HOME="$H" XDG_CONFIG_HOME="$H/.config" git -c user.name=tester -c user.
 # A release's tree: this one's files, its own VERSION and changelog, and a
 # stub install.sh. 2.0.0 writes archive format 3; 3.1.0 changes the viewer
 # (so its pages are rebuilt) and the hooks (so the update says so).
-FILES="claude-html conf.sh platform.sh release.sh update.sh save-conversation.sh guard.sh guard.js
-  convert.js redact.js dialog.js delete.js open.js resume.js settings-hooks.js handler.sh .gitignore viewer"
+FILES="claude-html conf.sh platform.sh release.sh lock.sh update.sh save-conversation.sh guard.sh guard.js
+  convert.js parse.js redact.js dialog.js delete.js open.js resume.js settings-hooks.js handler.sh .gitignore viewer"
 changelog_for() {   # the newest version, then all it includes
   echo "# Changelog"; echo
   local v
@@ -79,7 +79,10 @@ EOF
     "$([ "$v" = 3.1.0 ] && printf ',\n    "PreCompact": [\n      {\n        "hooks": [\n          {\n            "type": "command",\n            "command": "bash '"'"'@HERE@/save-conversation.sh'"'"'"\n          }\n        ]\n      }\n    ]')" \
     > "$d/hooks.json"
   case "$v" in
-    2.*) sed 's/^\([[:space:]]*\)format: 4,/\1format: 3,/' "$d/save-conversation.sh" > "$d/s.tmp" && mv "$d/s.tmp" "$d/save-conversation.sh" ;;
+    # 2.x as releases before 3.1.3 were: the number written in the save
+    # script, and no CH_ARCHIVE_FORMAT in release.sh.
+    2.*) sed 's/^\([[:space:]]*\)format: FORMAT,/\1format: 3,/' "$d/save-conversation.sh" > "$d/s.tmp" && mv "$d/s.tmp" "$d/save-conversation.sh"
+         grep -v '^CH_ARCHIVE_FORMAT=' "$d/release.sh" > "$d/r.tmp" && mv "$d/r.tmp" "$d/release.sh" ;;
     3.1.0) echo "/* 3.1.0 */" >> "$d/viewer/page.js" ;;
   esac
 }
@@ -317,7 +320,7 @@ kill "$SLEEPER" 2>/dev/null; rm -rf "$H/.claude/.claude-html.lock"
 # Going back.
 clone a v3.1.0
 out="$(ch --update 3.0.0)"; rc=$?
-has "going back: warned, with the archive format" "$out" "archive format 4"
+has "going back: warned, with the archive format" "$out" "archive format 5"
 has "  refused without a yes and no terminal" "$out" "going back needs a yes"
 check "  nothing moved" "$rc $(at)" "1 v3.1.0"
 : > "$T/installs"
@@ -325,7 +328,7 @@ out="$(ch --update 3.0.0 --yes)"; rc=$?
 check "  done with --yes" "$rc $(at) $(installs)" "0 v3.0.0 3.0.0"
 clone a v3.1.0
 out="$(ch -y --update 2.0.0)"; rc=$?
-has "  to 2.x: it cannot read format 4" "$out" "2.0.0 cannot read the archives 3.1.0 writes (archive format 4"
+has "  to 2.x, whose format is in its save script: it cannot read format 5" "$out" "2.0.0 cannot read the archives 3.1.0 writes (archive format 5; 2.0.0 knows format 3 and older)"
 has "  and the way back is said" "$out" "git checkout main && git pull && ./install.sh"
 check "  done" "$rc $(at)" "0 v2.0.0"
 
@@ -355,6 +358,22 @@ mkdir -p "$T/zip"; cp -R "$INST" "$T/zip/"; rm -rf "$T/zip/claude-html/.git"
 out="$(INST="$T/zip/claude-html" ch --update)"; rc=$?
 has "not a clone: says how to re-install" "$out" "is not a git clone"
 check "  exit 1" "$rc" 1
+# Nor asked about with git at all: what is not a clone is known from the
+# disk, and its daily look is recorded, so it is not made after every reply.
+REALGIT="$(command -v git)"
+mkdir -p "$T/gitlog"; printf '#!/bin/sh\necho "$*" >> "%s/gitcalls"\nexec "%s" "$@"\n' "$T" "$REALGIT" > "$T/gitlog/git"
+chmod +x "$T/gitlog/git"; rm -f "$H/.claude/.claude-html.update" "$T/gitcalls"
+run env PATH="$T/gitlog:$PATH" bash "$T/zip/claude-html/update.sh" "$T/zip/claude-html" --daily
+check "  its daily check runs no git, and is recorded for the day" \
+  "$(cat "$T/gitcalls" 2>/dev/null | wc -l | tr -d ' ') $(state here) $([ -n "$(state checked)" ] && [ "$(state checked)" != 0 ] && echo checked)" \
+  "0 $T/zip/claude-html checked"
+# A Mac without Apple's developer tools, whose /usr/bin/git only offers to
+# install them, in a dialog: not run.
+mkdir -p "$T/noclt"; printf '#!/bin/sh\nexit 2\n' > "$T/noclt/xcode-select"; chmod +x "$T/noclt/xcode-select"
+clone a v3.0.1
+out="$(run env PATH="$T/noclt:/usr/bin:/bin" CLAUDE_HTML_UNAME=Darwin bash "$INST/update.sh" "$INST" unset status 2>&1)"
+has "a Mac without developer tools: its git stand-in is never run" "$out" "git is not installed"
+
 
 # ── the daily check ─────────────────────────────────────────────────
 save() { (cd "$PROJ/app" && run CLAUDE_HTML_UPDATE_CHECK="${CHK:-on}" bash "$INST/save-conversation.sh" --try </dev/null >/dev/null 2>&1); }

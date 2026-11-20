@@ -39,18 +39,14 @@ printf '{"agentType":"general-purpose","description":"check the backend","toolUs
 
 build() { HOME="$H" run_js "$HERE/convert.js" \
   "{\"root\":\"$ROOT\",\"out\":\"$OUT\",\"here\":\"$HERE\",\"exportPath\":\"/nonexistent\",\"actions\":true}"; }
-field() { python3 -c "
-import json,sys,pathlib
-m=json.loads(pathlib.Path('$OUT/.manifest.json').read_text())
-print(m.get('$P',{}).get('$1',''))"; }
+field() { node -e 'var m=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
+  var v=(m[process.argv[2]]||{})[process.argv[3]]; console.log(v===undefined?"":v)' "$OUT/.manifest.json" "$P" "$1"; }
 
 build >/dev/null
 check "the session is listed" "$(field project)" app
 check "  and its sub-agent is not a session of its own" \
-  "$(python3 -c "
-import json,pathlib
-m=json.loads(pathlib.Path('$OUT/.manifest.json').read_text())
-print(len(m), sum(1 for k in m if k.startswith('agent-')))")" "1 0"
+  "$(node -e 'var m=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")), k=Object.keys(m);
+  console.log(k.length, k.filter(function(x){return x.indexOf("agent-")===0;}).length)' "$OUT/.manifest.json")" "1 0"
 check "  the session says it had one" "$(field agents)" 1
 check "the sub-agent has a page" \
   "$([ -s "$OUT/sessions/$P/agent-abc123.html" ] && echo yes || echo no)" yes
@@ -90,6 +86,21 @@ check "the hook archives the session" \
   "$([ -s "$APP/.claude/.claude-conversations/$P.json" ] && echo yes || echo no)" yes
 check "  and not its sub-agents" \
   "$(ls "$APP/.claude/.claude-conversations" | grep -c '^agent-')" 0
+
+# A sub-agent caught while its last line is being written, cut inside a
+# character: read all the same, by either engine, its tokens counted.
+A2="$H/.claude/projects/$D/$P/subagents/agent-cut456.jsonl"
+printf '{"type":"assistant","cwd":"%s","isSidechain":true,"timestamp":"2026-10-06T10:00:04Z","message":{"id":"msg_CUT","model":"claude-opus-5","role":"assistant","content":[{"type":"text","text":"CUT BUT READ é"}],"usage":{"input_tokens":3,"output_tokens":4,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}\n' "$APP" > "$A2"
+printf '{"type":"assistant","isSidechain":true,"message":{"role":"assistant","content":[{"type":"text","text":"d\xc3' >> "$A2"
+build >/dev/null
+check "a sub-agent whose last line is cut inside a character still has its page" \
+  "$(grep -c 'CUT BUT READ' "$OUT/sessions/$P/agent-cut456.html" 2>/dev/null)" 1
+check "  and its tokens count" "$(grep -c '"tok":\[3,4,' "$OUT/.manifest.json")" 1
+# One that cannot be read at all is said, not dropped in silence.
+printf '{}\n' > "$H/.claude/projects/$D/$P/subagents/agent-bad789.jsonl"
+chmod 000 "$H/.claude/projects/$D/$P/subagents/agent-bad789.jsonl"
+check "a sub-agent that cannot be read is reported" "$(build | grep -c 'agent-bad789.jsonl.*could not be read')" 1
+rm -f "$H/.claude/projects/$D/$P/subagents/agent-bad789.jsonl"
 
 echo
 echo "  $pass passed, $fail failed"

@@ -16,7 +16,11 @@ check() {
   else fail=$((fail + 1)); printf '  FAIL  %s (expected %s, got %s)\n' "$1" "$3" "$2"; fi
 }
 T="$(cd "$(tmpdir chhelper)" && pwd)"
-trap 'rm -rf "$T"' EXIT
+# The app built here is unregistered before it is deleted: macOS registers
+# an app it sees appear, whatever folder it is in, and one deleted while
+# still registered is left claiming the links.
+LSREG=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+trap '[ -x "$LSREG" ] && "$LSREG" -u "$T/Claude HTML.app" >/dev/null 2>&1; rm -rf "$T"' EXIT
 APP="$T/Claude HTML.app"
 SCPT="$APP/Contents/Resources/Scripts/main.scpt"
 handles() { osadecompile "$SCPT" 2>/dev/null | grep -c "claude-html://$1/"; }
@@ -58,16 +62,23 @@ check "  through /usr/bin/open and a launcher" "$(printf '%s\n' "$PLAN" | sed -n
   "'/usr/bin/open' '$H/.claude/.claude-html-update.command'"
 env HOME="$H" CLAUDE_HTML_FORCE_NODE=1 CH_DRY=1 bash "$HERE/claude-html" --update-terminal >/dev/null 2>&1
 L="$H/.claude/.claude-html-update.command"
-check "  which runs this clone's claude-html --update, then exec's the login shell, last" \
-  "$(grep -v '^#' "$L" | head -1) | $(tail -1 "$L")" "'$(cd -P "$HERE" && pwd)/claude-html' --update | exec \"\$s\" -l"
+check "  which asks first, runs this clone's claude-html --update on a yes, then exec's the login shell, last" \
+  "$(grep -c "^printf 'Update claude-html $(cat "$HERE/VERSION") -> the newest release? \[y/N\] '\$" "$L") $(grep -c "y|Y|yes|YES) '$(cd -P "$HERE" && pwd)/claude-html' --update ;;" "$L") | $(tail -1 "$L")" \
+  "1 1 | exec \"\$s\" -l"
 # Run as Terminal would, with a stand-in for the command that fails and a
 # shell that says where it started: the window ends as that shell.
 printf '#!/bin/sh\nprintf "%%s|%%s\\n" "$(pwd -P)" "$*" > "%s/shell"\n' "$T" > "$T/stubshell"; chmod +x "$T/stubshell"
 mkdir -p "$T/fake"; printf '#!/bin/sh\necho "refused"; exit 1\n' > "$T/fake/claude-html"; chmod +x "$T/fake/claude-html"
-sed "s|^'$(cd -P "$HERE" && pwd)/claude-html' --update|'$T/fake/claude-html' --update|" "$L" > "$T/l.command"
-OUTL="$(cd "$H" && HOME="$H" SHELL="$T/stubshell" bash "$T/l.command")"
+sed "s|'$(cd -P "$HERE" && pwd)/claude-html' --update|'$T/fake/claude-html' --update|" "$L" > "$T/l.command"
+OUTL="$(cd "$H" && echo y | HOME="$H" SHELL="$T/stubshell" bash "$T/l.command")"
 check "  its output stays, and the window is the shell, even after a refusal" \
-  "$(printf '%s' "$OUTL" | head -1) | $(cat "$T/shell" 2>/dev/null)" "refused | $(cd -P "$H" && pwd)|-l"
+  "$(printf '%s' "$OUTL" | head -1) | $(cat "$T/shell" 2>/dev/null)" "Update claude-html $(cat "$HERE/VERSION") -> the newest release? [y/N] refused | $(cd -P "$H" && pwd)|-l"
+OUTL="$(cd "$H" && printf '\n' | HOME="$H" SHELL="$T/stubshell" bash "$T/l.command")"
+check "  and without a yes it changes nothing" "$(printf '%s' "$OUTL" | head -1)" \
+  "Update claude-html $(cat "$HERE/VERSION") -> the newest release? [y/N] nothing was changed"
+check "  a second window within a minute is refused" \
+  "$(env HOME="$H" CLAUDE_HTML_FORCE_NODE=1 CH_DRY=1 bash "$HERE/claude-html" --update-terminal 2>&1 | tr -d "\n"; echo " ${PIPESTATUS[0]}")" \
+  "an update window was opened less than a minute ago; nothing was opened 1"
 check "  and can be run" "$([ -x "$L" ] && echo yes)" yes
 
 echo

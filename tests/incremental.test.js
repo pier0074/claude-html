@@ -532,14 +532,16 @@ if (ENGINE === "osascript") (function () {
 // nothing. The archive and the state it keeps must both be the same bytes.
 var sh = fs.readFileSync(path.join(HERE, "save-conversation.sh"), "utf8");
 var ARCHIVER = path.join(T, "archive.js");
-// As the save writes it: the archiver, then the redactor after it.
+// As the save writes it: the archiver, then the redactor and the parse
+// after it, and the archive format release.sh names.
 fs.writeFileSync(ARCHIVER, sh.slice(sh.indexOf("<<'ARCHIVEREOF'\n") + 16, sh.indexOf("\nARCHIVEREOF\n") + 1) +
-                 fs.readFileSync(path.join(HERE, "redact.js"), "utf8"));
+                 fs.readFileSync(path.join(HERE, "redact.js"), "utf8") + fs.readFileSync(path.join(HERE, "parse.js"), "utf8"));
+var AF = /^CH_ARCHIVE_FORMAT=(\d+)/m.exec(fs.readFileSync(path.join(HERE, "release.sh"), "utf8"))[1];
 var archiveRun = loadRun(ARCHIVER);
 var AR = path.join(T, "arch"), ARCH = path.join(AR, P + ".json"), STATE = path.join(AR, ".cache", P + ".archive");
 fs.mkdirSync(AR, { recursive: true });
 function archive(engine, runner) {
-  var a = [MAIN, P, APP, String(fs.statSync(MAIN).size), ARCH, STATE];
+  var a = [MAIN, P, APP, String(fs.statSync(MAIN).size), ARCH, STATE, "", "", AF];
   var r = runner ? runner(a)
     : (engine || ENGINE) === "osascript"
     ? cp.spawnSync("osascript", ["-l", "JavaScript", ARCHIVER].concat(a), { encoding: "utf8", maxBuffer: 1 << 28 }).stdout
@@ -657,6 +659,28 @@ if (ENGINE === "osascript") {
   archThen("cut under osascript, whole under node", null, ["osascript", "node"]);
   archThen("cut under node, whole under osascript", null, ["node", "osascript"]);
 }
+
+// ── --redact-archives and a save at the same moment ─────────────────
+// A save that ran without the lock writes the archive while the command
+// is redacting it: what the save wrote is newer, and stays.
+(function () {
+  var R = path.join(T, "redact-race"), RA = path.join(R, "app"), conv = path.join(RA, ".claude", ".claude-conversations");
+  var id = "dddddddd-0000-0000-0000-000000000004", file = path.join(conv, id + ".json");
+  fs.mkdirSync(conv, { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ sourceBytes: 1, format: 3, sessionId: id, project: RA,
+    messages: [{ role: "user", text: "my token is " + SECRET_TOK }] }));
+  var saved = JSON.stringify({ sourceBytes: 2, format: 5, sessionId: id, project: RA, messages: [] });
+  var reads = 0;
+  var hooked = loadRun(path.join(HERE, "convert.js"), { readFileSync: function (p, enc) {
+    var got = fs.readFileSync(p, enc);
+    if (p === file && ++reads === 1) fs.writeFileSync(file, saved);
+    return got;
+  } });
+  var r = hooked([JSON.stringify({ root: R, out: path.join(R, "out"), here: HERE, home: path.join(R, "home"),
+                                   projects: path.join(R, "none"), exportPath: "/nonexistent", redactArchives: true })]);
+  check("--redact-archives leaves an archive a save wrote meanwhile", fs.readFileSync(file, "utf8") === saved,
+        r + " / " + fs.readFileSync(file, "utf8").slice(0, 80));
+})();
 
 console.log("  " + ENGINE + ": " + chosen.length + " split points; " + pass + " passed, " + fail + " failed");
 process.exitCode = fail ? 1 : 0;

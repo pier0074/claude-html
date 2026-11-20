@@ -60,8 +60,9 @@ for _ in $(seq 1 150); do lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1 &&
 check "a project that is serving opens its server" "$(what "$C")" server
 check "  on the port it is actually using" "$(where "$C")" "http://localhost:$PORT"
 check "  and its neighbours are unaffected" "$(what "$A")" page
-kill "$NC" 2>/dev/null; NC=""
-sleep 0.5
+kill "$NC" 2>/dev/null; wait "$NC" 2>/dev/null; NC=""
+# Waited for as an event, as the start was: the port no longer listening.
+for _ in $(seq 1 150); do lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1 || break; sleep 0.2; done
 check "once it stops serving, its folder again" "$(what "$C")" folder
 
 check "a claude.ai chat is refused" "$(refused "$D")" refused

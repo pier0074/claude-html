@@ -2,10 +2,10 @@
 #
 #   . "$HERE/release.sh"
 #
-# The Stop hook sources this after every reply, so everything below the
-# first two lines is builtins only: no command is started, no file but the
-# state and the conf is read, and nothing here ever goes to the network.
-# The network is update.sh's, once a day, from a save nobody waits on.
+# The Stop hook sources this after every reply, so reading what is here
+# starts no command, reads no file but the state and the conf, and never
+# goes to the network: the network is update.sh's, once a day, from a save
+# nobody waits on. Writing the state (ch_update_write) takes a mkdir and a mv.
 
 # Where releases come from. update.sh finds the remote whose URL this is;
 # the tests point it at a repository of their own.
@@ -14,6 +14,28 @@ CH_RELEASE_URL="https://github.com/pier0074/claude-html"
 # clone it was for (its physical path) and the newest one Claude Code has
 # already been told about.
 CH_UPDATE_STATE="$HOME/.claude/.claude-html.update"
+
+# The archive format this release writes, in one place: the save hands it
+# to the archiver and skips an archive already in it, and update.sh reads
+# it from a release's own copy of this file to say what going back costs.
+#   2  also thinking, usage and replies     3  usage may carry the cost
+#   4  redacted, by the rules and list its signature names
+#   5  read through parse.js, as the pages are: the messages a page shows,
+#      Claude Code's title, and the side remarks marked as such
+CH_ARCHIVE_FORMAT=5
+
+# Whether git can be run without anything popping up. On a Mac without
+# Apple's developer tools, /usr/bin/git is a stand-in that offers, in a
+# dialog, to install them: from a save after every reply, that would be a
+# dialog after every reply. Another git on PATH (Homebrew's) is a real one.
+ch_git_ok() {
+  _g="$(command -v git 2>/dev/null)" || return 1
+  [ -n "$_g" ] || return 1
+  if [ "$_g" = /usr/bin/git ] && [ "${CLAUDE_HTML_UNAME:-$(uname -s 2>/dev/null)}" = Darwin ]; then
+    xcode-select -p >/dev/null 2>&1 || return 1
+  fi
+  return 0
+}
 
 # A release number, X.Y.Z, without the v.
 ch_is_ver() {

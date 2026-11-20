@@ -8,6 +8,44 @@
 # The default is what install.sh would have written — the pages in the clone,
 # the projects beside it — so a missing conf changes nothing but the file.
 
+# A path made whole: ~ for the home folder, a relative one from the folder
+# this is run in, without a trailing slash. What install.sh writes in the
+# conf has been through this, so every caller reads the same folder.
+ch_abs_path() {
+  _p="${1/#\~/$HOME}"
+  case "$_p" in /*) ;; *) _p="$PWD/${_p#./}" ;; esac
+  [ "$_p" = / ] || _p="${_p%/}"
+  printf '%s' "$_p"
+}
+
+# A switch's value that means off, one way for every setting.
+ch_is_off() {
+  case "$1" in [Oo][Ff][Ff]|0|[Nn][Oo]|[Ff][Aa][Ll][Ss][Ee]) return 0 ;; esac
+  return 1
+}
+
+# A value as the conf holds it: in double quotes, which keep a space, with
+# the four characters still special in them escaped.
+ch_conf_value() { printf '"%s"' "$(printf '%s' "$1" | sed 's/[\\"$`]/\\&/g')"; }
+# One line of the conf, changed where it stands, or added on a line of its
+# own: the rest of the file, comments and all, as it was. Copied back, not
+# moved, so a conf kept as a symlink stays one.
+ch_conf_set() {   # key value
+  mkdir -p "$(dirname "$CONF")"; [ -f "$CONF" ] || : > "$CONF"
+  local tmp="$CONF.tmp.$$" line
+  line="$1=$(ch_conf_value "$2")"
+  if grep -Eq "^[[:space:]]*(export[[:space:]]+)?$1=" "$CONF"; then
+    KEY="$1" LINE="$line" awk '
+      $0 ~ "^[[:space:]]*(export[[:space:]]+)?" ENVIRON["KEY"] "=" { print ENVIRON["LINE"]; next } { print }' \
+      "$CONF" > "$tmp" && cat "$tmp" > "$CONF"; rm -f "$tmp"
+  else
+    # An editor that saves without a final newline would otherwise have the
+    # new line glued onto the user's last one, spoiling both.
+    [ -z "$(tail -c 1 "$CONF")" ] || echo >> "$CONF"
+    printf '%s\n' "$line" >> "$CONF"
+  fi
+}
+
 CONF="${CLAUDE_HTML_CONF:-$HOME/.claude/claude-html.conf}"
 # Taken before the conf is read, because reading it overwrites them.
 _conf_env_root="${CLAUDE_HTML_ROOT:-}"
@@ -23,11 +61,11 @@ _conf_env_update="${CLAUDE_HTML_UPDATE_CHECK:-}"
 if [ -f "$CONF" ]; then . "$CONF"; fi
 ROOT="${_conf_env_root:-${CLAUDE_HTML_ROOT:-$(dirname "$HERE")}}"
 OUT="${_conf_env_out:-${CLAUDE_HTML_OUT:-$HERE}}"
-ROOT="${ROOT/#\~/$HOME}"; [ "$ROOT" = / ] || ROOT="${ROOT%/}"
-OUT="${OUT/#\~/$HOME}"; [ "$OUT" = / ] || OUT="${OUT%/}"
-# Made whole, since node does its work from / and not from here.
-case "$ROOT" in /*) ;; *) ROOT="$PWD/$ROOT" ;; esac
-case "$OUT" in /*) ;; *) OUT="$PWD/$OUT" ;; esac
+# Made whole, since node does its work from / and not from here. Only a
+# path from the environment can still be relative: install.sh writes the
+# conf's whole.
+ROOT="$(ch_abs_path "$ROOT")"
+OUT="$(ch_abs_path "$OUT")"
 # convert.js reads this from the environment, and a sourced conf only sets a
 # shell variable — so hand it over explicitly.
 export CLAUDE_HTML_WEEK_RESET="${_conf_env_week:-${CLAUDE_HTML_WEEK_RESET:-}}"

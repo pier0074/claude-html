@@ -3,7 +3,32 @@
 One entry per release, newest first. Numbers are MAJOR.MINOR.PATCH: a patch
 fixes, a minor adds without breaking, a major needs something from you
 (usually `./install.sh` again). To update: `claude-html --update`; before
-3.1.0, `git pull && ./install.sh`.
+3.1.0, `git checkout main && git pull && ./install.sh`.
+
+## 3.1.3 — 2026-11-20
+
+- **The guard no longer waves a command through.** Allow, Safe or Stop on a
+  command now leaves Claude Code's own permission check to run as usual,
+  and the dialog shows the command's first line, masked.
+- Your own hooks are yours: one named like ours (`prompt-guard.sh`, a
+  `guard.sh` of your own) is no longer skipped, replaced or removed by the
+  installer. Hooks left by a clone somewhere else are replaced as a set.
+- **Archives are format 5**: read by the same code as the pages, so a
+  session whose transcript has expired keeps the very page it had: title,
+  prompts, pictures, tool output. An older archive is rewritten at its
+  session's next save; one whose transcript is gone is shown without the
+  harness's tags.
+- What claude-html writes is readable by you alone, and archive folders
+  keep themselves out of git; `--doctor` says how both stand.
+- Saves no longer stop for good behind a lock left by a crash, nor spoil an
+  archive when two run at once; the save before a compaction no longer
+  holds it up.
+- The index's update link asks before updating, at most once a minute.
+- Folders with a quote or a backslash in their name, and a relative
+  `--out` or `--root`, work; `copy` quotes the folder.
+- On a Mac without Apple's developer tools, nothing offers to install them
+  after every reply.
+- After updating: ./install.sh, then claude-html --force
 
 ## 3.1.2 — 2026-11-20
 

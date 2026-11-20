@@ -1,0 +1,3 @@
+# Never part of a release: the public commit is built from the private one
+# without this folder (dev/release.sh), as git archive would leave it out.
+dev/ export-ignore

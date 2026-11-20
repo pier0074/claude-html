@@ -3,10 +3,12 @@
 // OK. Return is OK, Escape is Cancel. The time limit is the caller's: it
 // closes this from outside, which counts as no answer.
 //
-//   osascript -l JavaScript dialog.js prompt|bash <project> <found> [<png>]
+//   osascript -l JavaScript dialog.js prompt|bash <project> <found> [<command>] [<png>]
 //
-// With <png>, for the tests only: a picture of the window is written there
-// and it closes at once, waiting for nothing.
+// <command> is the first line of the command, already masked, shown so
+// the answer is about something seen. With <png>, for the tests only: a
+// picture of the window is written there and it closes at once, waiting
+// for nothing.
 //
 // Prints cancel, allow, safe or stop. Its own window, brought forward as
 // its own: nothing is sent to another application, and no permission is
@@ -14,11 +16,11 @@
 ObjC.import("Cocoa");
 
 function run(argv) {
-  var bash = argv[0] === "bash", project = argv[1] || "", found = argv[2] || "";
+  var bash = argv[0] === "bash", project = argv[1] || "", found = argv[2] || "", command = argv[3] || "";
   var app = $.NSApplication.sharedApplication;
   app.setActivationPolicy($.NSApplicationActivationPolicyRegular);
 
-  var W = 500, H = 316, P = 24;
+  var W = 500, H = command ? 340 : 316, P = 24;
   // Titled, without a close button: an answer is one of the four.
   var win = $.NSWindow.alloc.initWithContentRectStyleMaskBackingDefer($.NSMakeRect(0, 0, W, H),
     $.NSWindowStyleMaskTitled, $.NSBackingStoreBuffered, false);
@@ -44,6 +46,12 @@ function run(argv) {
         (project ? "  ·  project " + project : ""), body, P + 54, H - 112, W - 2 * P - 54, 18);
   label("Found:", body, P, H - 134, 52, 18, $.NSColor.secondaryLabelColor);
   label(found, body, P + 54, H - 134, W - 2 * P - 54, 18);
+  if (command) {
+    label("Command:", body, P, H - 156, 70, 18, $.NSColor.secondaryLabelColor);
+    var c = label(command, $.NSFont.userFixedPitchFontOfSize(12), P + 72, H - 156, W - 2 * P - 72, 18);
+    c.cell.setLineBreakMode($.NSLineBreakByTruncatingTail);
+    c.setToolTip(command);
+  }
 
   var verb = bash ? "run" : "send";
   var choices = ["Cancel — do not " + verb,
@@ -76,7 +84,7 @@ function run(argv) {
   win.makeKeyAndOrderFront(null);
   // For the tests: a picture of what it shows, from its own window, and
   // nothing waited for.
-  var snap = argv[3] || "";
+  var snap = argv[4] || "";
   if (snap) {
     // Drawn once, as the screen would show it, before it is pictured.
     $.NSRunLoop.currentRunLoop.runUntilDate($.NSDate.dateWithTimeIntervalSinceNow(0.5));

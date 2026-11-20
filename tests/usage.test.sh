@@ -42,20 +42,29 @@ printf '{"agentType":"general-purpose","description":"task","toolUseId":"t1","mo
 
 build() { HOME="$H" run_js "$HERE/convert.js" \
   "{\"root\":\"$ROOT\",\"out\":\"$OUT\",\"here\":\"$HERE\",\"exportPath\":\"/nonexistent\"}"; }
-# the aggregated numbers for opus on the 6th, straight from the page's JSON
-usage_json() { python3 -c "
-import json,re,pathlib
-h=pathlib.Path('$OUT/usage.html').read_text()
-print(json.dumps(json.loads(re.search(r'id=\"usage-data\">(.*?)</script>',h,re.S).group(1))['byProject']))"; }
+# A JavaScript expression over d, the JSON on stdin (or, with a file and an
+# id, the JSON a page embeds there), printed as a list or a word would be
+# read: [1, 2], True, None.
+js() {
+  node -e '
+    var fs = require("fs"), a = process.argv;
+    var d = a[2] ? JSON.parse(new RegExp("id=\"" + a[3] + "\">([\\s\\S]*?)</script>").exec(fs.readFileSync(a[2], "utf8"))[1])
+                 : JSON.parse(fs.readFileSync(0, "utf8"));
+    function py(v, inner) {
+      if (v === null || v === undefined) return "None";
+      if (v === true) return "True"; if (v === false) return "False";
+      if (Array.isArray(v)) return "[" + v.map(function (x) { return py(x, 1); }).join(", ") + "]";
+      if (typeof v === "string") return inner ? "\x27" + v + "\x27" : v;
+      if (typeof v === "object") return JSON.stringify(v);
+      return String(v);
+    }
+    console.log(py(eval(a[1])));' "$1" "${2:-}" "${3:-}" "${4:-}"
+}
+# the aggregated numbers, straight from the page's JSON
+usage_json() { js 'JSON.stringify(d.byProject)' "$OUT/usage.html" usage-data; }
 # the parent's two replies are at 10:00 and 10:00; the sub-agent's too
-opus6() { usage_json | python3 -c "
-import json,sys
-d=json.load(sys.stdin)['app']
-t=[0]*5
-for hour,models in d.items():
-    if hour.startswith('2026-10-06') and 'claude-opus-5' in models:
-        for i,v in enumerate(models['claude-opus-5']): t[i]+=v
-print(t)"; }
+opus6() { usage_json | js 'var t = [0, 0, 0, 0, 0]; Object.keys(d.app).forEach(function (h) {
+  var m = d.app[h]["claude-opus-5"]; if (h.indexOf("2026-10-06") === 0 && m) m.forEach(function (v, i) { t[i] += v; }); }); t'; }
 
 build >/dev/null
 check "the dashboard is written" "$([ -s "$OUT/usage.html" ] && echo yes || echo no)" yes
@@ -65,28 +74,18 @@ check "one reply in two records counts once, and the final record wins" \
   "$(opus6)" "[17, 999, 1000, 50, 2]"
 check "  (222 from the parent + 777 from its sub-agent)" \
   "$(opus6 | grep -c 999)" 1
-check "the other model lands on its own hour" "$(usage_json | python3 -c "
-import json,sys
-print(json.load(sys.stdin)['app'].get('2026-10-07T09',{}).get('claude-haiku-4-5-20251001',[]))")" "[5, 555, 0, 0, 1]"
+check "the other model lands on its own hour" "$(usage_json | js '(d.app["2026-10-07T09"] || {})["claude-haiku-4-5-20251001"] || []')" "[5, 555, 0, 0, 1]"
 check "  keyed by the UTC hour, so the page can place it in local time" \
-  "$(usage_json | python3 -c "
-import json,sys
-print(all(len(k)==13 and k[10]=='T' for k in json.load(sys.stdin)['app']))")" True
+  "$(usage_json | js 'Object.keys(d.app).every(function (k) { return k.length === 13 && k[10] === "T"; })')" True
 check "  and the tokens are filed under their project" \
-  "$(usage_json | python3 -c "
-import json,sys
-print(','.join(sorted(json.load(sys.stdin))))")" app
+  "$(usage_json | js 'Object.keys(d).sort().join(",")')" app
 check "the page offers the three periods" \
   "$(grep -o 'id="pweek"\|id="pmonth"\|id="pall"' "$OUT/usage.html" | wc -l | tr -d ' ')" 3
 check "the manifest carries the session's usage" \
   "$(grep -c '"usage"' "$OUT/.manifest.json")" 1
 check "the index links to it" "$(grep -c 'href="usage.html"' "$OUT/index.html")" 1
 check "  but does not carry the numbers itself" \
-  "$(python3 -c "
-import json,re,pathlib
-h=pathlib.Path('$OUT/index.html').read_text()
-d=json.loads(re.search(r'id=\"index-data\">(.*?)</script>',h,re.S).group(1))
-print(sum('usage' in s for s in d['sessions']))")" 0
+  "$(js 'd.sessions.filter(function (s) { return "usage" in s; }).length' "$OUT/index.html" index-data)" 0
 
 # the week anchor reaches the page, and only when it was asked for
 check "no anchor configured means calendar weeks" \
@@ -114,36 +113,32 @@ check "  and the dashboard returns from the manifest alone" \
 # rewrites its own history the day the transcript goes.
 sed -n "/^cat > \"\$ARCHIVER\" <<'ARCHIVEREOF'\$/,/^ARCHIVEREOF\$/p" "$HERE/save-conversation.sh" |
   sed '1d;$d' > "$T/archive.js"
-# The save appends the redactor to it, and so does this.
-cat "$HERE/redact.js" >> "$T/archive.js"
+# The save appends the redactor and the parse to it, and so does this, and
+# hands it the archive format release.sh names.
+cat "$HERE/redact.js" "$HERE/parse.js" >> "$T/archive.js"
+AF="$(. "$HERE/release.sh"; printf '%s' "$CH_ARCHIVE_FORMAT")"
 printf '{"type":"assistant","cwd":"%s","timestamp":"2026-10-07T09:00:01Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"SECRET REASONING"}]}}\n' "$APP" >> "$J"
 build >/dev/null
 BEFORE="$(usage_json)"
-index_tok() { python3 -c "
-import json,re,pathlib
-h=pathlib.Path('$OUT/index.html').read_text()
-d=json.loads(re.search(r'id=\"index-data\">(.*?)</script>',h,re.S).group(1))
-print([(s['kind'],s.get('tok'),s.get('models')) for s in d['sessions']])"; }
+index_tok() { js 'd.sessions.map(function (s) { return [s.kind, s.tok, s.models]; })' "$OUT/index.html" index-data; }
 TOK_BEFORE="$(index_tok | sed 's/transcript/KIND/')"
 CONV="$APP/.claude/.claude-conversations"; mkdir -p "$CONV"
-archive() { run_js "$T/archive.js" "$J" "$P" "$APP" "$(size_of "$J")"; }
+archive() { run_js "$T/archive.js" "$J" "$P" "$APP" "$(size_of "$J")" "" "" "" "" "$AF"; }
 archive > "$CONV/$P.json"
-field_of() { python3 -c "import json; print(json.dumps(json.load(open('$1')).get('$2')))"; }
+field_of() { js 'JSON.stringify(d[process.argv[4]] === undefined ? null : d[process.argv[4]])' < "$1" "" "" "$2"; }
 check "the archive records tokens, sub-agent's included, as the build counts them" \
   "$(field_of "$CONV/$P.json" usage)" \
-  "$(printf '%s' "$BEFORE" | python3 -c "import json,sys; print(json.dumps(json.load(sys.stdin)['app']))")"
+  "$(printf '%s' "$BEFORE" | js 'JSON.stringify(d.app)')"
 check "  and each reply under its message id" \
-  "$(python3 -c "import json; print(sorted(r[0] for r in json.load(open('$CONV/$P.json'))['replies']))")" \
+  "$(js 'd.replies.map(function (r) { return r[0]; }).sort()' < "$CONV/$P.json")" \
   "['msg_A', 'msg_B', 'msg_C']"
 check "  and the thinking" "$(grep -c 'SECRET REASONING' "$CONV/$P.json")" 1
 check "  while the fields it always had are as they were" \
-  "$(python3 -c "
-import json; a=json.load(open('$CONV/$P.json'))
-print(a['sessionId'], a['promptCount'], a['project']=='$APP')")" "$P 1 True"
+  "$(js '[d.sessionId, d.promptCount, d.project === process.argv[4]].map(function (x) { return x === true ? "True" : String(x); }).join(" ")' < "$CONV/$P.json" "" "" "$APP")" "$P 1 True"
 if command -v osascript >/dev/null 2>&1 && command -v node >/dev/null 2>&1; then
   check "  and both engines write it byte for byte the same" \
-    "$(cmp -s <(osascript -l JavaScript "$T/archive.js" "$J" "$P" "$APP" 9) \
-               <(node "$T/archive.js" "$J" "$P" "$APP" 9) && echo same || echo differ)" same
+    "$(cmp -s <(osascript -l JavaScript "$T/archive.js" "$J" "$P" "$APP" 9 "" "" "" "" "$AF") \
+               <(node "$T/archive.js" "$J" "$P" "$APP" 9 "" "" "" "" "$AF") && echo same || echo differ)" same
 fi
 
 # Sub-agents can run to a gigabyte, so a save reuses what the last one kept
@@ -151,7 +146,7 @@ fi
 # fixture stays as the checks below expect it.
 mkdir -p "$T/copy"; cp "$J" "$T/copy/$P.jsonl"; cp -R "$H/.claude/projects/$D/$P" "$T/copy/"
 STATE="$T/copy/cache/$P.archive"
-again() { run_js "$T/archive.js" "$T/copy/$P.jsonl" "$P" "$APP" 9 "$T/copy/prev.json" "$STATE"; }
+again() { run_js "$T/archive.js" "$T/copy/$P.jsonl" "$P" "$APP" 9 "$T/copy/prev.json" "$STATE" "" "" "$AF"; }
 again > "$T/copy/fresh.json"
 cp "$T/copy/fresh.json" "$T/copy/prev.json"
 again > "$T/copy/reused.json"
@@ -197,19 +192,15 @@ rm -f "$H/.claude/projects/$D/$Q.jsonl"
 # knows the numbers, they are kept; with nothing to go on, the session is
 # still built, only without tokens.
 build >/dev/null
-python3 -c "
-import json; p='$CONV/$P.json'; a=json.load(open(p))
-for k in ('usage','replies','format'): a.pop(k,None)
-for m in a['messages']: m.pop('thinking',None)
-json.dump(a,open(p,'w'))"
+node -e 'var fs=require("fs"),p=process.argv[1],a=JSON.parse(fs.readFileSync(p,"utf8"));
+  delete a.usage; delete a.replies; delete a.format; a.messages.forEach(function (m) { delete m.thinking; });
+  fs.writeFileSync(p,JSON.stringify(a))' "$CONV/$P.json"
 R="$(build)"
 check "an old archive is rebuilt" "$(printf '%s' "$R" | sed -n 's/.*"built":\([0-9]*\).*"errors":\(\[\]\).*/\1 \2/p')" "1 []"
 check "  and keeps the numbers the last build had" "$(usage_json)" "$BEFORE"
 check "  on the index too" "$(index_tok | sed 's/archive/KIND/')" "$TOK_BEFORE"
-python3 -c "
-import json; p='$OUT/.manifest.json'; m=json.load(open(p))
-for e in m.values(): e['uv']=3
-json.dump(m,open(p,'w'))"
+node -e 'var fs=require("fs"),p=process.argv[1],m=JSON.parse(fs.readFileSync(p,"utf8"));
+  Object.keys(m).forEach(function (k) { m[k].uv = 3; }); fs.writeFileSync(p,JSON.stringify(m))' "$OUT/.manifest.json"
 build >/dev/null
 check "  and across the upgrade that added cost, from a version 3 manifest" "$(usage_json)" "$BEFORE"
 R="$(HOME="$H" run_js "$HERE/convert.js" \
@@ -314,18 +305,17 @@ check "  the same from a clean build" "$(costsum)" 5034567
 # The archive carries the cost, so it outlives the transcript.
 CCONV="$CAPP/.claude/.claude-conversations"; mkdir -p "$CCONV"
 for s in $S1 $S3; do
-  run_js "$T/archive.js" "$CP/$s.jsonl" "$s" "$CAPP" "$(size_of "$CP/$s.jsonl")" > "$CCONV/$s.json"
+  run_js "$T/archive.js" "$CP/$s.jsonl" "$s" "$CAPP" "$(size_of "$CP/$s.jsonl")" "" "" "" "" "$AF" > "$CCONV/$s.json"
 done
 check "the archive records the cost as the build does" \
-  "$(python3 -c "
-import json; a=json.load(open('$CCONV/$S1.json'))
-print(sum(m[5] for h in a['usage'].values() for m in h.values() if len(m)>5), a.get('costPart'))")" "2284567 None"
+  "$(js 'var n = 0; Object.keys(d.usage).forEach(function (h) { Object.keys(d.usage[h]).forEach(function (m) {
+    var r = d.usage[h][m]; if (r.length > 5) n += r[5]; }); }); n + " " + (d.costPart === undefined ? "None" : d.costPart)' < "$CCONV/$S1.json")" "2284567 None"
 check "  and that it is a floor, when it is" \
-  "$(python3 -c "import json; print(json.load(open('$CCONV/$S3.json')).get('costPart'))")" True
+  "$(js 'd.costPart' < "$CCONV/$S3.json")" True
 if command -v osascript >/dev/null 2>&1 && command -v node >/dev/null 2>&1; then
   check "  both engines write it byte for byte the same" \
-    "$(cmp -s <(osascript -l JavaScript "$T/archive.js" "$CP/$S1.jsonl" "$S1" "$CAPP" 9) \
-               <(node "$T/archive.js" "$CP/$S1.jsonl" "$S1" "$CAPP" 9) && echo same || echo differ)" same
+    "$(cmp -s <(osascript -l JavaScript "$T/archive.js" "$CP/$S1.jsonl" "$S1" "$CAPP" 9 "" "" "" "" "$AF") \
+               <(node "$T/archive.js" "$CP/$S1.jsonl" "$S1" "$CAPP" 9 "" "" "" "" "$AF") && echo same || echo differ)" same
 fi
 BEFORE_COST="$(cells)"
 mkdir -p "$C/gone"; mv "$CP/$S1.jsonl" "$CP/$S3.jsonl" "$C/gone/"
@@ -337,11 +327,9 @@ check "  and the dashboard is exactly as it was" "$(cells)" "$BEFORE_COST"
 
 # An archive from yesterday has five figures to a cell: it still builds,
 # with tokens and without a cost.
-python3 -c "
-import json; p='$CCONV/$S1.json'; a=json.load(open(p)); a['format']=2
-for h in a['usage'].values():
-    for m in h.values(): del m[5:]
-json.dump(a,open(p,'w'))"
+node -e 'var fs=require("fs"),p=process.argv[1],a=JSON.parse(fs.readFileSync(p,"utf8")); a.format=2;
+  Object.keys(a.usage).forEach(function (h) { Object.keys(a.usage[h]).forEach(function (m) { a.usage[h][m].length = Math.min(5, a.usage[h][m].length); }); });
+  fs.writeFileSync(p,JSON.stringify(a))' "$CCONV/$S1.json"
 R="$(cbuild)"
 check "a five-figure archive still builds" \
   "$(printf '%s' "$R" | sed -n 's/.*"built":\([0-9]*\).*"errors":\(\[\]\).*/\1 \2/p')" "1 []"
@@ -421,7 +409,7 @@ out.weekB = text("cards");
 console.log(JSON.stringify(out));
 EOF
 page() { TZ=UTC node "$T/page.js" "$HERE" "${1:-}"; }
-field() { python3 -c "import json,sys; print(json.load(sys.stdin)['$1'])"; }
+field() { js 'd[process.argv[4]]' "" "" "$1"; }
 P0="$(page)"
 check "the subtitle claims no plan reset nobody configured" \
   "$(printf '%s' "$P0" | field sub | grep -c "plan's reset")" 0
@@ -496,7 +484,7 @@ CDATA='{"weekReset":"mon 00:00","coverage":{"a":[2,1,0],"b":[1,0,0]},"byProject"
  "a":{"2026-10-06T10":{"claude-opus-5":[10,100,1000,50,2,1234567],"claude-haiku-4-5":[1,10,0,0,1]}},
  "b":{"2026-10-13T10":{"claude-opus-5":[5,50,500,0,1]}}}}'
 PC="$(TZ=UTC node "$T/pagecost.js" "$HERE" "" "$CDATA")"
-cf() { printf '%s' "$PC" | python3 -c "import json,sys; print(json.load(sys.stdin)['$1'])"; }
+cf() { printf '%s' "$PC" | js 'd[process.argv[4]]' "" "" "$1"; }
 check "cost: the all-time card says what is known" "$(cf all | cut -d' ' -f5-7)" "≈ \$1.23 cost"
 check "  the bar's tooltip carries it" "$(cf tip)" True
 check "  the lower table has it per project, and — where none is known" \

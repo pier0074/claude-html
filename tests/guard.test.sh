@@ -21,7 +21,7 @@ node "$HERE/tests/guard.test.js" fixture "$T"
 . "$HERE/platform.sh"
 H="$T/home"; mkdir -p "$H/.claude" "$T/bin"
 LOG="$T/log"; : > "$LOG"
-LIST="$H/.claude/claude-html.redact"; CONFF="$H/.claude/claude-html.conf"; STATE="$H/.claude/.claude-html.guard"
+LIST="$H/.claude/claude-html.redact"; CONFF="$H/.claude/claude-html.conf"; STATE="$H/.claude/.claude-html-guard/sess-1"
 printf 'CLAUDE_HTML_ROOT="%s"\nCLAUDE_HTML_OUT="%s"\n' "$T/root" "$T/out" > "$CONFF"
 
 ENGINES=node; [ "$HAVE_OSASCRIPT" = true ] && ENGINES="osascript node"
@@ -81,11 +81,14 @@ for ENG in $ENGINES; do
   hook prompt "$T/note.secret" >/dev/null
   check "$ENG: allow (any case, spaces) lets it go once" \
     "$(hook prompt "$T/note.w_allow" | grep -c 'Allowed once. Press')" 1
-  check "$ENG:   writing nothing to the list" "$([ -f "$LIST" ] && grep -c . "$LIST" || echo 0)" 0
+  check "$ENG:   writing nothing to the list" "$(cat "$LIST" 2>/dev/null | grep -c .)" 0
   check "$ENG:   only in its own session" "$(blocked "$(hook prompt "$T/note.secret2")")" blocked
-  hook prompt "$T/note.secret" >/dev/null; hook prompt "$T/note.w_allow" >/dev/null
   check "$ENG:   then the same prompt passes" "$(blocked "$(hook prompt "$T/note.secret")")" passed
   check "$ENG:   once: the next time it is stopped again" "$(blocked "$(hook prompt "$T/note.secret")")" blocked
+  hook prompt "$T/note.clean2" >/dev/null
+  check "$ENG:   a prompt in another session leaves this one's answer pending" \
+    "$(hook prompt "$T/note.w_cancel" | grep -c 'Dropped. Nothing was sent.')" 1
+  hook prompt "$T/note.secret" >/dev/null
 
   RSIG0="$(CLAUDE_HTML_REDACT_FILE="$LIST" ch_redact_sig "$HERE")"
   R="$(hook prompt "$T/note.w_safe")"
@@ -177,6 +180,15 @@ check "xmessage: four buttons, Cancel the default" \
 check "a command's dialog says run, not send" \
   "$(CH_DIALOG=zenity CH_DRY=1 ch_choose bash Weather "MySQL password (1)" | tr '\n' ' ' | grep -c "command has been interrupted.*'TRUE' 'Cancel — do not run' 'FALSE' 'Allow once — it is sensitive, run it this time only'")" 1
 
+# Where the answer is kept while the dialog is up: a folder of its own,
+# made by mktemp, and gone after. No name next to it that another user of
+# a shared /tmp could guess and make first.
+mkdir -p "$T/bin2" "$T/gtmp"
+printf '#!/bin/sh\nls -l "$TMPDIR" | grep -v "^total" > "%s/tmp-seen"\necho "Cancel — do not send"\n' "$T" > "$T/bin2/zenity"; chmod +x "$T/bin2/zenity"
+A_="$(PATH="$T/bin2:$PATH" TMPDIR="$T/gtmp" CH_DIALOG=zenity ch_choose prompt P "GitHub token (1)")"
+check "the dialog's answer is kept in a folder of its own, gone after" \
+  "$A_ $(grep -c '^d' "$T/tmp-seen") $(grep -c . "$T/tmp-seen") $(ls -A "$T/gtmp" | wc -l | tr -d ' ')" "cancel 1 1 0"
+
 # Each answer through a stand-in zenity on a simulated Linux desktop.
 cat > "$T/bin/zenity" <<'EOF'
 #!/bin/sh
@@ -233,7 +245,12 @@ rm -f "$STATE"
 check "a command with no one to ask: Claude Code's own dialog asks" \
   "$(dlg Allow bash "$T/note.bash_mysql" DISPLAY= | grep -c '"permissionDecision":"ask"')" 1
 rm -f "$STATE"
-check "a command, dialog Allow: allowed" "$(dlg Allow bash "$T/note.bash_mysql" | grep -c '"permissionDecision":"allow"')" 1
+check "a command, dialog Allow: no decision, so Claude Code's own permission check still runs" \
+  "$(dlg Allow bash "$T/note.bash_mysql")" ""
+check "  and nothing left pending" "$([ -f "$STATE" ] && echo yes || echo no)" no
+: > "$T/stub.args"
+check "the dialog shows the command's first line, masked, quotes and all" \
+  "$(dlg Allow bash "$T/note.bash_multi"; grep -c '^Command:  echo "a\\b" mysql .*\*\*\*.* …$' "$T/stub.args")" 1
 check "a command, dialog Cancel: refused, Claude told how to do without" \
   "$(dlg Cancel bash "$T/note.bash_mysql" | grep -c '"permissionDecision":"deny".*~/.my.cnf')" 1
 check "  the command's dialog said so" "$(grep -c "^--text=Claude's command has been interrupted$" "$T/stub.args") $(grep -cx 'Cancel — do not run' "$T/stub.args")" "2 2"

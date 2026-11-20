@@ -11,6 +11,7 @@ set -u
 . "$(dirname "$0")/lib.sh"
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
+AF="$(. "$HERE/release.sh"; printf "%s" "$CH_ARCHIVE_FORMAT")"
 pass=0; fail=0
 check() {
   if [ "$2" = "$3" ]; then pass=$((pass + 1)); printf '  ok    %s\n' "$1"
@@ -80,13 +81,12 @@ check "  and clears the failure" "$(exists "$ROOT/pages/.archive-errors/$ID.json
 # An archive written before the format carried tokens and thinking is
 # written again once while its transcript is still here, though the
 # transcript has not grown — and only once.
-check "an archive says which format it is" "$(head -c 200 "$A" | grep -c '"format":4,')" 1
-python3 -c "
-import json; p='$A'; a=json.load(open(p)); a.pop('format'); a.pop('usage'); a.pop('replies')
-open(p,'w').write(json.dumps(a,separators=(',',':')))"
+check "an archive says which format it is" "$(head -c 200 "$A" | grep -c "\"format\":$AF,")" 1
+node -e 'var fs=require("fs"),p=process.argv[1],a=JSON.parse(fs.readFileSync(p,"utf8"));
+  delete a.format; delete a.usage; delete a.replies; fs.writeFileSync(p,JSON.stringify(a))' "$A"
 printf '%s' "$NOTE" | save "--try"
 check "an older archive is brought up to date from the same transcript" \
-  "$(head -c 200 "$A" | grep -c '"format":4,') $(grep -c '"usage":{' "$A")" "1 1"
+  "$(head -c 200 "$A" | grep -c "\"format\":$AF,") $(grep -c '"usage":{' "$A")" "1 1"
 touch -t 202001010000 "$A"
 printf '%s' "$NOTE" | save "--try"
 check "  and then left alone" "$(mtime_of "$A")" "$(touch -t 202001010000 "$T/ref" && mtime_of "$T/ref")"
@@ -96,16 +96,13 @@ check "  and then left alone" "$(mtime_of "$A")" "$(touch -t 202001010000 "$T/re
 # written — is rewritten once, or the cost would be lost with the transcript.
 printf '%s\n' '{"type":"cost-state","sessionId":"'"$ID"'","totalCostUSD":1.25,"startTime":1789000000000,"modelUsage":{"claude-opus-5":{"costUSD":1.25}}}' >> "$J"
 printf '%s' "$NOTE" | save "--try"
-python3 -c "
-import json; p='$A'; a=json.load(open(p)); a['format']=2
-for h in a['usage'].values():
-    for m in h.values(): del m[5:]
-open(p,'w').write(json.dumps(a,separators=(',',':')))"
+node -e 'var fs=require("fs"),p=process.argv[1],a=JSON.parse(fs.readFileSync(p,"utf8")); a.format=2;
+  Object.keys(a.usage).forEach(function(h){ Object.keys(a.usage[h]).forEach(function(m){ a.usage[h][m].length=Math.min(5,a.usage[h][m].length); }); });
+  fs.writeFileSync(p,JSON.stringify(a))' "$A"
 printf '%s' "$NOTE" | save "--try"
 check "a format 2 archive of an unchanged transcript is rewritten with its cost" \
-  "$(head -c 200 "$A" | grep -c '"format":4,') $(python3 -c "
-import json; a=json.load(open('$A'))
-print(sum(m[5] for h in a['usage'].values() for m in h.values() if len(m)>5))")" "1 1250000"
+  "$(head -c 200 "$A" | grep -c "\"format\":$AF,") $(node -e 'var a=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")),n=0;
+  Object.keys(a.usage).forEach(function(h){ Object.keys(a.usage[h]).forEach(function(m){ var r=a.usage[h][m]; if(r.length>5) n+=r[5]; }); }); console.log(n)' "$A")" "1 1250000"
 
 # A nested folder the build cannot find on its own — the transcript is filed
 # elsewhere and names another cwd — goes on the durable list when the hook
@@ -146,6 +143,109 @@ check "  and has not saved yet: it is waiting its turn in the background" "$(exi
 rm -rf "$T/home/.claude/.claude-html.lock"
 for _ in $(seq 1 600); do [ -f "$A" ] && break; sleep 0.2; done   # an event, waited for up to two minutes
 check "  and the save still happens once it can" "$(exists "$A")" yes
+
+# Before a compaction, the same: Claude Code waits for the hook, and the
+# transcript keeps what the compaction summarises, so nothing is lost by
+# saving it just after.
+for _ in $(seq 1 1200); do [ -d "$T/home/.claude/.claude-html.lock" ] || break; sleep 0.1; done
+rm -f "$A"
+PC_NOTE="{\"session_id\":\"$ID\",\"transcript_path\":\"$J\",\"cwd\":\"$APP\",\"hook_event_name\":\"PreCompact\",\"trigger\":\"auto\"}"
+mkdir -p "$T/home/.claude/.claude-html.lock" && echo $$ > "$T/home/.claude/.claude-html.lock/pid"
+printf '%s' "$PC_NOTE" | save ""
+check "the pre-compaction hook returns at once, with another save holding the lock" \
+  "$(cat "$T/home/.claude/.claude-html.lock/pid" 2>/dev/null) $(exists "$A")" "$$ no"
+rm -rf "$T/home/.claude/.claude-html.lock"
+for _ in $(seq 1 600); do [ -f "$A" ] && break; sleep 0.2; done
+check "  and its save happens in the background" "$(exists "$A")" yes
+
+# ── for its owner only ──────────────────────────────────────────────
+# Claude Code keeps transcripts readable by their owner alone; what is made
+# of them is kept the same way. What an earlier release left readable by
+# everyone is made so too, and a file of the owner's own in the pages
+# folder is left as it was.
+mode() { ls -ld "$1" | cut -c1-10; }
+P1="$(ls "$ROOT/pages/sessions/"*.html | head -1)"
+chmod 755 "$ROOT/pages/sessions" "$APP/.claude/.claude-conversations"; chmod 644 "$P1" "$A"
+printf 'mine\n' > "$ROOT/pages/notes.txt"; chmod 644 "$ROOT/pages/notes.txt"
+printf '%s\n' '{"type":"user","cwd":"/somewhere/old","timestamp":"2026-09-11T10:03:00Z","message":{"role":"user","content":"and once more"}}' >> "$J"
+for _ in $(seq 1 1200); do [ -d "$T/home/.claude/.claude-html.lock" ] || break; sleep 0.1; done
+printf '%s' "$NOTE" | save "--try"
+check "pages, their folders and the archive are its owner's alone" \
+  "$(mode "$P1") $(mode "$ROOT/pages/sessions") $(mode "$A") $(mode "$APP/.claude/.claude-conversations")" \
+  "-rw------- drwx------ -rw------- drwx------"
+check "  new ones too" "$(mode "$ROOT/pages/.manifest.json") $(mode "$ROOT/pages/index.html")" "-rw------- -rw-------"
+check "  and the owner's own file there is left as it was" "$(mode "$ROOT/pages/notes.txt")" "-rw-r--r--"
+check "--doctor says so" "$(env HOME="$T/home" bash "$HERE/claude-html" --doctor 2>/dev/null | grep -c '^  private   what it wrote there is readable by you alone$')" 1
+
+# ── archives stay out of git ────────────────────────────────────────
+G() { HOME="$T/home" GIT_CONFIG_NOSYSTEM=1 git -c user.name=t -c user.email=t@example.invalid -C "$APP" "$@"; }
+G init -q
+check "the archive folder ignores itself" "$(cat "$APP/.claude/.claude-conversations/.gitignore" | grep -cx '\*')" 1
+check "  so a project's git never sees an archive" "$(G status --porcelain --untracked-files=all | grep -c claude-conversations)" 0
+rm "$APP/.claude/.claude-conversations/.gitignore"
+check "--doctor names an archive folder git would commit" \
+  "$(env HOME="$T/home" bash "$HERE/claude-html" --doctor 2>/dev/null | grep -c "^            $APP/.claude/.claude-conversations\$")" 1
+for _ in $(seq 1 1200); do [ -d "$T/home/.claude/.claude-html.lock" ] || break; sleep 0.1; done
+printf '%s' "$NOTE" | save "--try"
+check "  and the next save there puts the .gitignore back" "$(G status --porcelain --untracked-files=all | grep -c claude-conversations)" 0
+
+# ── a save run from a folder below the project ──────────────────────
+# A hook runs in the session's current folder, which Claude may have
+# changed: the archive still goes to the folder the session was launched
+# in, which the transcript names, and the page keeps that project.
+ID2=eeeeeeee-0000-0000-0000-000000000077
+J2="$T/home/.claude/projects/$D/$ID2.jsonl"
+printf '{"type":"user","cwd":"%s","timestamp":"2026-09-12T10:00:00Z","message":{"role":"user","content":"launched in the app"}}\n' "$APP" > "$J2"
+printf '{"type":"user","cwd":"%s/src","timestamp":"2026-09-12T10:01:00Z","message":{"role":"user","content":"then went into src"}}\n' "$APP" >> "$J2"
+mkdir -p "$APP/src"
+for _ in $(seq 1 1200); do [ -d "$T/home/.claude/.claude-html.lock" ] || break; sleep 0.1; done
+printf '{"session_id":"%s","transcript_path":"%s","cwd":"%s/src","hook_event_name":"Stop"}' "$ID2" "$J2" "$APP" |
+  env HOME="$T/home" /bin/bash -c "cd '$APP/src' && /bin/bash '$HERE/save-conversation.sh' --try" >/dev/null 2>&1
+check "a save run in a folder below the project archives into the project" \
+  "$(exists "$APP/.claude/.claude-conversations/$ID2.json") $([ -d "$APP/src/.claude" ] && echo stray)" "yes "
+# One left there by an earlier release, newer than the right one, does not
+# move the session to a project called src.
+mkdir -p "$APP/src/.claude/.claude-conversations"
+cp "$APP/.claude/.claude-conversations/$ID2.json" "$APP/src/.claude/.claude-conversations/$ID2.json"
+touch -t 203001010000 "$APP/src/.claude/.claude-conversations/$ID2.json"
+printf "%s\n" "$APP/src" >> "$T/home/.claude/claude-html.archives"
+env HOME="$T/home" bash "$HERE/claude-html" "$ID2" >/dev/null 2>&1
+check "  and of two archives, the one in the transcript's folder names the project" \
+  "$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))[process.argv[2]].project)' "$ROOT/pages/.manifest.json" "$ID2")" app
+
+# ── no /bin/bash taken for granted ──────────────────────────────────
+# Some systems (NixOS) have no /bin/bash: a save that relaunched itself
+# through it failed there, detached, so nobody saw. The scripts start
+# through env, and relaunch with the bash that runs them.
+check "no script starts with #!/bin/bash, nor runs one through it" \
+  "$(grep -l '^#!/bin/bash' "$HERE"/*.sh "$HERE/claude-html" | wc -l | tr -d ' ') $(grep -cE '(^|[;&|(]|nohup)[[:space:]]*/bin/bash[[:space:]]' "$HERE/save-conversation.sh")" "0 0"
+
+# ── the helper app: a Mac's only ────────────────────────────────────
+# The save and the command keep the helper app in step on a Mac; elsewhere
+# there is none to build, and the build script is never run. A stand-in
+# for it, in a copy of the clone, says when it is.
+CL="$T/clone"; mkdir -p "$CL"
+for f in "$HERE"/*.sh "$HERE"/*.js "$HERE/claude-html" "$HERE/VERSION" "$HERE/viewer"; do cp -R "$f" "$CL/"; done
+printf '#!/bin/sh\necho "$*" >> "%s/helper-calls"\n' "$T" > "$CL/helper-build.sh"; chmod +x "$CL/helper-build.sh"
+hsave() { env -u CLAUDE_HTML_NO_REGISTER HOME="$T/home" "$@" /bin/bash -c "cd '$APP' && bash '$CL/save-conversation.sh' --try" </dev/null >/dev/null 2>&1
+          env -u CLAUDE_HTML_NO_REGISTER HOME="$T/home" "$@" bash "$CL/claude-html" "$ID" >/dev/null 2>&1; }
+for _ in $(seq 1 1200); do [ -d "$T/home/.claude/.claude-html.lock" ] || break; sleep 0.1; done
+rm -f "$T/helper-calls"; hsave CLAUDE_HTML_UNAME=Linux CLAUDE_HTML_FORCE_NODE=1
+check "on Linux neither the save nor the command runs the helper's build" "$(cat "$T/helper-calls" 2>/dev/null | wc -l | tr -d ' ')" 0
+if [ "$HAVE_OSASCRIPT" = true ]; then
+  rm -f "$T/helper-calls"; hsave CLAUDE_HTML_UNAME=Darwin
+  check "  on a Mac both keep it in step" "$(grep -c -- '--register --if-stale' "$T/helper-calls" 2>/dev/null)" 2
+fi
+
+# ── archive failures of sessions that are gone ──────────────────────
+GONE_ID=ffffffff-0000-0000-0000-00000000dead
+mkdir -p "$ROOT/pages/.archive-errors"
+printf '{"id":"%s","source":"/x","error":"archiving failed: old","kind":"archive"}\n' "$GONE_ID" > "$ROOT/pages/.archive-errors/$GONE_ID.json"
+printf '{"id":"%s","source":"/x","error":"archiving failed: now","kind":"archive"}\n' "$ID" > "$ROOT/pages/.archive-errors/$ID.json"
+env HOME="$T/home" bash -c '. "$0/conf.sh"; . "$0/platform.sh"; ch_pick_engine; ch_js "$0/convert.js" "$(ch_js_opts "$0")"' "$HERE" >/dev/null 2>&1
+check "an archive failure of a session no longer there is cleared by the build, one still there kept" \
+  "$(exists "$ROOT/pages/.archive-errors/$GONE_ID.json") $(exists "$ROOT/pages/.archive-errors/$ID.json")" "no yes"
+rm -f "$ROOT/pages/.archive-errors/$ID.json"
 
 echo
 echo "  $pass passed, $fail failed"

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Moving a clone from one release to another, and the daily look for a new one.
 #
 #   update.sh <clone> <env> go [X.Y.Z] [--yes]   claude-html --update [X.Y.Z]
@@ -20,6 +20,7 @@
 # that line, or a copy that is not a clone at all - is never fetched for nor
 # moved: it is told how it is updated instead.
 set -uo pipefail
+umask 077
 
 HERE="${1:-}"; shift || true
 [ -n "$HERE" ] && [ -d "$HERE" ] || { echo "update.sh: which clone?" >&2; exit 2; }
@@ -79,7 +80,9 @@ norm_url() {
 # KIND to release, dev, noclone or nogit, and R to the release remote.
 KIND=""; R=""; WHY=""
 classify() {
-  if ! command -v git >/dev/null 2>&1; then KIND=nogit; return; fi
+  # Not a clone at all is known from the disk, before git is asked anything.
+  if [ ! -e "$HERE/.git" ]; then KIND=noclone; return; fi
+  if ! ch_git_ok; then KIND=nogit; return; fi
   local top
   top="$(g rev-parse --show-toplevel 2>/dev/null)" || top=""
   [ -n "$top" ] && top="$(cd -P "$top" 2>/dev/null && pwd)"
@@ -158,10 +161,15 @@ changelog_between() {
     on { print }'
 }
 
-# The archive format a release writes, from its own save script.
+# The archive format a release writes: CH_ARCHIVE_FORMAT in its own
+# release.sh, or, for a release from before that line, the number in its
+# save script.
 archive_format() {
-  g show "v$1:save-conversation.sh" 2>/dev/null |
-    sed -n 's/^[[:space:]]*format:[[:space:]]*\([0-9][0-9]*\),.*/\1/p' | head -1
+  local f
+  f="$(g show "v$1:release.sh" 2>/dev/null | sed -n 's/^CH_ARCHIVE_FORMAT=\([0-9][0-9]*\).*/\1/p' | head -1)"
+  [ -n "$f" ] || f="$(g show "v$1:save-conversation.sh" 2>/dev/null |
+    sed -n 's/^[[:space:]]*format:[[:space:]]*\([0-9][0-9]*\),.*/\1/p' | head -1)"
+  printf '%s' "$f"
 }
 
 # The state the daily check keeps, brought up to date from a fetch made by hand.
@@ -210,7 +218,15 @@ daily() {
   if [ "$CH_UP_HERE" = "$HERE" ] && [ $((now - ${CH_UP_CHECKED:-0})) -lt 86400 ] &&
      [ $((now - ${CH_UP_CHECKED:-0})) -ge 0 ]; then return 0; fi
   classify
-  [ "$KIND" = release ] || return 0
+  # Any other kind of copy is looked at once a day too, not after every
+  # reply: its check is recorded, with nothing found.
+  if [ "$KIND" != release ]; then
+    ch_update_read
+    [ "$CH_UP_HERE" = "$HERE" ] || { CH_UP_NEWEST=""; CH_UP_TOLD=""; }
+    CH_UP_CHECKED="$now"; CH_UP_HERE="$HERE"
+    ch_update_write
+    return 0
+  fi
   local out newest="" t v
   out="$(mktemp "${TMPDIR:-/tmp}/claude-html-tags.XXXXXX")" || return 0
   # A release is a tag on main. Without fetching, that is known of a tag
@@ -234,7 +250,9 @@ daily() {
     done < "$out"
   fi
   rm -f "$out"
-  # Asked, whatever the answer: offline, the next try is tomorrow.
+  # Asked, whatever the answer: offline, the next try is tomorrow. Read
+  # again first: a reply's hook may have told of a release meanwhile.
+  ch_update_read
   [ "$CH_UP_HERE" = "$HERE" ] || { CH_UP_NEWEST=""; CH_UP_TOLD=""; }
   CH_UP_CHECKED="$now"; CH_UP_HERE="$HERE"
   [ -n "$newest" ] && CH_UP_NEWEST="$newest"
@@ -368,7 +386,8 @@ if [ "$BACK" = true ]; then
   NEWF="$(archive_format "$INSTALLED")"; OLDF="$(archive_format "$TARGET")"
   echo "Going back from $INSTALLED to $TARGET."
   if [ -n "$NEWF" ] && { [ -z "$OLDF" ] || [ "$OLDF" -lt "$NEWF" ]; }; then
-    echo "  $TARGET cannot read the archives $INSTALLED writes (archive format $NEWF, since 3.0.0; $TARGET knows ${OLDF:+format $OLDF and older}${OLDF:-only older formats}):"
+    KNOWS="only older formats"; [ -z "$OLDF" ] || KNOWS="format $OLDF and older"
+    echo "  $TARGET cannot read the archives $INSTALLED writes (archive format $NEWF; $TARGET knows $KNOWS):"
     echo "  sessions whose transcripts are gone will be missing from its pages."
   else
     echo "  An older release may not read what a newer one wrote; both write archive format ${NEWF:-?}."
@@ -391,29 +410,15 @@ if [ "$BACK" = true ]; then
 fi
 
 # A save must not run while the scripts it runs are being replaced: take
-# its lock, waiting as the command does, and give up politely.
-LOCK="$HOME/.claude/.claude-html.lock"; OWN_LOCK=0
-take_lock() {
-  local waited=0 pid limit=$(( ${CLAUDE_HTML_UPDATE_LOCK_WAIT:-60} * 2 ))
-  mkdir -p "$(dirname "$LOCK")" 2>/dev/null || true
-  while ! mkdir "$LOCK" 2>/dev/null; do
-    pid="$(cat "$LOCK/pid" 2>/dev/null || true)"
-    if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then rm -rf "$LOCK"; continue; fi
-    if [ -z "$pid" ] && [ -n "$(find "$LOCK" -maxdepth 0 -mmin +2 2>/dev/null)" ]; then
-      rm -rf "$LOCK"; continue
-    fi
-    # The whole wait, then give up: not half a second short of it. Said
-    # once, so a pause is not taken for a hang.
-    [ "$waited" -ge "$limit" ] && return 1
-    [ "$waited" = 0 ] && echo "a save is running; waiting for it to finish (up to $((limit / 2)) s)…" >&2
-    sleep 0.5
-    waited=$((waited + 1))
-  done
-  echo $$ > "$LOCK/pid"; OWN_LOCK=1
-}
-release_lock() { [ "$OWN_LOCK" = 1 ] && rm -rf "$LOCK"; OWN_LOCK=0; return 0; }
+# its lock, waiting as the command does, and give up politely. Said once,
+# so a pause is not taken for a hang. lock.sh is the copy beside this one,
+# or the clone's for a copy made by an older command.
+# shellcheck source=lock.sh
+if [ -f "$SELF/lock.sh" ]; then . "$SELF/lock.sh"; else . "$HERE/lock.sh"; fi
+release_lock() { ch_lock_release; }
 trap 'release_lock' EXIT
-if ! take_lock; then
+_lw="${CLAUDE_HTML_UPDATE_LOCK_WAIT:-60}"
+if ! ch_lock_take "$_lw" "a save is running; waiting for it to finish (up to $_lw s)…"; then
   echo "a save is still running; try again in a moment — nothing was changed" >&2
   exit 1
 fi
@@ -437,7 +442,7 @@ build_here() {
   local report
   report="$( HERE="$HERE"
     . "$HERE/conf.sh" && . "$HERE/platform.sh" && ch_pick_engine &&
-    ch_js "$HERE/convert.js" "{\"root\":\"$ROOT\",\"out\":\"$OUT\",\"here\":\"$HERE\"}" 2>&1 )" || {
+    ch_js "$HERE/convert.js" "$(ch_js_opts "$HERE")" 2>&1 )" || {
     printf '%s\n' "$report" >> "$LOG"; return 1; }
   case "$report" in '{"error"'*|'') printf '%s\n' "$report" >> "$LOG"; return 1 ;; esac
   BUILT="$(printf '%s' "$report" | sed -n 's/.*"built":\([0-9]*\).*/\1/p')"

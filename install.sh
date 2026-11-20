@@ -1,6 +1,8 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Install claude-html. Run it from wherever you cloned this.
 set -euo pipefail
+# What it writes holds conversations: for its owner only.
+umask 077
 
 # Editing settings.json and building the helper are a Mac's own work, done
 # with osascript there; node elsewhere. The JavaScript is the same under both.
@@ -74,12 +76,20 @@ while [ $# -gt 0 ]; do
 done
 
 say() { printf '  %s\n' "$1"; }
-expand() { printf '%s' "${1/#\~/$HOME}"; }
+# Where a claude-html command on PATH leads: the clone it belongs to, as a
+# physical path, or nothing for one that leads nowhere.
+link_clone() { ( cd -P "$(dirname "$1")" 2>/dev/null && t="$(readlink "$1")" &&
+                 case "$t" in /*) ;; *) t="$PWD/$t" ;; esac && cd -P "$(dirname "$t")" 2>/dev/null && pwd ); }
+HERE_P="$(cd -P "$HERE" && pwd)"
 
 # ── uninstall ───────────────────────────────────────────────────────
 if [ "$UNINSTALL" = 1 ]; then
+  # Only a command that leads here: another install's stays its own.
   for d in "$HOME/.local/bin" /usr/local/bin; do
-    [ -L "$d/claude-html" ] && rm -f "$d/claude-html" && say "removed $d/claude-html"
+    if [ -L "$d/claude-html" ]; then
+      if [ "$(link_clone "$d/claude-html")" = "$HERE_P" ]; then rm -f "$d/claude-html" && say "removed $d/claude-html"
+      else say "left $d/claude-html: it belongs to the install in $(link_clone "$d/claude-html")"; fi
+    fi
   done
   LSREG=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
   if [ -d "$HERE/Claude HTML.app" ]; then
@@ -95,7 +105,17 @@ if [ "$UNINSTALL" = 1 ]; then
     removed*)    say "$RESULT hook(s); everything else in settings.json is untouched" ;;
     *)           say "could not update $SETTINGS — remove the hooks yourself" ;;
   esac
-  say "your pages, archives and cleanupPeriodDays are left as they are"
+  # What it kept for itself in ~/.claude, which nothing reads without it:
+  # the update check's state, the guard's pending answers and engine, the
+  # update launchers. Not the conf, the list of archive folders, the hidden
+  # chats or the own list of secrets: those are yours.
+  n=0
+  for f in .claude-html.update .claude-html.guard .claude-html.guard-engine .claude-html-guard \
+           .claude-html-update.command .claude-html-update.sh; do
+    [ -e "$HOME/.claude/$f" ] && rm -rf "${HOME:?}/.claude/$f" && n=$((n + 1))
+  done
+  [ "$n" = 0 ] || say "removed $n file(s) of its own state from ~/.claude"
+  say "your pages, archives, conf and cleanupPeriodDays are left as they are"
   exit 0
 fi
 
@@ -110,20 +130,11 @@ echo; echo "claude-html"; echo
 # The conf is the user's once written: they may have edited it, or added
 # settings this script knows nothing about. So a later run keeps every line,
 # adds only what is missing, and changes ROOT or OUT only when told to.
-conf_value() {
-  # Double quotes keep a space; these four are what is still special in them.
-  printf '"%s"' "$(printf '%s' "$1" | sed 's/[\\"$`]/\\&/g')"
-}
+# conf.sh's helpers, run in a subshell: sourcing it here would also set
+# ROOT and OUT from the conf, over what was asked for.
+conf_value() { _v="$1"; ( . "$HERE/conf.sh" >/dev/null 2>&1; ch_conf_value "$_v" ); }
 conf_has() { grep -Eq "^[[:space:]]*(export[[:space:]]+)?$1=" "$CONF"; }
-conf_set() {
-  # Replaced where it stands, so its comments and neighbours stay put. Copied
-  # back rather than moved: a conf kept with the user's dotfiles is a symlink,
-  # and a move would leave their real file behind, unchanged.
-  local tmp="$CONF.tmp.$$"
-  KEY="$1" LINE="$1=$(conf_value "$2")" awk '
-    $0 ~ "^[[:space:]]*(export[[:space:]]+)?" ENVIRON["KEY"] "=" { print ENVIRON["LINE"]; next }
-    { print }' "$CONF" > "$tmp" && cat "$tmp" > "$CONF" && rm -f "$tmp"
-}
+conf_set() { _k="$1" _v="$2"; ( . "$HERE/conf.sh" >/dev/null 2>&1; ch_conf_set "$_k" "$_v" ); }
 conf_add() {
   # An editor that saves without a final newline would otherwise have the new
   # line glued onto the user's last one, spoiling both.
@@ -137,8 +148,14 @@ WEEK_NOTE='
 # Local time, e.g. "tue 09:00". Left out, weeks are calendar Mondays.
 #CLAUDE_HTML_WEEK_RESET="tue 09:00"'
 
-if [ -n "$OUT" ]; then OUT="$(expand "$OUT")"; OUT="${OUT%/}"; fi
-if [ -n "$ROOT" ]; then ROOT="$(expand "$ROOT")"; ROOT="${ROOT%/}"; fi
+# Whole paths in the conf: a relative one would be read from wherever the
+# hook or the command happens to run, and every project would get pages of
+# its own.
+# ch_abs_path is conf.sh's, read in a subshell, where what it sets is lost.
+# shellcheck source=conf.sh
+abs() { _a="$1"; ( . "$HERE/conf.sh" >/dev/null 2>&1; ch_abs_path "$_a" ); }
+if [ -n "$OUT" ]; then OUT="$(abs "$OUT")"; fi
+if [ -n "$ROOT" ]; then ROOT="$(abs "$ROOT")"; fi
 mkdir -p "$(dirname "$CONF")"
 if [ ! -f "$CONF" ]; then
   {
@@ -177,12 +194,25 @@ say "projects: $ROOT"
 # ── 2. the command ──────────────────────────────────────────────────
 chmod +x "$HERE/claude-html" "$HERE"/*.sh 2>/dev/null || true
 
-LINKED=""
+# The command is put on PATH where there is none, or one that leads here
+# or nowhere. One that leads to another install, or a file that is not a
+# link, is that install's: it is left, and said how to switch.
+LINKED=""; OTHER=""
 for d in "$HOME/.local/bin" /usr/local/bin; do
   [ -d "$d" ] || mkdir -p "$d" 2>/dev/null || continue
-  [ -w "$d" ] && ln -sf "$HERE/claude-html" "$d/claude-html" && LINKED="$d" && break
+  [ -w "$d" ] || continue
+  if [ -e "$d/claude-html" ] || [ -L "$d/claude-html" ]; then
+    owner=""; [ -L "$d/claude-html" ] && owner="$(link_clone "$d/claude-html")"
+    if [ ! -L "$d/claude-html" ] || { [ -n "$owner" ] && [ "$owner" != "$HERE_P" ] && [ -e "$d/claude-html" ]; }; then
+      OTHER="$d/claude-html"; OTHER_AT="${owner:-a file of its own}"; break
+    fi
+  fi
+  ln -sf "$HERE/claude-html" "$d/claude-html" && LINKED="$d" && break
 done
-if [ -n "$LINKED" ]; then
+if [ -n "$OTHER" ]; then
+  say "command:  $OTHER is another install's ($OTHER_AT), left as it is"
+  say "          to use this one: ln -sf $(printf '%q' "$HERE/claude-html") $(printf '%q' "$OTHER")"
+elif [ -n "$LINKED" ]; then
   say "command:  $LINKED/claude-html"
   case ":$PATH:" in
     *":$LINKED:"*) : ;;
@@ -199,10 +229,9 @@ fi
 # environment, which may say otherwise for one shell only.
 if [ -z "$NOGUARD" ]; then
   CONF_GUARD="$( unset CLAUDE_HTML_GUARD; . "$CONF" >/dev/null 2>&1; printf '%s' "${CLAUDE_HTML_GUARD:-}" )" || CONF_GUARD=""
-  case "$(printf '%s' "$CONF_GUARD" | tr '[:upper:]' '[:lower:]')" in
-    off|0|no|false) NOGUARD=keep-guard
-      say "guard:    off in the conf, so its hooks are left as they are (claude-html --guard on)" ;;
-  esac
+  if ch_is_off "$CONF_GUARD"; then NOGUARD=keep-guard
+    say "guard:    off in the conf, so its hooks are left as they are (claude-html --guard on)"
+  fi
 fi
 # || true: a failure here must not abandon the install half-done.
 HOOKED=1
@@ -245,7 +274,7 @@ if [ "$MAC" != true ]; then
 elif [ -n "${CLAUDE_HTML_NO_REGISTER:-}" ]; then
   # macOS registers an app by itself soon after it appears, so none is built.
   say "delete:   no helper app built (CLAUDE_HTML_NO_REGISTER is set)"
-elif "$HERE/helper-build.sh" "$HERE/Claude HTML.app" --register >/dev/null 2>&1; then
+elif ch_helper_refresh "$HERE"; then
   say "delete:   $HERE/Claude HTML.app"
 else
   say "delete:   could not build the helper — the bin on the index will do nothing"
@@ -259,10 +288,8 @@ say "engine:   $CH_ENGINE${CH_NODE:+ ($CH_NODE)}"
 echo
 # Without the build cache: a save may be building beside this one, and only
 # the saves and the command, which take turns, may write it.
-REPORT="$(ch_js "$HERE/convert.js" "$(cat <<EOF
-{"root":"$ROOT","out":"$OUT","here":"$(cd -P "$HERE" && pwd)","cache":false}
-EOF
-)" 2>&1 || true)"
+REPORT="$(ch_js "$HERE/convert.js" "$(ch_js_opts "$(cd -P "$HERE" && pwd)" :cache false)" 2>&1 || true)"
+ch_private_out "$OUT"
 case "$REPORT" in
   *'"sessions"'*)
     N="$(printf '%s' "$REPORT" | sed -n 's/.*"sessions":\([0-9]*\).*/\1/p')"

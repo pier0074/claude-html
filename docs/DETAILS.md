@@ -183,9 +183,11 @@ leaving your pages, archives and conf alone.
 cd ~/claude-html && ./install.sh --uninstall
 ```
 
-That removes the `claude-html` command, the helper app (on Linux, the link
-handler) and the hooks it added — only its own; the rest of your
-`settings.json` is untouched — and keeps what is yours: the pages, the
+That removes the `claude-html` command (only one that leads to this clone),
+the helper app (on Linux, the link handler), the hooks it added — only its
+own; the rest of your `settings.json` is untouched — and the state it kept
+for itself in `~/.claude` (the update check's, the guard's pending answers,
+the update launchers), and keeps what is yours: the pages, the
 archives, `~/.claude/claude-html.conf` and your `cleanupPeriodDays`. Nothing
 saves from then on; what was saved stays readable.
 
@@ -193,7 +195,8 @@ To erase every trace as well:
 
 - delete the clone folder — the tool, its pages and its `.cache/` go with it
 - delete `~/.claude/claude-html.conf` and `~/.claude/claude-html.archives`
-  (and `~/.claude/claude-html.hidden`, if you hid claude.ai chats)
+  (and `~/.claude/claude-html.hidden`, if you hid claude.ai chats, and
+  `~/.claude/claude-html.redact`, your own list of secrets and safe values)
 - the archives live in each project, at any depth, in `.claude/.claude-conversations/`;
   `find ~/Sites -type d -path '*/.claude/.claude-conversations'` lists them
   (use your own projects root), and deleting them loses the conversations for good
@@ -218,8 +221,8 @@ this adds. The installer reports how many of yours it left alone.
 **A `cleanupPeriodDays` you already set is kept** — the installer says what
 yours is and moves on. It raises the limit only for people who never chose one,
 because raw transcripts carry more than the archives do — sub-agent
-conversations, and tool output past its first 4,000 characters — and are
-deleted after 30 days by default.
+conversations, a tool's output past the 6,000 characters a page shows, and
+its input past 20,000 — and are deleted after 30 days by default.
 
 Session archives are written to `<project>/.claude/.claude-conversations/`,
 beside the code they belong to, in whichever folder under the projects root the
@@ -237,11 +240,13 @@ The one exception is `index.html`, which is the index and gets replaced.
 
 ### Requirements
 
-**On macOS: nothing.** Every binary it runs is Apple-signed system software,
-twelve in all: `bash`, `osascript` (which runs the JavaScript), `open`,
-`curl`, `lsof`, `date`, `mv`, `kill`, and — to build the helper app —
-`osacompile`, `PlistBuddy`, `codesign`, `lsregister`. No Python, no Node, no
-Homebrew, nothing to `pip install`. Intel and Apple silicon alike.
+**On macOS: nothing.** What it runs is the system's own: `bash`, `osascript`
+(which runs the JavaScript), `open`, `curl`, `lsof`, `ps`, and the standard
+tools every Mac has (`find`, `sed`, `awk`, `grep`, `stat`, `mv`…), and — to
+build the helper app — `osacompile`, `PlistBuddy`, `codesign`, `lsregister`.
+`git` only to update itself, and never Apple's stand-in for it when the
+developer tools are not installed. No Python, no Node, no Homebrew, nothing
+to `pip install`. Intel and Apple silicon alike.
 
 **node, when it is already there.** If a Mac has a working node (14.14 or
 later) — and many running Claude Code do — the transcripts are read and the
@@ -272,8 +277,11 @@ If you want to work on the project rather than use it, the tests run under
 Node on either platform: `bash tests/run-all.sh`.
 
 Note that on macOS `git` comes with Apple's developer tools rather than the
-system. If `git clone` offers to install them and you would rather not,
-download the repository as a zip instead — the tool does not use git.
+system. claude-html uses git only to update itself (`claude-html --update`
+and the daily check for a new release); without the developer tools it
+never runs Apple's stand-in for git, which would offer to install them. A
+copy downloaded as a zip works the same, but cannot update itself: it is
+re-installed from a clone instead.
 
 ## Commands
 
@@ -287,16 +295,18 @@ node tests/diff.test.js         # the diff, against every edit ever made here
 node tests/index.test.js        # the index: search, its failures, and what Linux is shown
 node tests/docs.test.js         # every setting the code reads is in SETUP.md, and every link resolves
 bash tests/backend.test.sh      # osascript and node build byte-identical pages; nested projects
+bash tests/archive.test.sh      # a page made from the archive alone is the page made from the transcript
 bash tests/engine.test.sh       # node does the data work when it is here and works; osascript when not
 bash tests/incremental.test.sh  # a save that reads only what was appended writes what a build from nothing does
-bash tests/races.test.sh        # the two ways a message could be lost, reproduced
+bash tests/races.test.sh        # the ways a message could be lost, and two saves or a stale lock
 bash tests/build.test.sh        # a failed build never costs a page, nor does a lost manifest
 bash tests/hooks.test.sh        # a save finds its transcript; a cut-short archive never wins
 bash tests/agents.test.sh       # sub-agents land inside their parent, never rows of their own
 bash tests/usage.test.sh        # the dashboard counts every reply once, and every cost, from transcript or archive
 bash tests/redact.test.sh       # no secret reaches an archive, a page or a cache; the transcript is never touched
 bash tests/guard.test.sh        # a prompt or command holding a secret is stopped, and each answer does what it says
-bash tests/install.test.sh      # a second install keeps your conf; env, conf, default, in that order
+bash tests/install.test.sh      # a second install keeps your conf; env, conf, default; only its own hooks
+bash tests/update.test.sh       # --update, going back, the daily check, and copies that are not clones
 bash tests/safety.test.sh       # an outside file cannot write elsewhere or break a page
 bash tests/delete.test.sh       # deleting removes everything it should, and nothing else (macOS)
 bash tests/open.test.sh         # a project name opens the right thing, and nothing else (macOS)
@@ -383,13 +393,18 @@ reading transcripts, repairing archives that mislabelled their roles, matching
 tool calls to their output.
 
 Sessions come from two places. Where both exist the transcript wins, since it
-carries more. An archive keeps your prompts, the replies, each tool call with
+carries more. The archive is read from the transcript by the same code the
+page is (`parse.js`), so once the transcript is gone the page made from the
+archive shows what it showed before: the same messages, cut where the page
+cuts them, the same title, prompts and search. An archive keeps your prompts, the replies, each tool call with
 its arguments, what it returned, the thinking, the tokens each reply used,
 by hour and model, and the cost where Claude Code recorded one — so once the
 transcript is gone the page, its search and the dashboard keep their numbers.
 An archive written by an older version is
-rewritten once in the new form while its transcript is still there; one whose
-transcript has already gone keeps the token counts the last build had.
+rewritten in the new form by the next save of its session while its
+transcript is still there; one whose transcript has already gone keeps the
+token counts the last build had, and is shown without what the harness put
+into a prompt (`<system-reminder>`, the tags of a slash command).
 
 Archives are looked for in the projects root, one folder below it, in every
 folder a session is known to have worked in, and in every folder listed in
@@ -468,9 +483,10 @@ buttons: **copy** puts `claude-html --update` on the clipboard, **run** is a
 string or it is refused — and opens a terminal on this clone's own
 `claude-html --update`: on macOS Terminal, through a launcher in
 `~/.claude/.claude-html-update.command`, on Linux the terminal described
-below, through `~/.claude/.claude-html-update.sh`. Either way, when the
-update ends the window stays, as an ordinary shell, with what it said above
-the prompt. The update itself
+below, through `~/.claude/.claude-html-update.sh`. The window first asks "Update claude-html X -> Y? [y/N]" and does nothing
+without a yes, since any web page can open the link; a second window within
+a minute is refused. Either way, when the update ends the window stays, as
+an ordinary shell, with what it said above the prompt. The update itself
 refuses what it should (a changed file, a development checkout).
 
 ### On Linux
@@ -625,9 +641,13 @@ list of release tags, from GitHub, and nothing sent but the request itself.
 
 They do contain your conversations in full, including anything you pasted in,
 except the [secrets](#secrets) they recognise.
-The generated files are gitignored for that reason, and so are the archives
-of any session run inside the clone, so cloning here and committing later will
-not publish them. If you serve this directory over HTTP,
+The generated files are gitignored for that reason, and each archive folder
+holds a `.gitignore` of its own, so a project's repository never takes a
+conversation into a commit (`--doctor` names any archive folder git would
+still commit). Everything claude-html writes — pages, search, cache,
+archives — is readable by you alone, as Claude Code keeps its own
+transcripts; what an earlier release left readable by others is made so at
+the next save or build. If you serve this directory over HTTP,
 put it behind auth.
 
 ## License

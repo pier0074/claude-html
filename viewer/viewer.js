@@ -327,10 +327,16 @@ var CH = (function () {
     return meta.kind !== "web" && !!meta.cwd;
   }
 
+  // What copy puts on the clipboard, to be pasted into a shell: the folder
+  // in single quotes, as the launchers have it, so nothing in its name ever
+  // runs; ~ for the home folder only where the path really is under it.
   function resumeCmd(meta, home) {
-    var cwd = String(meta.cwd || "~");
-    if (home && cwd.indexOf(home) === 0) cwd = "~" + cwd.slice(home.length);
-    return "cd " + cwd + " && claude --resume " + meta.id;
+    var cwd = String(meta.cwd || ""), h = String(home || "").replace(/\/+$/, "");
+    function q(s) { return "'" + s.replace(/'/g, "'\\''") + "'"; }
+    var where = !cwd || (h && cwd === h) ? "~"
+      : h && cwd.indexOf(h + "/") === 0 ? "~/" + q(cwd.slice(h.length + 1))
+      : q(cwd);
+    return "cd " + where + " && claude --resume " + meta.id;
   }
 
   // Which message each row shows and which prompt number it carries, worked

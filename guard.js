@@ -11,8 +11,11 @@
 //   node guard.js …
 //
 // With "dialog", someone is at the screen to answer: a match is put in
-// the pending state and {"choose": "<kinds>"} returned, guard.sh asks in a
-// dialog, and the answer comes back as answer-…, with the same note.
+// the pending state and {"choose": "<kinds>", …} returned (with, for a
+// command, its first line masked), guard.sh asks in a dialog, and the
+// answer comes back as answer-…, with the same note. Allow, safe and stop
+// return no decision: what happens next is what would have happened
+// without the guard.
 //
 // Only the rules that are sure of themselves, from redact.js, and the
 // owner's own list. After a block, the very next prompt of the same session,
@@ -180,6 +183,21 @@ function guard(argv) {
     });
   }
   function kindsOf(p) { return summary(p.entries); }
+  // What the command is, for the dialog: its first line, masked by every
+  // rule and the own list (not only the sure ones), without anything that
+  // would not sit on one line of a window, and short.
+  function firstLine(cmd) {
+    var all = lib[0](read(LIST) || "", true, !JXA);
+    var l = String(cmd || "").replace(/^\s+/, "").split(/\r?\n/)[0];
+    l = all.text(l).replace(/[\u0000-\u001f\u007f]+/g, " ");
+    var more = /\n\s*\S/.test(String(cmd || "").replace(/^\s+/, ""));
+    if (l.length > 100) {
+      var cut = 99;
+      if ((l.charCodeAt(cut - 1) & 0xFC00) === 0xD800) cut--;
+      l = l.slice(0, cut); more = true;
+    }
+    return l + (more ? " …" : "");
+  }
   // The project, as the index names it: the last folder of where it runs.
   function project() {
     return String(note.cwd || "").replace(/\/+$/, "").split("/").pop().replace(/["\\\u0000-\u001f]/g, "");
@@ -207,8 +225,11 @@ function guard(argv) {
       if (ARG === "safe") recordSafe(pa);
       if (ARG === "stop") turnOff();
       save();
-      return bash ? JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse",
-        permissionDecision: "allow", permissionDecisionReason: "claude-html: answered " + ARG } }) : "";
+      // No decision at all, for a command as for a prompt: the guard only
+      // ever takes something away. "allow" here would also skip Claude
+      // Code's own permission check for the whole command, which this
+      // dialog never showed; with nothing said, that check runs as usual.
+      return "";
     }
     if (ARG === "cancel") { save(); return bash ? refuse(kindsOf(pa)) : block("Dropped. Nothing was sent."); }
     // Nobody answered in time: Cancel, and the words still work after it.
@@ -273,7 +294,7 @@ function guard(argv) {
     pend(hits);
     save();
     var kinds = summary(hits);
-    if (ARG === "dialog") return JSON.stringify({ choose: kinds, project: project() });
+    if (ARG === "dialog") return JSON.stringify({ choose: kinds, project: project(), command: firstLine(note.tool_input.command) });
     return askOrRefuse(kinds);
   }
   return "";

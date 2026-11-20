@@ -1,6 +1,8 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Rebuild the conversation pages, and open the index when asked for all of them.
 set -uo pipefail
+# What it writes holds conversations: for its owner only.
+umask 077
 
 # This is normally reached through a symlink on PATH, so follow it back to the
 # clone rather than assuming where that is.
@@ -47,21 +49,8 @@ UPD_ENV=unset
 # shellcheck source=conf.sh
 . "$HERE/conf.sh"
 
-# One line of the conf, changed where it stands or added: the rest of the
-# file, comments and all, as it was. Copied back, not moved, so a conf kept
-# as a symlink stays one.
-conf_line() {
-  mkdir -p "$(dirname "$CONF")"; [ -f "$CONF" ] || : > "$CONF"
-  local tmp="$CONF.tmp.$$"
-  if grep -Eq "^[[:space:]]*(export[[:space:]]+)?$1=" "$CONF"; then
-    KEY="$1" LINE="$1=\"$2\"" awk '
-      $0 ~ "^[[:space:]]*(export[[:space:]]+)?" ENVIRON["KEY"] "=" { print ENVIRON["LINE"]; next } { print }' \
-      "$CONF" > "$tmp" && cat "$tmp" > "$CONF"; rm -f "$tmp"
-  else
-    [ -z "$(tail -c 1 "$CONF")" ] || echo >> "$CONF"
-    printf '%s="%s"\n' "$1" "$2" >> "$CONF"
-  fi
-}
+# One line of the conf, changed where it stands or added: conf.sh's.
+conf_line() { ch_conf_set "$@"; }
 
 if [ -n "$UPDATE" ]; then
   case "$UPDWORD" in
@@ -93,7 +82,7 @@ if [ -n "$UPDATE" ]; then
   # The move rewrites this clone, and bash reads a script as it runs it, so
   # the update runs from a copy of itself made outside it.
   _tmp="$(mktemp -d "${TMPDIR:-/tmp}/claude-html-update.XXXXXX")" || exit 1
-  cp "$HERE/update.sh" "$HERE/release.sh" "$_tmp/" || { rm -rf "$_tmp"; exit 1; }
+  cp "$HERE/update.sh" "$HERE/release.sh" "$HERE/lock.sh" "$_tmp/" || { rm -rf "$_tmp"; exit 1; }
   case "$UPDWORD" in
     status|--check) _action=status ;;
     list) _action=list ;;
@@ -113,39 +102,22 @@ fi
 . "$HERE/platform.sh"
 ch_pick_engine
 run_js() { ch_js "$@"; }
-MAC=false
-[ -z "${CLAUDE_HTML_FORCE_NODE:-}" ] && command -v osascript >/dev/null 2>&1 && MAC=true
 
 # Keep the helper app in step with its source: it holds a copy inside it.
-# Not when told to register nothing: macOS registers an app by itself a few
-# seconds after one appears in an ordinary folder, so to build it here is to
-# register it.
-[ "$MAC" = true ] && [ -z "${CLAUDE_HTML_NO_REGISTER:-}" ] && [ -x "$HERE/helper-build.sh" ] &&
-  "$HERE/helper-build.sh" "$HERE/Claude HTML.app" --register --if-stale >/dev/null 2>&1 || true
+ch_helper_refresh "$HERE" --if-stale || true
 
 # A build keeps a cache of what it parsed, which only one build at a time
 # may write. The saves take turns through this lock, so the command waits
 # for its turn as well; one that does not get it within a minute builds
 # without the cache, reading everything, as every build once did.
-LOCK="$HOME/.claude/.claude-html.lock"; OWN_LOCK=0; NOCACHE=""
+# shellcheck source=lock.sh
+. "$HERE/lock.sh"
+NOCACHE=""
 take_lock() {
-  local waited=0 pid
-  mkdir -p "$(dirname "$LOCK")" 2>/dev/null || true
-  while ! mkdir "$LOCK" 2>/dev/null; do
-    pid="$(cat "$LOCK/pid" 2>/dev/null || true)"
-    if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then rm -rf "$LOCK"; continue; fi
-    if [ -z "$pid" ] && [ -n "$(find "$LOCK" -maxdepth 0 -mmin +2 2>/dev/null)" ]; then
-      rm -rf "$LOCK"; continue
-    fi
-    waited=$((waited + 1))
-    if [ "$waited" -ge 120 ]; then NOCACHE=',"cache":false'; return 1; fi
-    sleep 0.5
-  done
-  echo $$ > "$LOCK/pid"
-  OWN_LOCK=1
-  trap 'release_lock' EXIT
+  if ch_lock_take 60; then trap 'release_lock' EXIT; return 0; fi
+  NOCACHE=":cache false"; return 1
 }
-release_lock() { [ "$OWN_LOCK" = 1 ] && rm -rf "$LOCK"; OWN_LOCK=0; return 0; }
+release_lock() { ch_lock_release; }
 
 FORCE=false
 DELETE=""; PLAN=""; YES=false
@@ -213,20 +185,16 @@ full_id() {
 
 # ── the guard ────────────────────────────────────────────────────────
 SETTINGS="$HOME/.claude/settings.json"
-GUARD_LIST="${CLAUDE_HTML_REDACT_FILE:-$HOME/.claude/claude-html.redact}"
-guard_hooks() { grep -c 'guard\.sh' "$SETTINGS" 2>/dev/null || true; }
+GUARD_LIST="$CLAUDE_HTML_REDACT_FILE"
+guard_hooks() { grep -cE "/guard\.sh' (prompt|bash)\"" "$SETTINGS" 2>/dev/null || true; }
 guard_safe() { grep -c '^[[:space:]]*safe:' "$GUARD_LIST" 2>/dev/null || true; }
 guard_line() {
   local what asks n
-  case "$(printf '%s' "${CLAUDE_HTML_GUARD:-on}" | tr '[:upper:]' '[:lower:]')" in
-    off|0|no|false) what="off" ;;
-    prompt) what="on for prompts only" ;;
-    *) what="on" ;;
-  esac
-  case "$(printf '%s' "${CLAUDE_HTML_GUARD_DIALOG:-on}" | tr '[:upper:]' '[:lower:]')" in
-    off|0|no|false) asks="in words, as the next prompt" ;;
-    *) asks="in a dialog when someone is at the screen" ;;
-  esac
+  if ch_is_off "${CLAUDE_HTML_GUARD:-on}"; then what="off"
+  elif [ "$(printf '%s' "${CLAUDE_HTML_GUARD:-on}" | tr '[:upper:]' '[:lower:]')" = prompt ]; then what="on for prompts only"
+  else what="on"; fi
+  if ch_is_off "${CLAUDE_HTML_GUARD_DIALOG:-on}"; then asks="in words, as the next prompt"
+  else asks="in a dialog when someone is at the screen"; fi
   n="$(guard_hooks)"
   printf 'guard %s · %s safe value(s) · hooks %s of 2 in settings.json · asks %s · %s\n' \
     "$what" "$(guard_safe)" "${n:-0}" "$asks" "$(ch_engine_line | cut -d' ' -f1)"
@@ -249,8 +217,9 @@ if [ -n "$GUARD" ]; then
   exit 0
 fi
 
-# The options every data command starts from, plus its own.
-js_opts() { printf '{"root":"%s","out":"%s","here":"%s"%s}' "$ROOT" "$OUT" "$HERE" "${1:-}"; }
+# The options every data command starts from, plus its own: as JSON, so a
+# folder whose name holds a quote or a backslash reaches it whole.
+js_opts() { ch_js_opts "$HERE" "$@"; }
 
 if [ -n "$DOCTOR" ]; then
   actions_setup
@@ -259,10 +228,24 @@ if [ -n "$DOCTOR" ]; then
   echo "  version   $VERSION"
   echo "  update    $(bash "$HERE/update.sh" "$HERE" --doctor-line 2>/dev/null)"
   echo "  pages     $OUT"
+  # The archive folders it knows of, and whether git would commit any.
+  # shellcheck source=release.sh
+  . "$HERE/release.sh"
+  _tracked="$( { [ -f "$HOME/.claude/claude-html.archives" ] && cat "$HOME/.claude/claude-html.archives"; echo "$ROOT"
+                 for _d in "$ROOT"/*; do echo "$_d"; done; } 2>/dev/null | sort -u |
+               while IFS= read -r _d; do [ -n "$_d" ] && ch_archives_tracked "$_d"; done )"
+  if [ -z "$_tracked" ]; then echo "  git       no archive folder would be committed"
+  else
+    echo "  git       $(printf '%s\n' "$_tracked" | wc -l | tr -d ' ') archive folder(s) git would commit (a .gitignore holding * in each keeps them out; the next save there writes it):"
+    printf '%s\n' "$_tracked" | head -5 | sed 's/^/            /'
+  fi
+  _open="$(ch_loose_out "$OUT")"
+  if [ "$_open" = 0 ]; then echo "  private   what it wrote there is readable by you alone"
+  else echo "  private   $_open file(s) there readable by others: the next build makes them yours alone"; fi
   echo "  projects  $ROOT"
   # Which secrets are masked, and how many archives still hold some. Never
   # what the own list says.
-  run_js "$HERE/convert.js" "$(js_opts ',"redactInfo":true')" 2>/dev/null ||
+  run_js "$HERE/convert.js" "$(js_opts :redactInfo true)" 2>/dev/null ||
     echo "  redact    could not be checked: $CH_ENGINE_WHY"
   echo "  $(guard_line)"
   exit 0
@@ -274,7 +257,7 @@ fi
 # them. It takes its turn with the saves, and then builds, so the pages
 # say the archives are clean.
 if [ -n "$REDACTCHECK" ]; then
-  run_js "$HERE/convert.js" "$(js_opts ',"redactCheck":true')" || exit 1
+  run_js "$HERE/convert.js" "$(js_opts :redactCheck true)" || exit 1
   exit 0
 fi
 if [ -n "$REDACTARCHIVES" ]; then
@@ -282,7 +265,7 @@ if [ -n "$REDACTARCHIVES" ]; then
     echo "a save is still running; try again in a moment — nothing was rewritten" >&2
     exit 1
   fi
-  RESULT="$(run_js "$HERE/convert.js" "$(js_opts ',"redactArchives":true')")" || {
+  RESULT="$(run_js "$HERE/convert.js" "$(js_opts :redactArchives true)")" || {
     echo "$RESULT" >&2; exit 1; }
   printf '%s\n' "$RESULT"
   run_js "$HERE/convert.js" "$(js_opts)" >/dev/null 2>&1 || true
@@ -300,8 +283,7 @@ if [ -n "$RESUME$RESUMEPLAN" ]; then
   full_id
   actions_setup
   EXT=.sh; [ "$ACT_MAC" = true ] && EXT=.command
-  RESULT="$(act_js "$HERE/resume.js" \
-    "{\"id\":\"$ONLY\",\"out\":\"$OUT\",\"ext\":\"$EXT\"}" 2>&1)" || {
+  RESULT="$(act_js "$HERE/resume.js" "$(ch_json_obj id "$ONLY" out "$OUT" ext "$EXT")" 2>&1)" || {
     echo "$RESULT" >&2; exit 1; }
   LAUNCHER="$(printf '%s\n' "$RESULT" | sed -n 's/^LAUNCHER	//p')"
   COMMAND="$(printf '%s\n' "$RESULT" | sed -n 's/^COMMAND	//p')"
@@ -353,9 +335,18 @@ exec "$s" -i'
     printf 'launcher: %s\nopens with: %s\ncommand: %s\n' "$LAUNCHER" "$HOW" "$(CH_DRY=1 "$@")"
     exit 0
   fi
+  # Any web page can open the link, as often as it likes: one window a
+  # minute at most, and the update itself asks before it moves anything.
+  if [ -n "$(find "$LAUNCHER" -mmin -1 2>/dev/null)" ]; then
+    echo "an update window was opened less than a minute ago; nothing was opened" >&2; exit 1
+  fi
+  TO="the newest release"
+  # shellcheck source=release.sh
+  if . "$HERE/release.sh" 2>/dev/null && ch_update_read && [ "$CH_UP_HERE" = "$HERE" ] &&
+     [ -n "$CH_UP_NEWEST" ]; then TO="$CH_UP_NEWEST"; fi
   mkdir -p "$(dirname "$LAUNCHER")" &&
-  printf '#!/bin/sh\n# Written by claude-html for the run button on the index: the update,\n# then your shell, so what it said stays on the screen.\n%s --update\necho\n%s\n' \
-    "$(ch_quote "$CLI")" "$TAIL" > "$LAUNCHER" && chmod +x "$LAUNCHER" ||
+  printf '#!/bin/sh\n# Written by claude-html for the run button on the index: asks, the update,\n# then your shell, so what it said stays on the screen.\nprintf %s\nread -r answer\ncase "$answer" in y|Y|yes|YES) %s --update ;; *) echo "nothing was changed" ;; esac\necho\n%s\n' \
+    "$(ch_quote "Update claude-html $VERSION -> $TO? [y/N] ")" "$(ch_quote "$CLI")" "$TAIL" > "$LAUNCHER" && chmod +x "$LAUNCHER" ||
     { echo "could not write $LAUNCHER" >&2; exit 1; }
   "$@" >/dev/null 2>&1 || { echo "could not open $HOW for the update" >&2; exit 1; }
   echo "update opened in $HOW"
@@ -372,7 +363,7 @@ if [ -n "$OPEN$OPENPLAN" ]; then
   # Nothing here can open anything (a server): it says where, and stops.
   if [ "$ACT_MAC" != true ] && [ -z "$CH_OPENER" ]; then MODE=plan; fi
   RESULT="$(act_js "$HERE/open.js" \
-    "{\"id\":\"$ONLY\",\"mode\":\"$MODE\",\"root\":\"$ROOT\",\"out\":\"$OUT\",\"opener\":\"$CH_OPENER\"}" 2>&1)" || {
+    "$(ch_json_obj id "$ONLY" mode "$MODE" root "$ROOT" out "$OUT" opener "$CH_OPENER")" 2>&1)" || {
     echo "$RESULT" >&2; exit 1; }
   printf '%s\n' "$RESULT" | awk -F'\t' '{ print $1 ": " $2 }'
   exit 0
@@ -386,9 +377,11 @@ if [ -n "$DELETE$PLAN" ]; then
   actions_setup
   # The trash method rides along for node; the macOS side has the Finder's.
   opts() {
-    printf '{"id":"%s","mode":"%s","root":"%s","out":"%s","trashMethod":"%s"%s}' \
-      "$ONLY" "$1" "$ROOT" "$OUT" "$CH_TRASH" \
-      "${CLAUDE_HTML_TRASH:+,\"trash\":\"$CLAUDE_HTML_TRASH\"}"
+    if [ -n "${CLAUDE_HTML_TRASH:-}" ]; then
+      ch_json_obj id "$ONLY" mode "$1" root "$ROOT" out "$OUT" trashMethod "$CH_TRASH" trash "$CLAUDE_HTML_TRASH"
+    else
+      ch_json_obj id "$ONLY" mode "$1" root "$ROOT" out "$OUT" trashMethod "$CH_TRASH"
+    fi
   }
   PLANTXT="$(act_js "$HERE/delete.js" "$(opts plan)" 2>&1)" || {
     echo "$PLANTXT" >&2; exit 1; }
@@ -428,22 +421,21 @@ if [ -n "$DELETE$PLAN" ]; then
     $1 == "FAILED" { print "could not: " $2 > "/dev/stderr" }'
   printf '%s\n' "$RESULT" | grep -q '^FAILED' && STATUS=1
   take_lock || true
-  run_js "$HERE/convert.js" \
-    "{\"root\":\"$ROOT\",\"out\":\"$OUT\",\"here\":\"$HERE\"$NOCACHE}" >/dev/null 2>&1 || true
+  # shellcheck disable=SC2086
+  run_js "$HERE/convert.js" "$(js_opts $NOCACHE)" >/dev/null 2>&1 || true
   exit "$STATUS"
 fi
 
 # The build is one interpreter for every session, so it starts once rather
 # than sixty-nine times.
 take_lock || echo "a save is still running; building without the cache" >&2
-REPORT="$(run_js "$HERE/convert.js" "$(cat <<EOF
-{"root":"$ROOT","out":"$OUT","here":"$HERE","force":$FORCE,"only":"$ONLY"$NOCACHE}
-EOF
-)" 2>&1)" || {
+# shellcheck disable=SC2086
+REPORT="$(run_js "$HERE/convert.js" "$(js_opts :force "$FORCE" only "$ONLY" $NOCACHE)" 2>&1)" || {
   echo "build failed: $REPORT" >&2
   exit 1
 }
 release_lock
+ch_private_out "$OUT"
 
 case "$REPORT" in
   *'"error"'*)
@@ -485,10 +477,5 @@ fi
 
 INDEX="$OUT/index.html"
 [ -f "$INDEX" ] || exit 0
-if command -v open >/dev/null 2>&1; then
-  open "$INDEX"
-elif command -v xdg-open >/dev/null 2>&1; then
-  xdg-open "$INDEX" >/dev/null 2>&1
-else
-  echo "$INDEX"
-fi
+ch_detect
+ch_open_file "$INDEX" || echo "$INDEX"

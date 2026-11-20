@@ -70,6 +70,7 @@ beside each project, in `<project>/.claude/.claude-conversations/`.
 | Variable | What it is | Default |
 | -------- | ---------- | ------- |
 | `CLAUDE_HTML_ENGINE` | `node` or `osascript`: which one reads the transcripts and builds the pages | node when a working one is found, else `osascript` |
+| `CH_NODE_PROBE_LIMIT` | seconds each node found is given to answer before it is passed over (environment only) | 5 |
 
 ```bash
 CLAUDE_HTML_ENGINE=osascript   # in the conf, or the environment
@@ -78,14 +79,16 @@ CLAUDE_HTML_ENGINE=osascript   # in the conf, or the environment
 - A node counts only if it runs and is 14.14 or later. It is looked for on
   `PATH`, then in `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`,
   `~/.local/bin` and the versions fnm, nvm, Volta, asdf and mise installed —
-  never their shims. Each is tried from `/` with five seconds to answer.
+  never their shims. Each is tried from `/` with five seconds to answer
+  (`CH_NODE_PROBE_LIMIT`).
 - A value that is neither, or names one this machine lacks, is set aside:
   the save goes ahead with the other, and `--doctor` shows a note.
 - Deleting, opening and resuming stay on `osascript` on a Mac either way.
 
 `claude-html --doctor` shows the engine and why it was picked, the system,
 desktop, terminal, trash, dialog and link handler, the pages and projects
-folders, and the [redaction](#secrets).
+folders, whether what it wrote is readable by you alone, any archive folder
+git would commit, and the [redaction](#secrets).
 
 ## Dashboard weeks
 
@@ -219,14 +222,15 @@ passwords in URLs, after `-u`, `sshpass -p`, `mysql -p`, names in capitals,
 `--password` flags — and your own list. Not the forms that take reading
 (`password:` in prose, cookies).
 
-On a match it stops and asks. With someone at the screen, in a window:
+On a match it stops and asks. With someone at the screen, in a window,
+which for a command also shows its first line, masked:
 
 ![The guard's dialog: where, what was found, four choices](guard-dialog.png)
 
 | Answer | Prompt | Command |
 | ------ | ------ | ------- |
 | **Cancel** (picked already; Return, Escape) | nothing is sent | not run; Claude is told to read it from `~/.my.cnf`, an env var or a credential helper |
-| **Allow once** | sent this time; still masked in saved pages; asked again next time | run this time |
+| **Allow once** | sent this time; still masked in saved pages; asked again next time | goes on to Claude Code's own permission check, as if the guard were not there |
 | **Safe** | sent, never asked about again, and shown in saved pages | the same |
 | **Stop** | sent, and the guard turned off | the same |
 
@@ -286,7 +290,7 @@ look is the desktop's; their own Cancel button is the Cancel choice.
 | ---- | ---- | ------------ |
 | `Stop` | after every reply | saves in the background, so the reply is never held up; gives way to a save already running; once per release, says a newer one is out |
 | `SessionEnd` | when a session ends | saves, detached so quitting is instant, and waits its turn |
-| `PreCompact` (`auto`, `manual`) | before a compaction | saves before the context is cut |
+| `PreCompact` (`auto`, `manual`) | before a compaction | saves, detached so the compaction is not held up; the transcript keeps what it summarises |
 | `UserPromptSubmit` | before a prompt is sent | the [guard](#guard) |
 | `PreToolUse` (`Bash`) | before a command runs | the [guard](#guard) |
 
@@ -322,13 +326,13 @@ installer says so if it is under a year. Uninstalling leaves it as it is.
 | `claude-html --open-plan <full id>` | say what it would open, and open nothing |
 | `claude-html --resume-session <full id>` | reopen the conversation in a terminal |
 | `claude-html --resume-plan <full id>` | say which launcher and terminal, and run nothing |
-| `claude-html --update-terminal` | the index's **run**: `--update` in a terminal that stays open |
+| `claude-html --update-terminal` | the index's **run**: a terminal that asks, then runs `--update` on a yes, and stays open; at most one a minute |
 | `claude-html --update-terminal-plan` | say which terminal and command, and run nothing |
 | `claude-html --version` | which release this is (`-V`); also in `--doctor` |
-| `claude-html --update` | go to the newest release ([Updating](#updating)) |
+| `claude-html --update` | go to the newest release ([Updating](#updating)); `--upgrade` too |
 | `claude-html --update X.Y.Z` | go to that release (`vX.Y.Z` too); going back asks first, `--yes` (`-y`) does not |
 | `claude-html --update list` | every release there is, newest first; changes nothing |
-| `claude-html --update status` | what is installed, what is newest, and the daily check; changes nothing |
+| `claude-html --update status` | what is installed, what is newest, and the daily check; changes nothing (`--check` too) |
 | `claude-html --update on\|off` | the daily check for a new release, and its notice |
 | `claude-html --help` | the short list (`-h`) |
 | `./install.sh` | install with the defaults; safe to run again |
@@ -427,4 +431,6 @@ Knobs the tests set; nothing needs them day to day.
 | `CLAUDE_HTML_GUARD_TEST_LIMIT` | seconds the guard's dialog waits, instead of ten minutes |
 | `CLAUDE_HTML_UPDATE_REMOTE` | the release repository, a URL or a path, instead of GitHub's |
 | `CLAUDE_HTML_UPDATE_LOCK_WAIT` | seconds an update waits for a save's lock, instead of 60 |
+| `CLAUDE_HTML_LOCK_WAIT` | seconds a session-end save waits for the lock before saving without it, instead of 50 |
 | `CLAUDE_HTML_TEST_JOBS` | how many suites `tests/run-all.sh` runs at once (default: half the CPUs, 2 to 6; `1` runs them one after another) |
+| `CH_DRY` | print the command a terminal, opener or dialog would be given, and run nothing (what `--doctor` and the `-plan` commands show) |
