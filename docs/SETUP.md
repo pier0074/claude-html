@@ -319,6 +319,7 @@ installer says so if it is under a year. Uninstalling leaves it as it is.
 | `claude-html --open-plan <full id>` | say what it would open, and open nothing |
 | `claude-html --resume-session <full id>` | reopen the conversation in a terminal |
 | `claude-html --resume-plan <full id>` | say which launcher and terminal, and run nothing |
+| `claude-html --version` | which release this is (`-V`); also in `--doctor` |
 | `claude-html --help` | the short list (`-h`) |
 | `./install.sh` | install with the defaults; safe to run again |
 | `./install.sh --out DIR` / `--root DIR` | install with the pages or the projects root elsewhere |

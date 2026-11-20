@@ -51,6 +51,9 @@ git clone https://github.com/pier0074/claude-html ~/claude-html
 cd ~/claude-html && ./install.sh
 ```
 
+To update: `git pull && ./install.sh`. For a given release, add
+`--branch v3.0.1` to the clone; [CHANGELOG.md](CHANGELOG.md) says what each one brought.
+
 Nothing else to install. macOS uses its own `osascript`; Linux uses `node`,
 which a machine running Claude Code already has. A Mac that happens to have
 node uses it too, being faster — node is never installed for you.

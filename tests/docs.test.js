@@ -54,7 +54,7 @@ function anchors(text) {
 function stripCode(text) {
   return text.replace(/```[\s\S]*?```/g, "").replace(/`[^`\n]*`/g, "");
 }
-var docs = ["README.md", "docs/SETUP.md", "docs/DETAILS.md"], bad = [], total = 0;
+var docs = ["README.md", "CHANGELOG.md", "docs/SETUP.md", "docs/DETAILS.md"], bad = [], total = 0;
 docs.forEach(function (d) {
   var text = fs.readFileSync(path.join(HERE, d), "utf8"), re = /!?\[[^\]]*\]\(([^)\s]+)\)/g, m;
   var body = stripCode(text);
@@ -73,6 +73,21 @@ check("every relative link in README, SETUP and DETAILS resolves (" + total + ")
 check("SETUP.md is linked from the README and DETAILS",
       /\(docs\/SETUP\.md\)/.test(fs.readFileSync(path.join(HERE, "README.md"), "utf8")) &&
       /\(SETUP\.md\)/.test(fs.readFileSync(path.join(HERE, "docs", "DETAILS.md"), "utf8")));
+
+// ── the release number ──
+// One number, in VERSION: the changelog's newest entry is that release,
+// the command says it, and the README's pinned clone names it.
+var version = fs.readFileSync(path.join(HERE, "VERSION"), "utf8").trim();
+var log = fs.readFileSync(path.join(HERE, "CHANGELOG.md"), "utf8");
+var newest = (/^## (\d+\.\d+\.\d+)/m.exec(log) || [])[1];
+check("VERSION is a three-part number", /^\d+\.\d+\.\d+$/.test(version), version);
+check("the changelog's newest entry is VERSION", newest === version, newest + " vs " + version);
+var said = require("child_process").spawnSync("bash", [path.join(HERE, "claude-html"), "--version"],
+  { encoding: "utf8", env: Object.assign({}, process.env, { HOME: "/nonexistent-home" }) });
+check("claude-html --version says it, reading nothing else",
+      said.status === 0 && said.stdout.trim() === "claude-html " + version, said.stdout + said.stderr);
+check("the README's pinned clone names it",
+      fs.readFileSync(path.join(HERE, "README.md"), "utf8").indexOf("--branch v" + version) > -1);
 
 console.log("  " + pass + " passed, " + fail + " failed");
 process.exitCode = fail ? 1 : 0;

@@ -12,6 +12,10 @@ while [ -L "$SOURCE" ]; do
 done
 HERE="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 
+# Which release this is: answered before anything else is read or run.
+VERSION="$(cat "$HERE/VERSION" 2>/dev/null || echo unknown)"
+case "${1:-}" in --version|-V) echo "claude-html $VERSION"; exit 0 ;; esac
+
 # Where install.sh was told things live, decided as the hook decides it.
 # shellcheck source=conf.sh
 . "$HERE/conf.sh"
@@ -82,6 +86,7 @@ for arg in "$@"; do
       echo "claude-html --open <full id>            open that session's project: its server, page or folder"
       echo "claude-html --resume-session <full id>  reopen that conversation in a terminal"
       echo "claude-html --doctor   what this machine is, and which of its tools does each job"
+      echo "claude-html --version  which release this is"
       echo "claude-html --redact-check     what would be masked as secret, per session and archive; changes nothing"
       echo "claude-html --redact-archives  rewrite the archives that still hold secrets, masked"
       echo "claude-html --guard on|prompt|off|status   stop a secret before it reaches Claude"
@@ -171,6 +176,7 @@ if [ -n "$DOCTOR" ]; then
   actions_setup
   ch_doctor
   echo
+  echo "  version   $VERSION"
   echo "  pages     $OUT"
   echo "  projects  $ROOT"
   # Which secrets are masked, and how many archives still hold some. Never
