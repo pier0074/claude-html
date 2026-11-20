@@ -5,6 +5,11 @@ fixes, a minor adds without breaking, a major needs something from you
 (usually `./install.sh` again). To update: `claude-html --update`; before
 3.1.0, `git pull && ./install.sh`.
 
+## 3.1.1 — 2026-11-20
+
+- `--update` says so when it is waiting for a running save, and waits the
+  full minute before giving up; it stopped half a second early.
+
 ## 3.1.0 — 2026-11-20
 
 - **`claude-html --update`**: to the newest release, or to one by number

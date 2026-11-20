@@ -190,11 +190,13 @@ esac
 EOF
 chmod +x "$T/bin/zenity"
 ENG=node
+# An answered dialog is given a long limit: only the two "nobody answers"
+# cases set a short one, so a busy machine cannot turn an answer into a timeout.
 dlg() {  # answer kind note [env…]
   local a="$1" k="$2" f="$3"; shift 3
   env HOME="$H" PATH="$T/bin:$PATH" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_REDACT_FILE="$LIST" \
     CLAUDE_HTML_ENGINE=node CLAUDE_HTML_UNAME=Linux DISPLAY=:9 XDG_CURRENT_DESKTOP=GNOME \
-    SSH_CONNECTION= SSH_TTY= STUB_ARGS="$T/stub.args" STUB_ANSWER="$a" CLAUDE_HTML_GUARD_TEST_LIMIT=2 "$@" \
+    SSH_CONNECTION= SSH_TTY= STUB_ARGS="$T/stub.args" STUB_ANSWER="$a" CLAUDE_HTML_GUARD_TEST_LIMIT=120 "$@" \
     /bin/bash "$HERE/guard.sh" "$k" < "$f" 2>>"$LOG.err" | tee -a "$LOG"
 }
 reset; : > "$T/stub.args"
@@ -212,7 +214,7 @@ check "dialog Stop: the prompt goes" "$(dlg Stop prompt "$T/note.other")" ""
 check "  the conf line is off, the list as it was" "$(grep -c '^CLAUDE_HTML_GUARD="off"$' "$CONFF") $(grep -c '^safe:' "$LIST")" "1 2"
 reset
 check "no answer in time: the window closes, nothing is sent, the answer pending" \
-  "$(dlg sleep prompt "$T/note.secret" | grep -c 'nobody answered within 2 seconds.\\n  Nothing was sent. Retype the prompt without it, or answer:  allow · safe · stop')$([ -f "$STATE" ] && echo ' pending')" "1 pending"
+  "$(dlg sleep prompt "$T/note.secret" CLAUDE_HTML_GUARD_TEST_LIMIT=2 | grep -c 'nobody answered within 2 seconds.\\n  Nothing was sent. Retype the prompt without it, or answer:  allow · safe · stop')$([ -f "$STATE" ] && echo ' pending')" "1 pending"
 check "  and the stand-in dialog was closed" "$(pgrep -f "$T/bin/zenity" | wc -l | tr -d ' ')" 0
 check "  and the typed word still works" "$(hook prompt "$T/note.w_cancel" | grep -c Dropped)" 1
 check "a dialog that fails: the same" "$(dlg fail prompt "$T/note.secret" | grep -c 'Nothing was sent. Retype it without it')" 1
@@ -236,7 +238,7 @@ check "a command, dialog Cancel: refused, Claude told how to do without" \
   "$(dlg Cancel bash "$T/note.bash_mysql" | grep -c '"permissionDecision":"deny".*~/.my.cnf')" 1
 check "  the command's dialog said so" "$(grep -c "^--text=Claude's command has been interrupted$" "$T/stub.args") $(grep -cx 'Cancel — do not run' "$T/stub.args")" "2 2"
 check "a command, no answer in time: refused, Claude told to stop, not retry" \
-  "$(rm -f "$STATE"; dlg sleep bash "$T/note.bash_mysql" | grep -c '"deny".*nobody answered within 2 seconds. It was not run. Stop here and do not retry it')" 1
+  "$(rm -f "$STATE"; dlg sleep bash "$T/note.bash_mysql" CLAUDE_HTML_GUARD_TEST_LIMIT=2 | grep -c '"deny".*nobody answered within 2 seconds. It was not run. Stop here and do not retry it')" 1
 check "the dialog was never given a secret" "$(grep -cF -f "$T/probes.txt" "$T/stub.args")" 0
 check "nothing printed or kept holds a secret" "$(leaks)" 0
 

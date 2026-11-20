@@ -402,9 +402,12 @@ take_lock() {
     if [ -z "$pid" ] && [ -n "$(find "$LOCK" -maxdepth 0 -mmin +2 2>/dev/null)" ]; then
       rm -rf "$LOCK"; continue
     fi
-    waited=$((waited + 1))
+    # The whole wait, then give up: not half a second short of it. Said
+    # once, so a pause is not taken for a hang.
     [ "$waited" -ge "$limit" ] && return 1
+    [ "$waited" = 0 ] && echo "a save is running; waiting for it to finish (up to $((limit / 2)) s)…" >&2
     sleep 0.5
+    waited=$((waited + 1))
   done
   echo $$ > "$LOCK/pid"; OWN_LOCK=1
 }

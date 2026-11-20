@@ -294,11 +294,24 @@ gitx -C "$INST" reset -q --hard
 
 sleep 30 & SLEEPER=$!; SLEEPERS="$SLEEPERS $SLEEPER"
 mkdir -p "$H/.claude/.claude-html.lock"; echo "$SLEEPER" > "$H/.claude/.claude-html.lock/pid"
-t0="$(date +%s)"
+# No clock is read here: what is checked is what it said and did, so a fast
+# machine and a slow one give the same answer.
 out="$(ch --update)"; rc=$?
-t1="$(date +%s)"
-has "a save holding the lock: refused, politely" "$out" "a save is still running; try again in a moment"
-check "  after waiting for it, nothing moved" "$rc $(at) $([ $((t1 - t0)) -ge 2 ] && echo waited)" "1 v3.0.1 waited"
+has "a save holding the lock: it says it is waiting" "$out" "a save is running; waiting for it to finish"
+has "  then refused, politely" "$out" "a save is still running; try again in a moment"
+check "  and nothing moved" "$rc $(at)" "1 v3.0.1"
+# The save ends while it waits: the update goes ahead. It may wait far
+# longer than the save takes, so only the order of things decides.
+: > "$T/waiting.out"
+( n=0   # the save "ends" once the update has said it is waiting, not after a guess at how long that takes
+  until grep -q "waiting for it to finish" "$T/waiting.out" 2>/dev/null || [ "$n" -ge 600 ]; do sleep 0.1; n=$((n + 1)); done
+  rm -rf "$H/.claude/.claude-html.lock" ) &
+RELEASER=$!
+run env CLAUDE_HTML_UPDATE_LOCK_WAIT=120 bash "$INST/claude-html" --update </dev/null > "$T/waiting.out" 2>&1; rc=$?
+wait "$RELEASER" 2>/dev/null
+out="$(cat "$T/waiting.out")"
+has "a save that ends while it waits: waited" "$out" "a save is running; waiting for it to finish"
+check "  then updated" "$rc $(at)" "0 v3.1.0"
 kill "$SLEEPER" 2>/dev/null; rm -rf "$H/.claude/.claude-html.lock"
 
 # Going back.
