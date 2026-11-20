@@ -60,6 +60,11 @@ var Q = "22222222-3333-4444-5555-666666666666";       // archive only
 var W = "cccccccc-0000-0000-0000-000000000003";       // claude.ai export
 var X = path.join(T, "conversations.json");
 fs.mkdirSync(path.join(PROJ, P, "subagents"), { recursive: true });
+// A newer release seen by the daily check: its notice is in every index
+// built here, so every comparison below holds with it there.
+process.env.CLAUDE_HTML_UPDATE_CHECK = "on";
+fs.writeFileSync(path.join(HOME, ".claude", ".claude-html.update"),
+  "checked=1\nnewest=99.0.0\nhere=" + HERE + "\ntold=\n");
 fs.mkdirSync(path.join(APP, ".claude", ".claude-conversations"), { recursive: true });
 fs.mkdirSync(path.join(HOME, ".claude"), { recursive: true });
 fs.writeFileSync(path.join(HOME, ".claude", "claude-html.archives"), APP + "\n");
@@ -515,6 +520,8 @@ if (ENGINE === "osascript") (function () {
   setMain(WHOLE, T_WHOLE); build(o);
   var t1 = fs.statSync(cacheOf(o)).mtimeMs, r = build(o);
   check("a build where nothing changed builds nothing", /"built":0,/.test(r), r);
+  check("  and its index carries the update notice",
+        /"built":\d+,"update":"99\.0\.0","actions"/.test(fs.readFileSync(path.join(o, "index.html"), "utf8")));
   check("  and leaves the cache as it was", fs.statSync(cacheOf(o)).mtimeMs === t1);
 })();
 

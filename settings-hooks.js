@@ -9,9 +9,12 @@
 //   osascript -l JavaScript settings-hooks.js <settings.json> <scripts dir> remove
 //   … add no-guard     the saves only: the guard's two hooks left out, and
 //                      taken out if an earlier install put them in
+//   … add keep-guard   the saves only: the guard's hooks left as they are,
+//                      for an install whose conf has the guard off
 
 function run(argv) {
   var settingsPath = argv[0], here = argv[1], mode = argv[2], noGuard = argv[3] === "no-guard";
+  var keepGuard = argv[3] === "keep-guard";
   // save-session-link.sh is gone, but an early install may still have its
   // hook in settings.json; recognising the name lets remove clean it up.
   var OURS = ["save-conversation.sh", "save-session-link.sh", "guard.sh"];
@@ -162,7 +165,7 @@ function run(argv) {
       });
       if (keptGroups.length) hooks[event] = keptGroups; else delete hooks[event];
     });
-  } else {
+  } else if (!keepGuard) {
     if (!already("UserPromptSubmit", "guard.sh")) {
       hooks.UserPromptSubmit = groups("UserPromptSubmit").concat([
         { hooks: [{ type: "command", command: guard + " prompt", timeout: 660 }] }]);

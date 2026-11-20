@@ -2,7 +2,22 @@
 
 One entry per release, newest first. Numbers are MAJOR.MINOR.PATCH: a patch
 fixes, a minor adds without breaking, a major needs something from you
-(usually `./install.sh` again). To update: `git pull && ./install.sh`.
+(usually `./install.sh` again). To update: `claude-html --update`; before
+3.1.0, `git pull && ./install.sh`.
+
+## 3.1.0 — 2026-11-20
+
+- **`claude-html --update`**: to the newest release, or to one by number
+  (going back asks first); `--update list` and `--update status` look and
+  change nothing. It reinstalls, rebuilds what needs it, and puts everything
+  back if a step fails.
+- **Once a day** a save asks GitHub for the list of releases, and a newer one
+  is one line on the index, in the terminal, and once in Claude Code.
+  `claude-html --update off` stops it. The pages still make no requests.
+- **resume** and **run** leave a usable terminal: when the command ends,
+  the window stays, as an ordinary shell in that folder.
+- A bare `./install.sh` no longer puts back the guard's hooks after
+  `--no-guard`.
 
 ## 3.0.1 — 2026-11-20
 

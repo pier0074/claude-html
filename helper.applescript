@@ -1,4 +1,4 @@
--- The claude-html helper: deletes, opens and resumes from the index.
+-- The claude-html helper: deletes, opens, resumes and updates from the index.
 --
 -- A page opened from disk is not allowed to delete files, so the bin on the
 -- index is a claude-html://delete/<session id> link, which macOS hands to this
@@ -12,6 +12,23 @@ on run
 end run
 
 on open location theURL
+	-- Updating: the link names nothing, so it must be exactly this, in this
+	-- case. It opens Terminal on this clone's own claude-html --update; the
+	-- update itself says what it would do and refuses what it should.
+	considering case
+		set isUpdate to (theURL is "claude-html://update")
+	end considering
+	if isUpdate then
+		set here to do shell script "dirname " & quoted form of POSIX path of (path to me)
+		try
+			do shell script quoted form of (here & "/claude-html") & " --update-terminal"
+		on error errText
+			activate
+			display dialog "Could not open Terminal for the update." & return & return & errText buttons {"OK"} default button 1 with icon stop with title "claude-html"
+		end try
+		return
+	end if
+
 	-- Opening a project: no dialog, because the point of it is to be quick.
 	-- It can only ever reach a folder already in the index, inside the projects
 	-- root, and it only ever opens — it never runs anything.

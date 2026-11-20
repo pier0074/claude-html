@@ -22,7 +22,7 @@ install, nothing to add, and it builds itself while you work.
 
 Claude Code deletes transcripts after 30 days, and raw JSONL is unreadable.
 This keeps everything as plain HTML on your own disk: no server, no database,
-no dependencies, and not one byte leaves your machine.
+no dependencies, and not one byte of your conversations leaves your machine.
 
 - **Automatic** — hooks save after every reply, when a session ends and before
   compaction, so a page is never more than one reply behind. Saves read only
@@ -38,7 +38,9 @@ no dependencies, and not one byte leaves your machine.
   weeks can start when your plan's allowance resets
 - **Cost** — where Claude Code records it, shown on the index, the session and
   the dashboard; never estimated
-- **Private** — static files, zero network requests; light and dark, with a ◐ toggle
+- **Private** — static files; the pages make no requests and nothing about your
+  conversations leaves your machine. Once a day the tool asks GitHub for the list
+  of releases (`claude-html --update off` stops it). Light and dark, with a ◐ toggle
 - **Secrets masked** — tokens, keys and passwords become `***` in the pages, the
   search and the archives; Claude Code's own transcript is left as it is
 - **Guard** — a prompt or a command holding a secret is stopped before Claude
@@ -51,8 +53,8 @@ git clone https://github.com/pier0074/claude-html ~/claude-html
 cd ~/claude-html && ./install.sh
 ```
 
-To update: `git pull && ./install.sh`. For a given release, add
-`--branch v3.0.1` to the clone; [CHANGELOG.md](CHANGELOG.md) says what each one brought.
+For a given release, add `--branch v3.1.0` to the clone;
+[CHANGELOG.md](CHANGELOG.md) says what each one brought.
 
 Nothing else to install. macOS uses its own `osascript`; Linux uses `node`,
 which a machine running Claude Code already has. A Mac that happens to have
@@ -67,6 +69,20 @@ so: `./install.sh --out DIR --root DIR`.
 The installer only adds: its hooks go beside the ones you have, and a second
 run keeps `~/.claude/claude-html.conf` as you left it. Every setting, and
 every way to set it up, is in [docs/SETUP.md](docs/SETUP.md).
+
+## Update
+
+```bash
+claude-html --update            # go to the newest release
+claude-html --update 3.0.0      # go to that release
+claude-html --update list       # every release available
+claude-html --update status     # what is installed, what is newest
+```
+
+Once a day the tool asks GitHub whether a newer release exists and says so
+on the index; `claude-html --update off` stops that. From a release before
+3.1.0: `git pull && ./install.sh`. Details in
+[docs/SETUP.md](docs/SETUP.md#updating).
 
 ## Use
 

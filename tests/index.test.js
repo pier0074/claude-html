@@ -42,7 +42,7 @@ function el(id) {
 // Builds an index page from data, runs it, and hands back its elements.
 // searchable lists the session ids whose search file exists.
 function load(data, searchable) {
-  const els = {};
+  const els = {}, docHandlers = {}, clipboard = [];
   const get = (id) => els[id] || (els[id] = el(id));
   get("index-data").textContent = JSON.stringify(data);
   let timers = [];
@@ -55,12 +55,12 @@ function load(data, searchable) {
     setTimeout: (f) => { timers.push(f); return timers.length; },
     clearTimeout: () => {},
     location: { reload() {}, href: "" },
-    navigator: {},
+    navigator: { clipboard: { writeText: (t) => { clipboard.push(t); return { then: (f) => f() }; } } },
     getSelection: () => "",
     addEventListener() {}, removeEventListener() {},
     document: {
       getElementById: get,
-      addEventListener() {},
+      addEventListener(t, f) { (docHandlers[t] = docHandlers[t] || []).push(f); },
       querySelector: () => null,
       documentElement: { setAttribute() {}, removeAttribute() {} },
       createElement: () => ({}),
@@ -80,7 +80,9 @@ function load(data, searchable) {
   vm.runInContext(indexSrc, ctx);
   const flush = () => { for (let i = 0; i < 50 && timers.length; i++) { const t = timers; timers = []; t.forEach((f) => f()); } };
   const search = (text) => { get("q").value = text; get("q").handlers.input(); flush(); };
-  return { get, search };
+  // A click anywhere on the page, as the page's own document handlers see it.
+  const click = (target) => (docHandlers.click || []).forEach((f) => f({ target }));
+  return { get, search, click, clipboard, timers: () => timers };
 }
 
 const S = [
@@ -150,6 +152,47 @@ test("the build time is shown when the data carries it", () => {
 
 test("and nothing is shown when it does not", () => {
   assert.strictEqual(load({ sessions: S }).get("built").textContent, "");
+});
+
+// ── a newer release ──────────────────────────────────────────────────
+test("a newer release is one line in the header, the command in code", () => {
+  const up = load({ sessions: S, update: "3.1.0" }).get("update");
+  assert.strictEqual(up.hidden, false);
+  assert.ok(up.innerHTML.startsWith("3.1.0 is out · update with <code>claude-html --update</code> <button"), up.innerHTML);
+});
+
+test("the notice has the rows' copy button, with the exact command", () => {
+  const html = load({ sessions: S, update: "3.2.0", actions: false }).get("update").innerHTML;
+  assert.ok(html.includes('<button class="cp" data-c="claude-html --update">copy</button>'), html);
+  assert.ok(!html.includes("claude-html://"), "no run link without the link handler: " + html);
+});
+
+test("and the rows' run-style link to claude-html://update where links work", () => {
+  const html = load({ sessions: S, update: "3.2.0", actions: true }).get("update").innerHTML;
+  assert.ok(/<a class="go" href="claude-html:\/\/update" [^>]*>run<\/a>$/.test(html), html);
+  assert.ok(load({ sessions: S, update: "3.2.0", mac: true }).get("update").innerHTML.includes('href="claude-html://update"'));
+});
+
+test("its copy goes through the one copy handler the rows use", () => {
+  const p = load({ sessions: S, update: "3.2.0" });
+  const c = /data-c="([^"]*)"/.exec(p.get("update").innerHTML)[1];
+  const btn = { matches: (sel) => sel === "button.cp", dataset: { c }, textContent: "copy" };
+  p.click(btn);
+  assert.deepStrictEqual(p.clipboard, ["claude-html --update"]);
+  assert.strictEqual(btn.textContent, "copied");
+  assert.strictEqual((indexSrc.match(/clipboard\.writeText/g) || []).length, 1, "one copy handler, not two");
+});
+
+test("the notice is in the title's colour, the token the page itself uses", () => {
+  const css = fs.readFileSync(path.join(V, "index.css"), "utf8");
+  assert.ok(/body\{[^}]*color:var\(--fg\)/.test(css), "the title inherits --fg from body");
+  assert.ok(/p\.sub\.upd\{[^}]*color:var\(--fg\)/.test(css), "the notice uses --fg");
+  assert.ok(/<p class="sub upd" id="update" hidden>/.test(fs.readFileSync(path.join(V, "index.html"), "utf8")));
+});
+
+test("and nothing, or nothing odd, when the data has none or a strange one", () => {
+  assert.strictEqual(load({ sessions: S }).get("update").innerHTML, "");
+  assert.strictEqual(load({ sessions: S, update: "<b>x</b>" }).get("update").innerHTML, "");
 });
 
 // ── rows ─────────────────────────────────────────────────────────────

@@ -282,29 +282,62 @@ DB="$OUT/resume/${SB%.sh}.desktop"
 check "the .desktop file is valid" "$(desk "$DB" | cut -c1)" "{"
 check "  it runs in a terminal" "$(desk "$DB" terminal)" '"true"'
 check "  Exec is bash -c, with the folder as an argument and not in the script" \
-  "$(desk "$DB" argv)" \
-  "$(node -e 'console.log(JSON.stringify(["bash","-c","cd -- \"$1\" && exec claude --resume \"$2\"","claude-html",process.argv[1],process.argv[2]]))' "$WEIRD" "$B")"
-check "  Path is the folder, exactly" "$(desk "$DB" path)" "$(jsq "$WEIRD")"
+  "$(desk "$DB" argv | node -e 'var a=JSON.parse(require("fs").readFileSync(0,"utf8"));
+    console.log(JSON.stringify([a[0],a[1],a[3],a[4],a[5],a.length]))')" \
+  "$(node -e 'console.log(JSON.stringify(["bash","-c","claude-html",process.argv[1],process.argv[2],6]))' "$WEIRD" "$B")"
+check "  and the script ends in the shell, exec'd, nothing after it" \
+  "$(desk "$DB" argv | node -e 'var a=JSON.parse(require("fs").readFileSync(0,"utf8")); console.log(/; exec "\$s" -i$/.test(a[2]))')" true
+check "  no Path=, which a removed folder would make fail to open" "$(desk "$DB" path)" null
 check "  Name comes from the title, on one line" "$(desk "$DB" name)" \
   "$(jsq 'Resume: a title with "quotes", $(touch pwned), `id` and <b>markup</b>')"
 if command -v desktop-file-validate >/dev/null 2>&1; then
   check "  and desktop-file-validate agrees" "$(desktop-file-validate "$DB" 2>&1 | grep -c error)" 0
 fi
 
-# Run each launcher for real, with a claude that only says where it woke up.
+# Run each launcher for real, with a claude that only says where it woke up
+# and then exits as CLAUDE_EXIT says, and a $SHELL that says where it was
+# started and how: the window must end as that shell, in that folder.
 FAKE="$T/fakeclaude"; mkdir -p "$FAKE"
-printf '#!/bin/sh\npwd -P > "%s/where"\nprintf "%%s\\n" "$*" > "%s/args"\n' "$T" "$T" > "$FAKE/claude"
+printf '#!/bin/sh\npwd -P > "%s/where"\nprintf "%%s\\n" "$*" > "%s/args"\nexit "${CLAUDE_EXIT:-0}"\n' "$T" "$T" > "$FAKE/claude"
 chmod +x "$FAKE/claude"
+STUBSH="$T/stubshell"
+printf '#!/bin/sh\nprintf "%%s|%%s\\n" "$(pwd -P)" "$*" > "%s/shell"\n' "$T" > "$STUBSH"; chmod +x "$STUBSH"
 REAL="$(cd "$WEIRD" && pwd -P)"
-rm -f "$T/where"
-( cd "$T" && PATH="$FAKE:$SYS" node -e '
+HREAL="$(cd "$H" && pwd -P)"
+rundesk() { ( cd "$T" && HOME="$H" PATH="$FAKE:$SYS" node -e '
   var a = JSON.parse(process.argv[1]);
-  require("child_process").spawnSync(a[0], a.slice(1), { stdio: "inherit" });' "$(desk "$DB" argv)" )
+  require("child_process").spawnSync(a[0], a.slice(1), { stdio: "inherit" });' "$(desk "$DB" argv)" ); }
+rm -f "$T/where" "$T/shell"
+SHELL="$STUBSH" rundesk
 check "the .desktop's command lands in the awkward folder" "$(cat "$T/where" 2>/dev/null)" "$REAL"
 check "  and resumes that conversation" "$(cat "$T/args" 2>/dev/null)" "--resume $B"
-rm -f "$T/where" "$T/args"
-( cd "$T" && PATH="$FAKE:$SYS" sh "$OUT/resume/$SB" )
+check "  then the window is your shell, there, interactive" "$(cat "$T/shell" 2>/dev/null)" "$REAL|-i"
+rm -f "$T/where" "$T/args" "$T/shell"
+( cd "$T" && HOME="$H" SHELL="$STUBSH" PATH="$FAKE:$SYS" sh "$OUT/resume/$SB" )
 check "the .sh lands there too" "$(cat "$T/where" 2>/dev/null)" "$REAL"
+check "  and ends as your shell, there" "$(cat "$T/shell" 2>/dev/null)" "$REAL|-i"
+rm -f "$T/shell"
+( cd "$T" && HOME="$H" SHELL="$STUBSH" CLAUDE_EXIT=3 PATH="$FAKE:$SYS" sh "$OUT/resume/$SB" )
+check "  also when claude exits 3" "$(cat "$T/shell" 2>/dev/null)" "$REAL|-i"
+check "the .sh's last line is the exec of the shell" "$(tail -1 "$OUT/resume/$SB")" 'exec "$s" -i'
+# No usable $SHELL: unset, or not a program. bash, else sh, reading the
+# commands it is given, as a window's shell reads what is typed.
+# (Unset, a shell started from it fills it in from the password file, so
+# empty is the case that reaches the launcher.)
+ONE="$(printf '%s' "$REAL" | tr '\n' '@')@"
+for sv in "" /nonexistent/shell "$T"; do
+  o="$(cd "$T" && printf 'echo "is:$0:$(pwd -P | tr "\\n" @)"\n' | env HOME="$H" SHELL="$sv" PATH="$FAKE:$SYS" sh "$OUT/resume/$SB" 2>/dev/null)"
+  check "  \$SHELL '$sv': bash instead, in the folder" "$(printf '%s\n' "$o" | grep '^is:')" "is:/bin/bash:$ONE"
+done
+# The folder gone: said in one line, and the shell opens at home.
+mv "$WEIRD" "$T/away"
+rm -f "$T/where" "$T/shell"
+o="$( cd "$T" && HOME="$H" SHELL="$STUBSH" PATH="$FAKE:$SYS" sh "$OUT/resume/$SB" 2>&1 )"
+check "a removed folder: said in one line" "$(printf '%s\n' "$o" | grep -c 'is no longer there, so this is a shell in your home folder')" 1
+check "  claude not started, the shell at home" "$([ -f "$T/where" ] && echo ran || echo no) $(cat "$T/shell" 2>/dev/null)" "no $HREAL|-i"
+rm -f "$T/shell"; SHELL="$STUBSH" rundesk >/dev/null 2>&1
+check "  the .desktop too" "$(cat "$T/shell" 2>/dev/null)" "$HREAL|-i"
+mv "$T/away" "$WEIRD"
 pwned() { for d in "$T" "$ROOT" "$WEIRD" "$PLAIN" "$HERE"; do [ -e "$d/pwned" ] && echo "$d/pwned"; done; }
 check "no part of the path was run" "$(pwned)" ""
 
@@ -313,9 +346,31 @@ check "no part of the path was run" "$(pwned)" ""
 build darwin
 SC="$(ls "$OUT/resume" | grep -- "-$B.command$")"
 check "a darwin build writes .command only" "$(ls "$OUT/resume" | grep -vc '\.command$')" 0
-rm -f "$T/where"
-( cd "$T" && PATH="$FAKE:$SYS" bash "$OUT/resume/$SC" )
+rm -f "$T/where" "$T/shell"
+( cd "$T" && HOME="$H" SHELL="$STUBSH" PATH="$FAKE:$SYS" bash "$OUT/resume/$SC" )
 check "  and it lands in the awkward folder" "$(cat "$T/where" 2>/dev/null)" "$REAL"
+check "  then is your login shell there, as Terminal's are" "$(cat "$T/shell" 2>/dev/null)" "$REAL|-l"
+rm -f "$T/shell"
+( cd "$T" && HOME="$H" SHELL="$STUBSH" CLAUDE_EXIT=3 PATH="$FAKE:$SYS" bash "$OUT/resume/$SC" )
+check "  also when claude exits 3" "$(cat "$T/shell" 2>/dev/null)" "$REAL|-l"
+check "  its last line is the exec of the shell" "$(tail -1 "$OUT/resume/$SC")" 'exec "$s" -l'
+if [ -x /bin/zsh ]; then
+  o="$(cd "$T" && printf 'echo "is:$0:$(pwd -P | tr "\\n" @)"\n' | env SHELL= HOME="$H" ZDOTDIR="$H" PATH="$FAKE:$SYS" bash "$OUT/resume/$SC" 2>/dev/null)"
+  check "  no \$SHELL: zsh instead" "$(printf '%s\n' "$o" | grep '^is:' | cut -d: -f1-2)" "is:/bin/zsh"
+fi
+
+# A launcher written by an older version is written again by the next
+# build, once, and its page is left alone.
+PAGE="$OUT/sessions/$B.html"; touch -t 202001010000 "$PAGE"; PT="$(mtime_of "$PAGE")"
+printf '#!/bin/bash\ncd -- /old || exit 1\nexec claude --resume %s\n' "$B" > "$OUT/resume/$SC"
+node -e 'var f=process.argv[1], m=JSON.parse(require("fs").readFileSync(f,"utf8"));
+  Object.keys(m).forEach(function(k){ delete m[k].lv; }); require("fs").writeFileSync(f, JSON.stringify(m));' "$OUT/.manifest.json"
+build darwin
+check "old launchers are written again by the next build" "$(tail -1 "$OUT/resume/$SC")" 'exec "$s" -l'
+check "  without rebuilding the page" "$(mtime_of "$PAGE")" "$PT"
+printf 'stale\n' > "$OUT/resume/$SC"; build darwin
+check "  and only once: a current one is not rewritten" "$(cat "$OUT/resume/$SC")" stale
+rm -f "$OUT/resume/$SC"; build darwin
 build linux
 check "back on linux, the .command files are pruned" "$(ls "$OUT/resume" | grep -c '\.command$')" 0
 check "  and the linux launchers are there again" "$(ls "$OUT/resume" | grep -c '\.sh$')" 2
@@ -374,6 +429,35 @@ check "resume refuses an id not in the index" \
 check "resume refuses something that is not an id" \
   "$(inenv ubuntu bash "$HERE/claude-html" --resume-session "$A; touch $T/pwned" >/dev/null 2>&1; echo $?)" 2
 
+# The index's run button for an update: this clone's command, --update, in
+# the same terminal, kept open until Enter.
+echo "update"
+CLIP="$(cd -P "$HERE" && pwd)/claude-html"
+UL="$H/.claude/.claude-html-update.sh"
+uplan() { inenv "$1" bash "$HERE/claude-html" --update-terminal-plan 2>&1 | sed -n 's/^command: //p'; }
+check "update, ubuntu: gnome-terminal --" "$(uplan ubuntu)" "'gnome-terminal' '--' 'sh' '$UL'"
+check "update, fedora 41: ptyxis --new-window --" "$(uplan fedora)" "'ptyxis' '--new-window' '--' 'sh' '$UL'"
+check "update, kde: konsole -e" "$(uplan kde)" "'konsole' '-e' 'sh' '$UL'"
+check "update, xfce: xfce4-terminal -x" "$(uplan xfce)" "'xfce4-terminal' '-x' 'sh' '$UL'"
+check "update, bare wm: xterm -e" "$(uplan bare)" "'xterm' '-e' 'sh' '$UL'"
+check "update, \$TERMINAL=kitty: kitty, no flag" "$(uplan custom)" "'kitty' 'sh' '$UL'"
+check "update, wsl: Windows Terminal, back into this distribution" "$(uplan wsl)" \
+  "'wt.exe' 'wsl.exe' '-d' 'Ubuntu' '--' 'sh' '$UL'"
+check "update, headless: prints the command to type instead" \
+  "$(inenv headless bash "$HERE/claude-html" --update-terminal 2>&1)" "run: '$CLIP' --update"
+clearlog ubuntu; rm -f "$UL"
+inenv ubuntu bash "$HERE/claude-html" --update-terminal >/dev/null 2>&1
+check "update really calls the terminal, on a launcher" "$(log ubuntu)" "gnome-terminal [--] [sh] [$UL]"
+check "  which runs this clone's --update, then exec's the shell, last" \
+  "$(grep -v '^#' "$UL" | head -1) | $(tail -1 "$UL")" "'$CLIP' --update | exec \"\$s\" -i"
+# Run it, with a stand-in for this clone's command that fails.
+UF="$T/upd"; mkdir -p "$UF"; printf '#!/bin/sh\necho "the update says $1"; exit 1\n' > "$UF/claude-html"; chmod +x "$UF/claude-html"
+sed "s|^'$CLIP' --update|'$UF/claude-html' --update|" "$UL" > "$T/ul.sh"
+rm -f "$T/shell"
+o="$(cd "$T" && HOME="$H" SHELL="$STUBSH" PATH="$SYS" sh "$T/ul.sh")"
+check "  its output stays above the shell, which it ends as, even after a failure" \
+  "$(printf '%s' "$o" | head -1) | $(cat "$T/shell" 2>/dev/null)" "the update says --update | $(cd "$T" && pwd -P)|-i"
+
 # ── 5. open ─────────────────────────────────────────────────────────
 echo "open"
 clearlog ubuntu
@@ -408,7 +492,11 @@ for bad in "claude-html://delete/$A/extra" "claude-html://open/$A;rm -rf ~" \
            "claude-html://open/${A%?}" "claude-html://open/${A}0" "http://evil/open/$A" \
            "claude-html:open/$A" "CLAUDE-HTML://open/$A" "claude-html://open/$A " \
            "claude-html://open//$A" "claude-html://open/\`id\`" "claude-html://" "" \
-           "claude-html://open/zzzzzzzz-1111-4111-8111-000000000001" "claude-html://Open/$A"; do
+           "claude-html://open/zzzzzzzz-1111-4111-8111-000000000001" "claude-html://Open/$A" \
+           "claude-html://update/anything" "claude-html://update/" "claude-html://update?x" \
+           "claude-html://update#x" "claude-html://update " "claude-html://Update" "claude-html://UPDATE" \
+           "CLAUDE-HTML://update" "claude-html://%75pdate" "claude-html://update%2F" "claude-html://update/$A" \
+           "claude-html://update${NL}claude-html://delete/$A" "claude-html:update"; do
   clearlog ubuntu
   code="$(handle ubuntu "$bad" >/dev/null 2>&1; echo $?)"
   check "refused: $(printf '%s' "$bad" | tr '\n' '|')" "$code:$(log ubuntu | grep -c '^cli')" "2:0"
@@ -417,6 +505,8 @@ clearlog ubuntu
 check "refused: two arguments" "$(handle ubuntu "claude-html://open/$A" extra >/dev/null 2>&1; echo $?):$(log ubuntu | grep -c cli)" "2:0"
 check "nothing anywhere was run from a link" "$(pwned)" ""
 
+clearlog ubuntu; handle ubuntu "claude-html://update" >/dev/null 2>&1
+check "an update link asks for exactly that, and names nothing" "$(log ubuntu)" "cli [--update-terminal]"
 clearlog ubuntu; handle ubuntu "claude-html://resume/$A" >/dev/null 2>&1
 check "a resume link asks for exactly that" "$(log ubuntu)" "cli [--resume-session] [$A]"
 clearlog ubuntu; handle ubuntu "claude-html://open/$A/" >/dev/null 2>&1

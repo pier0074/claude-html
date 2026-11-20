@@ -7,6 +7,10 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 ui-monospace,Me
 main{width:100%;max-width:var(--col);margin:0 auto;padding:28px 20px}
 h1{font-size:17px;margin:0 0 4px}
 p.sub{color:var(--dim);font-size:12px;margin:0 0 16px}
+/* A newer release: the title's colour, so it reads as a notice and not as
+   the muted line above it. */
+p.sub.upd{margin-top:-12px;color:var(--fg)}
+p.sub.upd button.cp{margin-left:4px}
 #q{width:100%;background:var(--code);color:var(--fg);border:1px solid var(--line);
 border-radius:5px;padding:8px 11px;font:inherit;font-size:13px;margin-bottom:6px}
 #q:focus{outline:none;border-color:var(--dim)}

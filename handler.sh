@@ -1,6 +1,7 @@
 #!/bin/sh
 # The claude-html link handler, on Linux: the desktop hands it a
-# claude-html://<action>/<session id> link from the index, and it asks the
+# claude-html://<action>/<session id> link from the index (or
+# claude-html://update), and it asks the
 # claude-html command to do exactly that.
 #
 #   handler.sh 'claude-html://resume/0f6c…'
@@ -8,7 +9,7 @@
 # Any web page can make a browser open such a link, so the link is checked
 # before anything else happens and nothing from it ever reaches a shell: it
 # must be one of three actions and a session id, with nothing before, after
-# or between them. Which conversation that is, and every path involved, is
+# or between them - or exactly claude-html://update, which names nothing. Which conversation that is, and every path involved, is
 # looked up in the index's own manifest by the command, never taken from here.
 #
 # Deleting asks first, in a dialog of the desktop's own, or in a terminal
@@ -26,21 +27,27 @@ ID_GLOB="$H$H$H$H$H$H$H$H-$H$H$H$H-$H$H$H$H-$H$H$H$H-$H$H$H$H$H$H$H$H$H$H$H$H"
 
 # Every character of an id matches one bracket of the pattern, so nothing
 # else - a space, a quote, a newline, a slash - can be inside it.
-REST="${URL#claude-html://}"
-[ "$REST" != "$URL" ] || { echo "handler.sh: not a claude-html link" >&2; exit 2; }
-ACTION="${REST%%/*}"
-SID="${REST#*/}"
-[ "$SID" != "$REST" ] || { echo "handler.sh: no session id in the link" >&2; exit 2; }
-SID="${SID%/}"
-case "$ACTION" in
-  delete|open|resume) ;;
-  *) echo "handler.sh: not an action it knows" >&2; exit 2 ;;
-esac
-# shellcheck disable=SC2254
-case "$SID" in
-  $ID_GLOB) ;;
-  *) echo "handler.sh: not a session id" >&2; exit 2 ;;
-esac
+# The update takes nothing from the link: it is exactly this string, or
+# not the update at all.
+if [ "$URL" = "claude-html://update" ]; then
+  ACTION=update; SID=""
+else
+  REST="${URL#claude-html://}"
+  [ "$REST" != "$URL" ] || { echo "handler.sh: not a claude-html link" >&2; exit 2; }
+  ACTION="${REST%%/*}"
+  SID="${REST#*/}"
+  [ "$SID" != "$REST" ] || { echo "handler.sh: no session id in the link" >&2; exit 2; }
+  SID="${SID%/}"
+  case "$ACTION" in
+    delete|open|resume) ;;
+    *) echo "handler.sh: not an action it knows" >&2; exit 2 ;;
+  esac
+  # shellcheck disable=SC2254
+  case "$SID" in
+    $ID_GLOB) ;;
+    *) echo "handler.sh: not a session id" >&2; exit 2 ;;
+  esac
+fi
 
 # shellcheck source=platform.sh
 . "$HERE/platform.sh"
@@ -63,6 +70,15 @@ markup() { printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&g
 plain() { printf '%s' "$1" | sed -e 's/</‹/g' -e 's/>/›/g'; }
 
 case "$ACTION" in
+  update)
+    # This clone's own command, in a terminal that stays open to be read.
+    OUTPUT="$("$CLI" --update-terminal 2>&1)" || { tell "Could not open a terminal for the update.
+
+$OUTPUT"; exit 1; }
+    case "$OUTPUT" in "run: "*) tell "Nothing here can open a terminal. To update, run:
+
+${OUTPUT#run: }" ;; esac
+    exit 0 ;;
   open)
     OUTPUT="$("$CLI" --open "$SID" 2>&1)" || tell "Could not open that project.
 

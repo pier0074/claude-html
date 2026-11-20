@@ -50,3 +50,9 @@ export CLAUDE_HTML_NO_REGISTER=1
 # from the shell it was started in: each one that needs a list makes its own.
 unset CLAUDE_HTML_REDACT
 export CLAUDE_HTML_REDACT_FILE="${TMPDIR:-/tmp}/claude-html-tests-no-such.redact"
+
+# No suite may ask the network whether a release is out: a contributor runs
+# them from a clone of the release repository, where the daily check would.
+# update.test.sh turns it on against repositories of its own.
+export CLAUDE_HTML_UPDATE_CHECK=off
+export CLAUDE_HTML_UPDATE_REMOTE="${TMPDIR:-/tmp}/claude-html-tests-no-such-remote"

@@ -43,6 +43,17 @@
     bt.textContent = " · built " + stamp(data.built) + " (" + ago(data.built) + ")";
     bt.title = "when claude-html last wrote this page";
   }
+  // A newer release, as the daily check last saw it. The build put it here;
+  // the page asks nothing of the network.
+  var up = document.getElementById("update");
+  if (up && /^\d+\.\d+\.\d+$/.test(data.update || "")) {
+    // copy is the rows' own button, on the rows' own click handler; run is
+    // a link for the helper or the Linux handler, drawn only where one is.
+    up.innerHTML = esc(data.update) + " is out · update with <code>claude-html --update</code>" +
+      ' <button class="cp" data-c="claude-html --update">copy</button>' +
+      (mac ? '<a class="go" href="claude-html://update" title="run the update in a terminal">run</a>' : "");
+    up.hidden = false;
+  }
   // How to reopen a conversation, said plainly. Every build that carries
   // "actions" also wrote a launcher per conversation into resume/.
   var launch = document.getElementById("launch");

@@ -193,6 +193,17 @@ else
 fi
 
 # ── 3. hooks ───────────────────────────────────────────────────────
+# A guard turned off in the conf - by --no-guard or by claude-html --guard
+# off - is not put back by a bare run, which is what an update makes: its
+# hooks are left as they are. The conf's own line decides, not the
+# environment, which may say otherwise for one shell only.
+if [ -z "$NOGUARD" ]; then
+  CONF_GUARD="$( unset CLAUDE_HTML_GUARD; . "$CONF" >/dev/null 2>&1; printf '%s' "${CLAUDE_HTML_GUARD:-}" )" || CONF_GUARD=""
+  case "$(printf '%s' "$CONF_GUARD" | tr '[:upper:]' '[:lower:]')" in
+    off|0|no|false) NOGUARD=keep-guard
+      say "guard:    off in the conf, so its hooks are left as they are (claude-html --guard on)" ;;
+  esac
+fi
 # || true: a failure here must not abandon the install half-done.
 HOOKED=1
 RESULT="$(run_js "$HERE/settings-hooks.js" "$SETTINGS" "$HERE" add $NOGUARD 2>/dev/null || true)"
@@ -246,13 +257,14 @@ echo
 # Without the build cache: a save may be building beside this one, and only
 # the saves and the command, which take turns, may write it.
 REPORT="$(ch_js "$HERE/convert.js" "$(cat <<EOF
-{"root":"$ROOT","out":"$OUT","here":"$HERE","cache":false}
+{"root":"$ROOT","out":"$OUT","here":"$(cd -P "$HERE" && pwd)","cache":false}
 EOF
 )" 2>&1 || true)"
 case "$REPORT" in
   *'"sessions"'*)
     N="$(printf '%s' "$REPORT" | sed -n 's/.*"sessions":\([0-9]*\).*/\1/p')"
-    say "built:    $N session(s)" ;;
+    B="$(printf '%s' "$REPORT" | sed -n 's/.*"built":\([0-9]*\).*/\1/p')"
+    say "built:    $N session(s), ${B:-0} rebuilt" ;;
   *)
     say "build:    could not build the pages — $REPORT" ;;
 esac

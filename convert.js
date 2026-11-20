@@ -1248,14 +1248,42 @@ function run(argv) {
     });
   }
 
+  // A newer release, as the daily check last saw it for this very clone:
+  // read from the state file it keeps, so the page itself never asks
+  // anything of the network. release.sh decides the same way for the
+  // terminal and for Claude Code.
+  function isVer(v) { return /^\d+\.\d+\.\d+$/.test(v || ""); }
+  function verGt(a, b) {
+    var x = a.split("."), y = b.split(".");
+    for (var i = 0; i < 3; i++) if (+x[i] !== +y[i]) return +x[i] > +y[i];
+    return false;
+  }
+  function updateNotice() {
+    if (/^(off|0|no|false)$/i.test(env("CLAUDE_HTML_UPDATE_CHECK") || "")) return null;
+    var st = {};
+    (read(HOME + "/.claude/.claude-html.update") || "").split("\n").forEach(function (l) {
+      var i = l.indexOf("=");
+      if (i > 0) st[l.slice(0, i)] = l.slice(i + 1);
+    });
+    var have = (read(HERE + "/VERSION") || "").trim();
+    if (st.here !== HERE || !isVer(st.newest) || !isVer(have) || !verGt(st.newest, have)) return null;
+    return st.newest;
+  }
+
   function indexPage(entries, errors) {
+    var data = { sessions: entries, home: HOME, root: ROOT, errors: errors,
+                 built: Math.round(Date.now() / 1000) };
+    // Beside the build time, the one other thing two builds of the same
+    // sessions may rightly differ in.
+    var upd = updateNotice();
+    if (upd) data.update = upd;
+    data.actions = ACTIONS; data.mac = MAC;
     return fill(asset("index.html"), {
       css: asset("index.css"),
       // Opening a folder, deleting and resuming go through the macOS helper,
       // so elsewhere the index hides them rather than offer dead controls.
       // When it was built, in seconds, so a hook that has stopped firing shows.
-      data: embed({ sessions: entries, home: HOME, root: ROOT, errors: errors,
-                    built: Math.round(Date.now() / 1000), actions: ACTIONS, mac: MAC }),
+      data: embed(data),
       viewer: asset("viewer.js"),
       index: asset("index.js")
     });
@@ -1358,28 +1386,49 @@ function run(argv) {
     return '"' + String(s).replace(/["`$\\]/g, "\\$&").replace(/%/g, "%%") + '"';
   }
 
+  // When the command ends, the window stays: the launcher becomes the
+  // person's own shell, in the folder it ran in, with the output above the
+  // prompt. Their $SHELL if it is a program that can run, else the system's.
+  // macOS's Terminal starts login shells, so -l there; a Linux terminal
+  // starts an interactive one that is not a login shell, so -i there.
+  // exec, last: nothing of the launcher is left behind under it.
+  var SHELL_TAIL = OS === "darwin"
+    ? 's=${SHELL:-}; { [ -f "$s" ] && [ -x "$s" ]; } || s=/bin/zsh\nexec "$s" -l\n'
+    : 's=${SHELL:-}; { [ -f "$s" ] && [ -x "$s" ]; } || s=/bin/bash; { [ -f "$s" ] && [ -x "$s" ]; } || s=/bin/sh\nexec "$s" -i\n';
+  // What a launcher says. A change here is a new version, and every
+  // launcher on disk is written again once, its page left alone.
+  // 2: the window stays, as a shell, after the conversation ends.
+  var LAUNCHER_VERSION = 2;
+  var GONE = "claude-html: %s is no longer there, so this is a shell in your home folder\n";
+
   function writeLaunchers(meta) {
     var stem = launcherStem(meta), id = meta.id;
     LAUNCHERS.forEach(function (ext) {
       var p = stem + ext, text;
       if (ext === ".desktop") {
         // The folder goes in as an argument, never as part of the script.
+        // No Path=: a folder since removed would stop the terminal opening
+        // at all, where the script says so and opens a shell at home.
         var title = String(meta.title || meta.project || id).replace(/[\x00-\x1f\x7f]+/g, " ");
         if (title.length > 80) title = title.slice(0, 79) + "\u2026";
+        var script = 'if cd -- "$1" 2>/dev/null; then claude --resume "$2"; ' +
+          "else printf '" + GONE.replace(/\n$/, "\\n") + "' \"$1\"; cd || cd /; fi; " +
+          SHELL_TAIL.replace(/\n(?!$)/g, "; ").replace(/\n$/, "");
         text = "[Desktop Entry]\nType=Application\nVersion=1.0\n" +
           "Name=" + deskValue("Resume: " + title) + "\n" +
           "Comment=" + deskValue("claude --resume " + id + " in " + meta.cwd) + "\n" +
-          "Path=" + deskValue(meta.cwd) + "\n" +
           "Terminal=true\n" +
-          "Exec=" + deskValue(["bash", "-c", 'cd -- "$1" && exec claude --resume "$2"',
-                               "claude-html", meta.cwd, id].map(deskArg).join(" ")) + "\n";
+          "Exec=" + deskValue(["bash", "-c", script, "claude-html", meta.cwd, id].map(deskArg).join(" ")) + "\n";
       } else {
         text = (ext === ".sh" ? "#!/bin/sh\n" : "#!/bin/bash\n") +
-          "cd -- " + shq(meta.cwd) + " || exit 1\nexec claude --resume " + id + "\n";
+          "if cd -- " + shq(meta.cwd) + " 2>/dev/null; then\n  claude --resume " + id + "\nelse\n" +
+          "  printf '" + GONE.replace(/\n$/, "\\n") + "' " + shq(meta.cwd) + "\n  cd || cd /\nfi\n" +
+          SHELL_TAIL;
       }
       write(p, text);
       chmodx(p);
     });
+    meta.lv = LAUNCHER_VERSION;
   }
 
   function removeLaunchers(meta) {
@@ -1801,7 +1850,9 @@ function run(argv) {
       skipped++;
       // A launcher of the other system's kind was pruned, or one was deleted
       // by hand: the page is current, but there is nothing to double-click.
-      if (resumable(cached) && !exists(launcherStem(cached) + LAUNCHERS[0])) writeLaunchers(cached);
+      // Or one written by an older version of this, which says less.
+      if (resumable(cached) && (cached.lv !== LAUNCHER_VERSION ||
+          !exists(launcherStem(cached) + LAUNCHERS[0]))) writeLaunchers(cached);
       return;
     }
     try {
@@ -2036,6 +2087,7 @@ function run(argv) {
     delete e.shared;
     delete e.rsig;
     delete e.unredacted;
+    delete e.lv;
     // A page built before its source changed is showing an old conversation.
     e.stale = live[id] !== undefined && live[id] !== e.sig;
     return e;

@@ -58,6 +58,10 @@ cat > "$X" <<JSON
   {"sender":"assistant","created_at":"2026-05-01T10:00:05Z","content":[{"type":"text","text":"an answer"}]}]}]
 JSON
 
+# A newer release seen by the daily check, so both engines must write its
+# notice into the index, the same way.
+printf 'checked=1\nnewest=99.0.0\nhere=%s\ntold=\n' "$HERE" > "$H/.claude/.claude-html.update"
+export CLAUDE_HTML_UPDATE_CHECK=on
 opts() { printf '{"root":"%s","out":"%s","here":"%s","exportPath":"%s"}' "$ROOT" "$1" "$HERE" "$X"; }
 
 # ── node builds it, wherever we are ─────────────────────────────────
@@ -90,6 +94,8 @@ if command -v osascript >/dev/null 2>&1; then
   check "osascript tells the index it is on a mac" "$(grep -c '"mac":true}' "$JOUT/index.html")" 1
   check "  and so does node on the same mac" "$(grep -c '"mac":true}' "$NOUT/index.html")" 1
   # And when: the two builds are seconds apart, which the index rightly says.
+  check "both carry the update notice" \
+    "$(cat "$JOUT/index.html" "$NOUT/index.html" | grep -c '"update":"99.0.0",')" 2
   check "both say when they were built" \
     "$(cat "$JOUT/index.html" "$NOUT/index.html" | grep -c '"built":[0-9]\{10\},')" 2
   for f in "$JOUT/index.html" "$NOUT/index.html"; do

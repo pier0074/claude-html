@@ -48,6 +48,23 @@ fi
 # long session takes seconds, so from there this relaunches itself detached and
 # returns at once: nobody waits on it.
 if [ "${1:-}" = "--background" ]; then
+  # A newer release, told to the person once per release, as a line Claude
+  # Code shows them: a Stop hook's systemMessage, which the hooks reference
+  # calls a "Warning message shown to the user", and which, unlike
+  # additionalContext, is not handed to Claude. Only from what the daily
+  # check left in the state file, with builtins and no network: this is the
+  # part of the save Claude Code waits on.
+  if [ -f "$HOME/.claude/.claude-html.update" ]; then
+    _here="${BASH_SOURCE[0]%/*}"; [ "$_here" = "${BASH_SOURCE[0]}" ] && _here=.
+    _pwd="$PWD"; cd -P "$_here" 2>/dev/null && _here="$PWD"; cd "$_pwd" 2>/dev/null
+    _ver=""; [ -f "$_here/VERSION" ] && read -r _ver < "$_here/VERSION"
+    # shellcheck source=release.sh
+    if [ -f "$_here/release.sh" ] && . "$_here/release.sh" &&
+       ch_update_notice "$_here" "$_ver" && [ "$CH_UP_TOLD" != "$CH_UP_NOTICE" ]; then
+      printf '{"systemMessage":"claude-html %s is out · update with: claude-html --update"}\n' "$CH_UP_NOTICE"
+      CH_UP_TOLD="$CH_UP_NOTICE"; ch_update_write
+    fi
+  fi
   CLAUDE_HTML_TRANSCRIPT="$TRANSCRIPT" nohup /bin/bash "$0" --try </dev/null >/dev/null 2>&1 &
   exit 0
 fi
@@ -77,6 +94,16 @@ MODE=wait
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=conf.sh
 . "$HERE/conf.sh"
+# Its physical path too, as the command has it: the update notice is kept
+# per clone, by that path. The projects root stays decided by the other.
+HERE_P="$(cd -P "$HERE" && pwd)"
+# Once a day, from a save nobody waits on (the copy the reply's hook
+# detached, or the session end's), ask whether a newer release is out, for
+# at most five seconds. Before the lock, so no other save waits on it
+# either, and before the build at the end, which puts it on the index.
+if { [ "$MODE" = try ] || [ -n "${CLAUDE_HTML_DETACHED:-}" ]; } && [ -f "$HERE/update.sh" ]; then
+  /bin/bash "$HERE/update.sh" "$HERE_P" --daily </dev/null >/dev/null 2>&1 || true
+fi
 if [[ "$(pwd)" != "$ROOT" && "$(pwd)" != "$ROOT"/* ]]; then
   exit 0
 fi
@@ -146,7 +173,7 @@ rebuild_pages() {
   local nocache=""
   [ "$OWN_LOCK" = 1 ] || nocache=',"cache":false'
   run_js "$HERE/convert.js" \
-    "{\"root\":\"$ROOT\",\"out\":\"$OUT\",\"here\":\"$HERE\"$nocache}" >/dev/null 2>&1 || true
+    "{\"root\":\"$ROOT\",\"out\":\"$OUT\",\"here\":\"$HERE_P\"$nocache}" >/dev/null 2>&1 || true
 }
 
 # A session that fails to archive is recorded, one file per session, so the

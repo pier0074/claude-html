@@ -71,8 +71,14 @@ check "--no-guard takes the guard's hooks out" \
   "$(grep -c 'guard.sh' "$H/.claude/settings.json") $(grep -c 'save-conversation.sh' "$H/.claude/settings.json")" "0 4"
 check "  and turns it off in the conf, the rest kept" \
   "$(conf_get CLAUDE_HTML_GUARD) $(grep -c '^CLAUDE_HTML_ROOT=' "$CONF")" "off 1"
+# A bare run is what an update makes: it must not undo the choice.
 install
-check "a later install puts the hooks back, once" "$(grep -c 'guard.sh' "$H/.claude/settings.json")" 2
+check "a later bare install leaves them out, the guard off" \
+  "$(grep -c 'guard.sh' "$H/.claude/settings.json") $(conf_get CLAUDE_HTML_GUARD)" "0 off"
+check "  and keeps --out and --root" "$(conf_get CLAUDE_HTML_ROOT) | $(conf_get CLAUDE_HTML_OUT)" "$ROOT | $PAGES"
+clean_env bash "$C/claude-html" --guard on >/dev/null 2>&1
+install
+check "turned on again, the next install puts the hooks back, once" "$(grep -c 'guard.sh' "$H/.claude/settings.json")" 2
 check "installs from a path with a space" "$?" 0
 check "  writes the projects given" "$(conf_get CLAUDE_HTML_ROOT)" "$ROOT"
 check "  and the pages given" "$(conf_get CLAUDE_HTML_OUT)" "$PAGES"

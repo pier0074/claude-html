@@ -16,9 +16,95 @@ HERE="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 VERSION="$(cat "$HERE/VERSION" 2>/dev/null || echo unknown)"
 case "${1:-}" in --version|-V) echo "claude-html $VERSION"; exit 0 ;; esac
 
+# Updating: the word after --update says which kind. Worked out before the
+# conf is read, because what the environment says about the daily check is
+# reported apart from what the conf says.
+UPDATE=""; UPDWORD=""; UPDYES=""
+_seen=""
+for arg in "$@"; do
+  if [ -n "$UPDATE" ]; then
+    case "$arg" in
+      --yes|-y) UPDYES=--yes ;;
+      on|off|status|list|--check)
+        [ -z "$UPDWORD" ] && [ -z "$_seen" ] || UPDATE=bad; UPDWORD="$arg" ;;
+      *) if [ -z "$UPDWORD" ] && [ -z "$_seen" ] &&
+            printf '%s' "$arg" | grep -Eqx 'v?[0-9]+\.[0-9]+\.[0-9]+'; then UPDWORD="$arg"
+         else UPDATE=bad; fi ;;
+    esac
+    case "$arg" in --yes|-y) ;; *) _seen=1 ;; esac
+  else
+    case "$arg" in --update|--upgrade) UPDATE=1 ;; --yes|-y) UPDYES=--yes ;; esac
+  fi
+done
+if [ "$UPDATE" = bad ]; then
+  echo "claude-html --update [X.Y.Z|list|status|on|off] [--yes]" >&2
+  exit 2
+fi
+UPD_ENV=unset
+[ -n "${CLAUDE_HTML_UPDATE_CHECK+x}" ] && UPD_ENV="set:$CLAUDE_HTML_UPDATE_CHECK"
+
 # Where install.sh was told things live, decided as the hook decides it.
 # shellcheck source=conf.sh
 . "$HERE/conf.sh"
+
+# One line of the conf, changed where it stands or added: the rest of the
+# file, comments and all, as it was. Copied back, not moved, so a conf kept
+# as a symlink stays one.
+conf_line() {
+  mkdir -p "$(dirname "$CONF")"; [ -f "$CONF" ] || : > "$CONF"
+  local tmp="$CONF.tmp.$$"
+  if grep -Eq "^[[:space:]]*(export[[:space:]]+)?$1=" "$CONF"; then
+    KEY="$1" LINE="$1=\"$2\"" awk '
+      $0 ~ "^[[:space:]]*(export[[:space:]]+)?" ENVIRON["KEY"] "=" { print ENVIRON["LINE"]; next } { print }' \
+      "$CONF" > "$tmp" && cat "$tmp" > "$CONF"; rm -f "$tmp"
+  else
+    [ -z "$(tail -c 1 "$CONF")" ] || echo >> "$CONF"
+    printf '%s="%s"\n' "$1" "$2" >> "$CONF"
+  fi
+}
+
+if [ -n "$UPDATE" ]; then
+  case "$UPDWORD" in
+    on|off)
+      # The switch, as --guard is one: its own conf line and nothing else.
+      # Off also forgets what the last check saw, so the notice goes at the
+      # next build; on makes the next save look again.
+      conf_line CLAUDE_HTML_UPDATE_CHECK "$UPDWORD"
+      # shellcheck source=release.sh
+      . "$HERE/release.sh"
+      if ch_update_read; then
+        CH_UP_CHECKED=0; [ "$UPDWORD" = off ] && CH_UP_NEWEST=""
+        ch_update_write
+      fi
+      if [ "$UPDWORD" = off ]; then
+        echo "The daily check for new releases is off. claude-html --update on turns it back on."
+      else
+        echo "The daily check for new releases is on. claude-html --update off turns it off."
+      fi
+      case "$UPD_ENV" in
+        set:*)
+          _e="${UPD_ENV#set:}"
+          if ch_update_is_off "$_e"; then _eo=off; else _eo=on; fi
+          [ "$_eo" = "$UPDWORD" ] ||
+            echo "But CLAUDE_HTML_UPDATE_CHECK=$_e in your environment wins over the conf, so here it stays $_eo." ;;
+      esac
+      exit 0 ;;
+  esac
+  # The move rewrites this clone, and bash reads a script as it runs it, so
+  # the update runs from a copy of itself made outside it.
+  _tmp="$(mktemp -d "${TMPDIR:-/tmp}/claude-html-update.XXXXXX")" || exit 1
+  cp "$HERE/update.sh" "$HERE/release.sh" "$_tmp/" || { rm -rf "$_tmp"; exit 1; }
+  case "$UPDWORD" in
+    status|--check) _action=status ;;
+    list) _action=list ;;
+    *) _action=go ;;
+  esac
+  _w=""; [ "$_action" = go ] && _w="$UPDWORD"
+  bash "$_tmp/update.sh" "$HERE" "$UPD_ENV" "$_action" $_w $UPDYES
+  _rc=$?
+  rm -rf "$_tmp"
+  exit "$_rc"
+fi
 
 # The data work - reading transcripts, building pages - is the same bytes
 # under osascript and node, and platform.sh picks which runs it, exactly as
@@ -61,7 +147,7 @@ release_lock() { [ "$OWN_LOCK" = 1 ] && rm -rf "$LOCK"; OWN_LOCK=0; return 0; }
 FORCE=false
 DELETE=""; PLAN=""; YES=false
 OPEN=""; OPENPLAN=""
-RESUME=""; RESUMEPLAN=""; DOCTOR=""
+RESUME=""; RESUMEPLAN=""; DOCTOR=""; UPDTERM=""
 REDACTCHECK=""; REDACTARCHIVES=""; GUARD=""; GUARDARG=""
 ONLY=""
 for arg in "$@"; do
@@ -72,6 +158,8 @@ for arg in "$@"; do
     --open-plan) OPENPLAN=1 ;;
     --resume-session) RESUME=1 ;;
     --resume-plan) RESUMEPLAN=1 ;;
+    --update-terminal) UPDTERM=run ;;
+    --update-terminal-plan) UPDTERM=plan ;;
     --delete-plan) PLAN=1 ;;
     --doctor) DOCTOR=1 ;;
     --redact-check) REDACTCHECK=1 ;;
@@ -87,6 +175,10 @@ for arg in "$@"; do
       echo "claude-html --resume-session <full id>  reopen that conversation in a terminal"
       echo "claude-html --doctor   what this machine is, and which of its tools does each job"
       echo "claude-html --version  which release this is"
+      echo "claude-html --update [X.Y.Z]   go to the newest release, or to that one"
+      echo "claude-html --update list      every release there is, newest first"
+      echo "claude-html --update status    what is installed and what is out; changes nothing"
+      echo "claude-html --update on|off    the daily check for a new release, and its notice"
       echo "claude-html --redact-check     what would be masked as secret, per session and archive; changes nothing"
       echo "claude-html --redact-archives  rewrite the archives that still hold secrets, masked"
       echo "claude-html --guard on|prompt|off|status   stop a secret before it reaches Claude"
@@ -136,21 +228,6 @@ guard_line() {
   printf 'guard %s · %s safe value(s) · hooks %s of 2 in settings.json · asks %s · %s\n' \
     "$what" "$(guard_safe)" "${n:-0}" "$asks" "$(ch_engine_line | cut -d' ' -f1)"
 }
-# One line of the conf, changed where it stands or added: the rest of the
-# file, comments and all, as it was. Copied back, not moved, so a conf kept
-# as a symlink stays one.
-conf_line() {
-  mkdir -p "$(dirname "$CONF")"; [ -f "$CONF" ] || : > "$CONF"
-  local tmp="$CONF.tmp.$$"
-  if grep -Eq "^[[:space:]]*(export[[:space:]]+)?$1=" "$CONF"; then
-    KEY="$1" LINE="$1=\"$2\"" awk '
-      $0 ~ "^[[:space:]]*(export[[:space:]]+)?" ENVIRON["KEY"] "=" { print ENVIRON["LINE"]; next } { print }' \
-      "$CONF" > "$tmp" && cat "$tmp" > "$CONF"; rm -f "$tmp"
-  else
-    [ -z "$(tail -c 1 "$CONF")" ] || echo >> "$CONF"
-    printf '%s="%s"\n' "$1" "$2" >> "$CONF"
-  fi
-}
 if [ -n "$GUARD" ]; then
   case "$GUARDARG" in
     on|prompt|off)
@@ -177,6 +254,7 @@ if [ -n "$DOCTOR" ]; then
   ch_doctor
   echo
   echo "  version   $VERSION"
+  echo "  update    $(bash "$HERE/update.sh" "$HERE" --doctor-line 2>/dev/null)"
   echo "  pages     $OUT"
   echo "  projects  $ROOT"
   # Which secrets are masked, and how many archives still hold some. Never
@@ -243,6 +321,41 @@ if [ -n "$RESUME$RESUMEPLAN" ]; then
   # wrong, so it leaves a note beside .last-open saying what it did.
   printf '%s  %s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$HOW" "$LAUNCHER" > "$OUT/.last-resume" 2>/dev/null || true
   echo "resumed in $HOW: $LAUNCHER"
+  exit 0
+fi
+
+# ── the index's run button for an update ─────────────────────────────
+# claude-html://update, from the helper or the Linux handler: this clone's
+# own command, --update, through a launcher it writes each time, in a
+# terminal: Terminal on macOS, which opens a .command, and on Linux the
+# terminal platform.sh found. When the update ends, the window stays, as an
+# ordinary shell - as a resume launcher's does.
+if [ -n "$UPDTERM" ]; then
+  actions_setup
+  CLI="$HERE/claude-html"
+  if [ "$ACT_MAC" = true ]; then
+    LAUNCHER="$HOME/.claude/.claude-html-update.command"
+    TAIL='s=${SHELL:-}; { [ -f "$s" ] && [ -x "$s" ]; } || s=/bin/zsh
+exec "$s" -l'
+    HOW="Terminal"; set -- ch_run /usr/bin/open "$LAUNCHER"
+  elif [ -n "$CH_TERM" ]; then
+    LAUNCHER="$HOME/.claude/.claude-html-update.sh"
+    TAIL='s=${SHELL:-}; { [ -f "$s" ] && [ -x "$s" ]; } || s=/bin/bash; { [ -f "$s" ] && [ -x "$s" ]; } || s=/bin/sh
+exec "$s" -i'
+    HOW="$CH_TERM"; set -- ch_term_run sh "$LAUNCHER"
+  else
+    echo "run: $(ch_quote "$CLI") --update"; exit 0
+  fi
+  if [ "$UPDTERM" = plan ]; then
+    printf 'launcher: %s\nopens with: %s\ncommand: %s\n' "$LAUNCHER" "$HOW" "$(CH_DRY=1 "$@")"
+    exit 0
+  fi
+  mkdir -p "$(dirname "$LAUNCHER")" &&
+  printf '#!/bin/sh\n# Written by claude-html for the run button on the index: the update,\n# then your shell, so what it said stays on the screen.\n%s --update\necho\n%s\n' \
+    "$(ch_quote "$CLI")" "$TAIL" > "$LAUNCHER" && chmod +x "$LAUNCHER" ||
+    { echo "could not write $LAUNCHER" >&2; exit 1; }
+  "$@" >/dev/null 2>&1 || { echo "could not open $HOW for the update" >&2; exit 1; }
+  echo "update opened in $HOW"
   exit 0
 fi
 
@@ -357,6 +470,12 @@ summary() {
   fi
 }
 summary
+
+# A newer release, as the last daily check saw it: one line, on stderr.
+# shellcheck source=release.sh
+if [ -f "$HERE/release.sh" ] && . "$HERE/release.sh" && ch_update_notice "$HERE" "$VERSION"; then
+  echo "claude-html $CH_UP_NOTICE is out · update with claude-html --update" >&2
+fi
 
 # Naming a session means you want that page rebuilt, not the index opened.
 [ -n "$ONLY" ] && exit 0

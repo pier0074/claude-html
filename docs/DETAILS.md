@@ -448,12 +448,30 @@ claude.ai chat cannot), then opens the launcher `convert.js` wrote for it in
 `resume/` — on macOS with `open`, which hands a `.command` to Terminal, on
 Linux in the terminal described below. There is no dialog: the worst a
 stranger's link can do is open a terminal on a conversation of yours. What it
-did is noted in `.last-resume`, beside `.last-open`.
+did is noted in `.last-resume`, beside `.last-open`. When the command ends,
+the window stays, as an ordinary shell in that folder: your `$SHELL` (else
+`/bin/zsh` on macOS, `bash` then `sh` on Linux), a login shell on macOS as
+Terminal's are and an interactive one on Linux as a terminal's are; if the
+folder has gone, it says so and the shell opens at home. A launcher written
+by an earlier version is written again by the next build, once.
 
 The launchers quote the folder in single quotes, and the `.desktop` file
 passes it to `bash -c` as an argument rather than inside the script, so a
 folder named with spaces, quotes, `$`, backticks or even a line break is
 reached exactly and nothing in its name ever runs.
+
+### Updating from the index
+
+When a newer release is out, the index says so in one line with two
+buttons: **copy** puts `claude-html --update` on the clipboard, **run** is a
+`claude-html://update` link. That link names nothing — it is exactly that
+string or it is refused — and opens a terminal on this clone's own
+`claude-html --update`: on macOS Terminal, through a launcher in
+`~/.claude/.claude-html-update.command`, on Linux the terminal described
+below, through `~/.claude/.claude-html-update.sh`. Either way, when the
+update ends the window stays, as an ordinary shell, with what it said above
+the prompt. The update itself
+refuses what it should (a changed file, a development checkout).
 
 ### On Linux
 
@@ -483,8 +501,9 @@ Links reach the machine through `handler.sh`, which `install.sh` registers
 with `xdg-mime` as the handler for `x-scheme-handler/claude-html` (never from
 a temporary folder, and not when `CLAUDE_HTML_NO_REGISTER` is set);
 `--uninstall` takes it out again. The handler accepts exactly
-`claude-html://delete|open|resume/<session id>` and nothing else, and passes
-only the id on. The index offers the bin, the project links and resume only
+`claude-html://delete|open|resume/<session id>`, or `claude-html://update`
+exactly, and nothing else, and passes only the id on. The index offers the
+bin, the project links, resume and an update's run only
 where that handler is installed — on macOS always — so no page shows a control
 that does nothing.
 
@@ -599,8 +618,10 @@ prompt a hook blocks.
 
 ## Privacy
 
-Everything stays on your machine. The pages make no network requests — no
-fonts, no analytics, no CDN.
+Everything about your conversations stays on your machine. The pages make
+no network requests — no fonts, no analytics, no CDN. The one request the
+tool makes is the [daily check](SETUP.md#updating) for a new release: the
+list of release tags, from GitHub, and nothing sent but the request itself.
 
 They do contain your conversations in full, including anything you pasted in,
 except the [secrets](#secrets) they recognise.

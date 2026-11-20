@@ -18,6 +18,7 @@ _conf_env_redact="${CLAUDE_HTML_REDACT:-}"
 _conf_env_redact_file="${CLAUDE_HTML_REDACT_FILE:-}"
 _conf_env_guard="${CLAUDE_HTML_GUARD:-}"
 _conf_env_guard_dialog="${CLAUDE_HTML_GUARD_DIALOG:-}"
+_conf_env_update="${CLAUDE_HTML_UPDATE_CHECK:-}"
 # shellcheck disable=SC1090
 if [ -f "$CONF" ]; then . "$CONF"; fi
 ROOT="${_conf_env_root:-${CLAUDE_HTML_ROOT:-$(dirname "$HERE")}}"
@@ -46,4 +47,7 @@ CLAUDE_HTML_GUARD="${_conf_env_guard:-${CLAUDE_HTML_GUARD:-on}}"
 # Whether it asks in a dialog when someone is at the screen, or always in
 # words, as the next prompt.
 CLAUDE_HTML_GUARD_DIALOG="${_conf_env_guard_dialog:-${CLAUDE_HTML_GUARD_DIALOG:-on}}"
-unset _conf_env_root _conf_env_out _conf_env_week _conf_env_engine _conf_env_redact _conf_env_redact_file _conf_env_guard _conf_env_guard_dialog
+# The daily look for a new release, and its notice: on, or off. Exported:
+# the build reads it to decide whether the index mentions one.
+export CLAUDE_HTML_UPDATE_CHECK="${_conf_env_update:-${CLAUDE_HTML_UPDATE_CHECK:-on}}"
+unset _conf_env_update _conf_env_root _conf_env_out _conf_env_week _conf_env_engine _conf_env_redact _conf_env_redact_file _conf_env_guard _conf_env_guard_dialog

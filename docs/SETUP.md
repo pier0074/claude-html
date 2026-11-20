@@ -13,6 +13,7 @@ works is in [DETAILS.md](DETAILS.md).
 - [Hooks](#hooks)
 - [Transcript cleanup](#transcript-cleanup)
 - [Commands](#commands)
+- [Updating](#updating)
 - [The cache](#the-cache)
 - [Linux](#linux)
 - [For the test suite](#for-the-test-suite)
@@ -283,14 +284,16 @@ look is the desktop's; their own Cancel button is the Cancel choice.
 
 | Hook | When | What it does |
 | ---- | ---- | ------------ |
-| `Stop` | after every reply | saves in the background, so the reply is never held up; gives way to a save already running |
+| `Stop` | after every reply | saves in the background, so the reply is never held up; gives way to a save already running; once per release, says a newer one is out |
 | `SessionEnd` | when a session ends | saves, detached so quitting is instant, and waits its turn |
 | `PreCompact` (`auto`, `manual`) | before a compaction | saves before the context is cut |
 | `UserPromptSubmit` | before a prompt is sent | the [guard](#guard) |
 | `PreToolUse` (`Bash`) | before a command runs | the [guard](#guard) |
 
 They are added beside the hooks you have; yours are read, never rewritten.
-`./install.sh --no-guard` leaves the guard's two out and turns it off.
+`./install.sh --no-guard` leaves the guard's two out and turns it off; a
+later bare `./install.sh` (which is what an update runs) leaves them out
+while the conf says `CLAUDE_HTML_GUARD=off`.
 An install from before the guard gets them on the next `./install.sh`.
 `./install.sh --uninstall` removes only these.
 
@@ -319,13 +322,76 @@ installer says so if it is under a year. Uninstalling leaves it as it is.
 | `claude-html --open-plan <full id>` | say what it would open, and open nothing |
 | `claude-html --resume-session <full id>` | reopen the conversation in a terminal |
 | `claude-html --resume-plan <full id>` | say which launcher and terminal, and run nothing |
+| `claude-html --update-terminal` | the index's **run**: `--update` in a terminal that stays open |
+| `claude-html --update-terminal-plan` | say which terminal and command, and run nothing |
 | `claude-html --version` | which release this is (`-V`); also in `--doctor` |
+| `claude-html --update` | go to the newest release ([Updating](#updating)) |
+| `claude-html --update X.Y.Z` | go to that release (`vX.Y.Z` too); going back asks first, `--yes` (`-y`) does not |
+| `claude-html --update list` | every release there is, newest first; changes nothing |
+| `claude-html --update status` | what is installed, what is newest, and the daily check; changes nothing |
+| `claude-html --update on\|off` | the daily check for a new release, and its notice |
 | `claude-html --help` | the short list (`-h`) |
 | `./install.sh` | install with the defaults; safe to run again |
 | `./install.sh --out DIR` / `--root DIR` | install with the pages or the projects root elsewhere |
 | `./install.sh --no-guard` | install without the [guard](#guard) |
 | `./install.sh --uninstall` | remove the command, the helper and the hooks |
 | `./install.sh --help` | every option, with the defaults filled in |
+
+## Updating
+
+A clone of the release repository updates itself:
+
+```bash
+claude-html --update            # the newest release
+claude-html --update 3.0.0      # that release (v3.0.0 too)
+claude-html --update list       # every release, newest first, the installed one marked
+claude-html --update status     # installed, newest, and when the daily check last ran
+```
+
+`--upgrade` is the same command. An update fetches the releases, shows the
+changelog in between, moves the clone (to `main` for the newest, to the
+tag for a given release), runs that release's `./install.sh` and builds:
+pages made by another viewer, other masking rules or another dashboard
+format are rebuilt by the build's own checks, and the count is said. Its
+`After updating:` lines are repeated, and new hooks apply to Claude Code
+sessions started afterwards. If the move, the install or the build fails,
+the clone goes back where it was and its own install runs again.
+
+It refuses, changing nothing, while a file of the release is changed or
+staged here (commit, stash or undo it first), or while a save holds the
+lock past a minute. The pages, `.cache/`, archives and anything else
+untracked do not stop it and are left as they are. Only moves that refuse
+to overwrite a change are used: never a reset or a clean.
+
+**Going back** to an older release asks first: it may not read what a
+newer one wrote, and before 3.0.0 cannot read the archives written since
+(archive format 4). Releases before 3.1.0 have no `--update`; from one of
+them, coming back is `git checkout main && git pull && ./install.sh`, and
+the same updates a clone made before 3.1.0.
+
+**A development checkout** — a clone whose HEAD is not a release, one that
+does not come from the release repository, a copy that is not a clone —
+is never fetched for nor moved: it is told to update with git.
+`--update list` lists nothing there, and `status` says what it is without
+fetching.
+
+**The daily check.** At most once a day, from the part of a save nobody
+waits on, the tool asks the release repository for its list of tags
+(`git ls-remote`, five seconds at most, never a password prompt) and keeps
+the answer in `~/.claude/.claude-html.update`. Nothing about you or your
+conversations is sent; the pages themselves make no request. A newer
+release is then a line on the index — copy the command, or run, which
+opens a terminal on it — and after `claude-html` in the terminal, and is shown once in Claude Code after a reply — a Stop hook's
+`systemMessage`, which Claude Code shows to you and does not give to
+Claude. `--doctor` shows what it last saw.
+
+| Setting | What it is | Default |
+| ------- | ---------- | ------- |
+| `CLAUDE_HTML_UPDATE_CHECK` | `off` (or `0`, `no`, `false`) stops the daily check and its notice; `claude-html --update` by hand still works | `on` |
+
+```bash
+claude-html --update off    # one line in the conf; on turns it back on
+```
 
 ## The cache
 
@@ -336,9 +402,11 @@ one reads only what was appended. It holds text, masked as the pages are.
 ## Linux
 
 The same JavaScript runs under node, which Linux needs (14.14 or later).
-The terminal a resume opens, the trash, the confirmation dialog and the
-`claude-html://` link handler are picked per machine from what is
-installed; `$TERMINAL` wins over all terminals. See
+The terminal a resume or an update opens, the trash, the confirmation
+dialog and the `claude-html://` link handler (`delete`, `open`, `resume`
+with a session id, and `update` alone) are picked per machine from what is
+installed (when the command ends, the window stays, as an ordinary shell
+in that folder); `$TERMINAL` wins over all terminals. See
 [On Linux](DETAILS.md#on-linux) for the table.
 
 ## For the test suite
@@ -357,3 +425,5 @@ Knobs the tests set; nothing needs them day to day.
 | `CLAUDE_HTML_TRANSCRIPT` | the transcript a detached save was handed (set by the hook itself) |
 | `CLAUDE_HTML_DETACHED` | marks the detached copy of a session-end save (set by the hook itself) |
 | `CLAUDE_HTML_GUARD_TEST_LIMIT` | seconds the guard's dialog waits, instead of ten minutes |
+| `CLAUDE_HTML_UPDATE_REMOTE` | the release repository, a URL or a path, instead of GitHub's |
+| `CLAUDE_HTML_UPDATE_LOCK_WAIT` | seconds an update waits for a save's lock, instead of 60 |
