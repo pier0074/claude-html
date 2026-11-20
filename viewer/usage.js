@@ -50,14 +50,18 @@
       });
     });
   });
+  // Nothing to chart: the sentence that says so, and not an empty chart over
+  // two tables of headings.
   if (!rows.length) {
     document.getElementById("empty").hidden = false;
-    document.getElementById("view").hidden = true;
+    document.getElementById("dash").hidden = true;
     return;
   }
   var allDays = rows.map(function (r) { return ymd(r.at); }).sort();
   var firstDay = allDays[0], lastDay = allDays[allDays.length - 1];
-  var spanDays = Object.keys(allDays.reduce(function (o, d) { o[d] = 1; return o; }, {})).length;
+  // The calendar from the first day to the last, not the days that had
+  // anything: three active days a month apart are two months of history.
+  var spanDays = Math.round((startOf(lastDay) - startOf(firstDay)) / 864e5) + 1;
 
   // Models in a fixed order — biggest first — so a model keeps its colour
   // across every view and the legend never shuffles.
@@ -162,20 +166,25 @@
   // Keyed by their own start in local time, so sorting the keys sorts the
   // buckets and the label is already in the key.
   var SPANS = {
+    // step: from a bucket's start, a time that is surely inside the next
+    // one, whatever daylight saving does to the length of a day.
     week: {
       key: function (at) { return ymdhm(CH.weekStart(at, reset)); },
       label: function (k) { return "week of " + k; },
-      xl: function (k) { return k.slice(5, 10); }
+      xl: function (k) { return k.slice(5, 10); },
+      step: 7.5 * 864e5
     },
     month: {
       key: function (at) { return ymd(at).slice(0, 7); },
       label: function (k) { return k; },
-      xl: function (k) { return k.slice(2); }
+      xl: function (k) { return k.slice(2); },
+      step: 32 * 864e5
     },
     day: {
       key: function (at) { return ymd(at); },
       label: function (k) { return k; },
-      xl: function (k) { return k.slice(5); }
+      xl: function (k) { return k.slice(5); },
+      step: 1.5 * 864e5
     }
   };
 
@@ -189,6 +198,16 @@
   // it: the card compares a week with the week before, not with the last
   // week that happened to have data.
   function prevKey(span, k) { return span.key(new Date(startOf(k).getTime() - 60000)); }
+  // Every bucket from the first to the last, the empty ones too, so a month
+  // with nothing in it is a gap on the chart and not two bars side by side.
+  function allKeys(span, keys) {
+    if (!keys.length) return [];
+    var out = [keys[0]], last = keys[keys.length - 1];
+    while (out[out.length - 1] < last && out.length < 5000) {
+      out.push(span.key(new Date(startOf(out[out.length - 1]).getTime() + span.step)));
+    }
+    return out;
+  }
 
   function group(keyOf) {
     var out = {};
@@ -210,31 +229,39 @@
 
   function chart(buckets, keys, span) {
     var peak = 0;
-    keys.forEach(function (k) { peak = Math.max(peak, total(buckets[k].t)); });
+    keys.forEach(function (k) { if (buckets[k]) peak = Math.max(peak, total(buckets[k].t)); });
     document.getElementById("ymax").textContent = peak ? "peak " + fmt(peak) + " tokens" : "";
     document.getElementById("chart").innerHTML = keys.map(function (k) {
-      var b = buckets[k], sum = total(b.t);
+      var b = buckets[k];
+      // A period with nothing in it: room on the axis, nothing to click.
+      if (!b) return '<div class="col" title="' + esc(span.label(k)) + ' · nothing"></div>';
+      var sum = total(b.t);
       var d = dim();
       var segs = d.parts.filter(function (m) { return b.parts[m]; }).map(function (m) {
         var v = total(b.parts[m]);
         return '<i style="height:' + (100 * v / (sum || 1)) + "%;background:" + d.colour[m] + '"></i>';
       }).join("");
-      return '<div class="col" data-k="' + esc(k) + '" title="' + esc(span.label(k)) +
-        " " + fmt(sum) + " tokens " + b.t[4] + " replies" +
-        (cost(b.t) === null ? "" : " ≈ " + money(cost(b.t))) + '">' +
-        '<div class="stack" style="height:' + Math.max(0.6, 100 * sum / (peak || 1)) + '%">' +
-        segs + "</div></div>";
+      var tip = [span.label(k), fmt(sum) + " tokens", b.t[4] + (b.t[4] === 1 ? " reply" : " replies")]
+        .concat(cost(b.t) === null ? [] : ["≈ " + money(cost(b.t))]).join(" · ");
+      return '<button type="button" class="col" data-k="' + esc(k) + '" title="' + esc(tip) +
+        '" aria-label="' + esc(tip) + '">' +
+        '<span class="stack" style="height:' + Math.max(0.6, 100 * sum / (peak || 1)) + '%">' +
+        segs + "</span></button>";
     }).join("");
     // Seventy daily labels in the width of a page is a grey smear; print
-    // every nth, counting back from the newest so the latest always shows.
-    var every = Math.ceil(keys.length / 26);
+    // every nth, counting back from the newest so the latest always shows,
+    // and few enough that each has the forty pixels it needs.
+    var width = document.getElementById("chart").clientWidth || 1000;
+    var every = Math.max(Math.ceil(keys.length / 26), Math.ceil(keys.length * 40 / width));
     document.getElementById("xaxis").innerHTML = keys.map(function (k, i) {
       var show = (keys.length - 1 - i) % every === 0;
       return '<div class="xl">' + (show ? esc(span.xl(k)) : "") + "</div>";
     }).join("");
     // Only what the filter leaves, so every entry is a click that shows something.
     var d2 = dim(), seen = {};
-    keys.forEach(function (k) { Object.keys(buckets[k].parts).forEach(function (m) { seen[m] = 1; }); });
+    keys.forEach(function (k) {
+      if (buckets[k]) Object.keys(buckets[k].parts).forEach(function (m) { seen[m] = 1; });
+    });
     document.getElementById("legend").innerHTML = d2.parts.filter(function (m) {
       return seen[m];
     }).map(function (m) {
@@ -246,7 +273,10 @@
   function numbers(t) {
     return cell(t[0]) + cell(t[1]) + cell(t[2]) + cell(t[3]) +
            '<td class="num">' + t[4] + "</td>" + cell(total(t)) +
-           '<td class="num' + (cost(t) === null ? " d" : "") + '">' + money(cost(t)) + "</td>";
+           // Approximate wherever it is written: these are Claude Code's own
+           // sums at list prices, as the cards and the index say.
+           '<td class="num' + (cost(t) === null ? " d" : "") + '">' +
+           (cost(t) === null ? "—" : "≈ " + money(cost(t))) + "</td>";
   }
 
   function bucketTable(buckets, keys, span, current) {
@@ -359,7 +389,7 @@
     cover();
     var buckets = group(function (r) { return span.key(r.at); });
     var keys = Object.keys(buckets).sort();
-    chart(buckets, keys, span);
+    chart(buckets, allKeys(span, keys), span);
 
     var current = span.key(new Date());
     bucketTable(buckets, keys, span, current);
@@ -399,6 +429,13 @@
   document.addEventListener("click", function (e) {
     var b = e.target.closest && e.target.closest("[data-fk]");
     if (b) toggle(b.getAttribute("data-fk"), b.getAttribute("data-fv"));
+  });
+
+  // A narrower window fits fewer labels under the bars.
+  var resized;
+  window.addEventListener("resize", function () {
+    clearTimeout(resized);
+    resized = setTimeout(draw, 150);
   });
 
   ["week", "month", "all"].forEach(function (p) {

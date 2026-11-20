@@ -354,14 +354,16 @@ if (stored) store["ch-usage-filter"] = stored;
 function el(id) {
   return els[id] = els[id] || { id: id, innerHTML: "", textContent: id === "usage-data" ? JSON.stringify(data) : "",
     hidden: false, listeners: {}, classList: { toggle: function () {}, add: function () {}, remove: function () {} },
-    addEventListener: function (t, f) { this.listeners[t] = f; } };
+    addEventListener: function (t, f) { this.listeners[t] = f; }, setAttribute: function () {} };
 }
 var ctx = {
   document: { getElementById: el, documentElement: { setAttribute: function () {}, removeAttribute: function () {} },
               addEventListener: function (t, f) { if (t === "click") onClick = f; } },
   localStorage: { getItem: function (k) { return k in store ? store[k] : null; },
                   setItem: function (k, v) { store[k] = String(v); }, removeItem: function (k) { delete store[k]; } },
-  setTimeout: setTimeout, console: console
+  setTimeout: setTimeout, clearTimeout: clearTimeout, console: console,
+  // the page redraws on resize, to fit the axis labels to the width
+  window: { addEventListener: function () {} }
 };
 vm.runInNewContext(fs.readFileSync(here + "/viewer/viewer.js", "utf8") + "\n" +
                    fs.readFileSync(here + "/viewer/usage.js", "utf8"), ctx);
@@ -488,7 +490,7 @@ cf() { printf '%s' "$PC" | js 'd[process.argv[4]]' "" "" "$1"; }
 check "cost: the all-time card says what is known" "$(cf all | cut -d' ' -f5-7)" "≈ \$1.23 cost"
 check "  the bar's tooltip carries it" "$(cf tip)" True
 check "  the lower table has it per project, and — where none is known" \
-  "$(cf lower)" "a 11 110 1.0 k 50 3 1.2 k \$1.23 b 5 50 500 0 1 555 —"
+  "$(cf lower)" "a 11 110 1.0 k 50 3 1.2 k ≈ \$1.23 b 5 50 500 0 1 555 —"
 check "  nowhere does an unknown cost read \$0.00" "$(cf zero)" False
 check "  the coverage line counts sessions" "$(cf cover | cut -d' ' -f1-8)" "Cost is known for 1 of 3 sessions"
 check "filtered to a project with no cost, the card says —" "$(cf b | cut -d' ' -f1-6)" "555 all time — cost 50"

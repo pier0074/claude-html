@@ -40,9 +40,31 @@ var CH = (function () {
     return t;
   }
 
-  // Headings, bullet lists, and paragraphs that keep their line breaks.
-  // Deliberately not a Markdown engine: the terminal does not render one
-  // either, and a half-working one would misrepresent what was said.
+  // A Markdown pipe table: a header row, a row of dashes, then rows. The
+  // dashes say how each column is aligned. A pipe written \| stays a pipe.
+  var TROW = /^\s*\|.*\|\s*$/;
+  var TSEP = /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/;
+  function cells(line) {
+    return line.trim().replace(/^\|/, "").replace(/\|$/, "").replace(/\\\|/g, "\u0001")
+      .split("|").map(function (c) { return c.replace(/\u0001/g, "|").trim(); });
+  }
+  function table(lines) {
+    var align = cells(lines[1]).map(function (c) {
+      var l = c.charAt(0) === ":", r = c.charAt(c.length - 1) === ":";
+      return l && r ? ' class="ac"' : r ? ' class="ar"' : "";
+    });
+    function tr(line, tag) {
+      return "<tr>" + cells(line).map(function (c, i) {
+        return "<" + tag + (align[i] || "") + ">" + inline(c) + "</" + tag + ">";
+      }).join("") + "</tr>";
+    }
+    return '<div class="tbl"><table class="md"><thead>' + tr(lines[0], "th") + "</thead><tbody>" +
+      lines.slice(2).map(function (l) { return tr(l, "td"); }).join("") + "</tbody></table></div>";
+  }
+
+  // Headings, bullet lists, pipe tables, and paragraphs that keep their line
+  // breaks. Deliberately not a Markdown engine: the terminal does not render
+  // one either, and a half-working one would misrepresent what was said.
   function prose(text) {
     var out = [], para = [], items = [];
 
@@ -67,7 +89,16 @@ var CH = (function () {
       var line = lines[i];
       var h = /^(#{1,6})\s+(.*)$/.exec(line);
       var b = /^\s*[-*]\s+(.+)$/.exec(line);
-      if (h) {
+      if (TROW.test(line) && i + 1 < lines.length && TSEP.test(lines[i + 1]) &&
+          cells(line).length === cells(lines[i + 1]).length) {
+        // The blank lines around a table are its margins, not empty lines.
+        while (para.length && !para[para.length - 1].trim()) para.pop();
+        flush();
+        var rows = [line, lines[++i]];
+        while (i + 1 < lines.length && TROW.test(lines[i + 1])) rows.push(lines[++i]);
+        out.push(table(rows));
+        if (i + 1 < lines.length && !lines[i + 1].trim()) i++;
+      } else if (h) {
         flush();
         out.push('<div class="h">' + inline(h[2]) + "</div>");
       } else if (b) {
@@ -166,6 +197,9 @@ var CH = (function () {
     return String(Math.round(n));
   }
 
+  // "1 prompt", "2 prompts": a count and its word, never "1 prompts".
+  function plural(n, word) { return n + " " + word + (n === 1 ? "" : "s"); }
+
   // One way of writing a cost, for the same reason. It takes micro-dollars,
   // which is how the build keeps them, and says "—" for a cost that is not
   // known: a session Claude Code recorded nothing for did not cost $0.00.
@@ -229,6 +263,8 @@ var CH = (function () {
         btn.textContent = LABEL[cur];
         btn.title = "theme: " + cur + (cur === "auto" ? " (follows the system)" : "") +
                     " \u2014 click to change";
+        // The glyph alone says nothing to a screen reader.
+        btn.setAttribute("aria-label", btn.title);
       }
     }
     if (btn) btn.addEventListener("click", function () {
@@ -271,7 +307,8 @@ var CH = (function () {
           return '<div class="tool oldfmt"><span class="tn">' + esc(t) +
                  '</span><span class="td">' + esc(flat) + "</span></div>";
         }
-        return '<details class="tool" open><summary><span class="tn">' + esc(t) +
+        // What the call returned, so folded like any other output.
+        return '<details class="tool"><summary><span class="tn">' + esc(t) +
                '</span><span class="td">' + esc(flat.slice(0, 90)) +
                '…</span></summary><pre class="code out">' + esc(cap(result, 6000)) +
                "</pre></details>";
@@ -376,7 +413,8 @@ var CH = (function () {
     if (m.role === "assistant") {
       var inner = "";
       if (m.thinking) {
-        inner += '<details class="think" open><summary>thinking</summary><div class="t out">' +
+        // Thinking is kept, folded: a click shows it.
+        inner += '<details class="think"><summary>thinking</summary><div class="t out">' +
                  esc(cap(m.thinking, 6000)) + "</div></details>";
       }
       if (m.text) inner += markdownish(m.text);
@@ -394,8 +432,9 @@ var CH = (function () {
         '<span class="ts">' + ts + '</span></div><div class="t">' +
         esc(cap(m.text, 1200)) + "</div></div>";
     }
+    // What a call returned stays folded; the call itself above it is open.
     return "<details" + at + ' class="m res' + side +
-      '" open><summary>output</summary><pre class="code out">' + esc(m.text) + "</pre></details>";
+      '"><summary>output</summary><pre class="code out">' + esc(m.text) + "</pre></details>";
   }
 
   // Every row at once: what a short conversation, and the tests, want.
@@ -436,17 +475,16 @@ var CH = (function () {
       var y = GAP + WHO + 21 * linesIn(cap(text, 1200), Math.round(cpl * 1.15));
       return [y, y];
     }
-    if (m.role !== "assistant") {
-      return [GAP + 24 + BOX + CODE * linesIn(text, cc), 0];
-    }
+    // Output and thinking start folded: a summary line each.
+    var FOLDED = 31;
+    if (m.role !== "assistant") return [GAP + FOLDED, 0];
     var talk = text ? GAP + WHO + LINE * linesIn(text, cpl) + 8 : 0, all = talk || GAP + WHO;
-    if (m.thinking) all += 36 + 21.6 * linesIn(cap(m.thinking, 6000), Math.round(cpl * 1.1));
+    if (m.thinking) all += FOLDED;
     var got = plan.pair.paired[i] || [], tools = m.tools || [];
     for (var k = 0; k < tools.length; k++) {
       var t = tools[k], h = 30;
       if (typeof t === "string") {
-        var res = k < got.length ? got[k] : "";
-        if (res && res.length > 90) h += BOX + CODE * linesIn(cap(res, 6000), cc);
+        // Long output is folded under the call's own line.
       } else {
         var inp = t.input || {};
         if (t.name === "Edit" && inp.old_string !== undefined) {
@@ -564,7 +602,7 @@ var CH = (function () {
     promptUnder: promptUnder, ownsFindKey: ownsFindKey,
     countPrompts: countPrompts, resumable: resumable, resumeCmd: resumeCmd,
     themeInit: themeInit, parseReset: parseReset, weekStart: weekStart,
-    fmtTokens: fmtTokens, fmtMoney: fmtMoney
+    fmtTokens: fmtTokens, fmtMoney: fmtMoney, plural: plural
   };
 })();
 

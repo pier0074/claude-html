@@ -39,7 +39,7 @@ trap 'rm -rf "$OUTD"' EXIT
 T0="$(date +%s)"
 
 # The longest start first, so the last one to end is not a long one begun late.
-QUICK="viewer diff index docs"
+QUICK="viewer diff index pages docs"
 SUITES="incremental guard linux update usage engine install hooks backend archive redact races build agents delete open helper safety"
 run_one() {   # name
   local t="$1" s rc

@@ -56,10 +56,10 @@ test("a bare tool name from an old archive does not crash", () => {
   assert.ok(CH.renderTool("Bash").includes("not recorded"));
 });
 
-test("recovered output is shown and height-capped", () => {
+test("recovered output is kept, and folded like any output", () => {
   const out = CH.renderTool("Bash", "line\n".repeat(40));
   assert.ok(out.includes('class="code out"'));
-  assert.ok(out.includes(" open>"));
+  assert.ok(out.startsWith('<details class="tool"><summary>'), out.slice(0, 60));
 });
 
 test("a one-line result needs no body", () => {
@@ -72,7 +72,7 @@ test("tool input is escaped", () => {
   assert.ok(!CH.renderTool({ name: "Bash", input: { command: "<script>" } }).includes("<script>"));
 });
 
-test("nothing needs a click", () => {
+test("a call's own arguments need no click", () => {
   ["Bash", "Read", "Grep"].forEach(n => {
     assert.ok(CH.renderTool({ name: n, input: { command: "x", file_path: "/a", pattern: "p" } })
       .includes('<details class="tool" open>'), n);
@@ -140,9 +140,51 @@ test("sub-agent turns are marked, not counted as yours", () => {
   assert.strictEqual((page.match(/data-p=/g) || []).length, 1);
 });
 
-test("thinking is kept and open", () => {
+// The docs say what a call returned stays folded and thinking is kept,
+// collapsed; the pages once opened both, which made a long page twice as long.
+test("thinking is kept, folded", () => {
   const page = CH.renderMessages([{ role: "assistant", text: "hi", thinking: "hmm", tools: [] }]);
-  assert.ok(page.includes('<details class="think" open>'));
+  assert.ok(page.includes('<details class="think"><summary>thinking</summary>'), page);
+  assert.ok(page.includes("hmm"), "still on the page, for find and a click");
+});
+
+test("what a call returned is folded, the call itself is not", () => {
+  const msgs = [
+    { role: "assistant", text: "", tools: [{ name: "Bash", id: "t1", input: { command: "ls" } }] },
+    { role: "tool_result", text: "a.txt\nb.txt" }];
+  const rows = CH.renderRows(msgs);
+  assert.ok(rows[0].includes('<details class="tool" open data-tid="t1">'), rows[0]);
+  assert.ok(/^<details id="m1" class="m res"><summary>output<\/summary>/.test(rows[1]), rows[1]);
+  const docs = fs.readFileSync(path.join(__dirname, "..", "docs", "DETAILS.md"), "utf8");
+  assert.ok(/what a call returned stays folded/.test(docs) && /Thinking is kept, folded/.test(docs),
+    "and the docs say the same");
+});
+
+test("a folded row is guessed at its one summary line, whatever it holds", () => {
+  const msgs = [{ role: "tool_result", text: "x\n".repeat(500) }, { role: "assistant", text: "", thinking: "y\n".repeat(500) }];
+  const plan = CH.planRows(msgs);
+  assert.ok(CH.estimateRow(msgs, plan, 0, 100)[0] < 80, "output");
+  assert.ok(CH.estimateRow(msgs, plan, 1, 100)[0] < 120, "thinking");
+});
+
+// ── Markdown tables ──────────────────────────────────────────────────
+test("a pipe table in a reply is drawn as a table, aligned as its dashes say", () => {
+  const out = CH.prose("Here:\n\n| a | b | c |\n|---|:---:|---:|\n| 1 | `x` | **3** \\| 4 |\n\nafter");
+  assert.ok(out.includes('<table class="md"><thead><tr><th>a</th><th class="ac">b</th><th class="ar">c</th></tr></thead>'), out);
+  assert.ok(out.includes('<td class="ac"><code class="ic">x</code></td><td class="ar"><strong>3</strong> | 4</td>'), out);
+  assert.ok(out.startsWith('<div class="t">Here:</div>') && out.endsWith('<div class="t">after</div>'), out);
+});
+
+test("pipes that are not a table stay text, and table cells are escaped", () => {
+  assert.ok(!CH.prose("| a | b |\nnot a rule").includes("<table"));
+  assert.ok(!CH.prose("| a | b |\n|---|\n| 1 | 2 |").includes("<table"), "the rule must have a dash run per column");
+  assert.ok(!CH.prose("| <b> | x |\n|---|---|\n| 1 | 2 |").includes("<b>"));
+});
+
+test("a count and its word agree", () => {
+  assert.strictEqual(CH.plural(1, "prompt"), "1 prompt");
+  assert.strictEqual(CH.plural(0, "prompt"), "0 prompts");
+  assert.strictEqual(CH.plural(2, "sub-agent"), "2 sub-agents");
 });
 
 test("a turn that is only tool calls is marked notext", () => {

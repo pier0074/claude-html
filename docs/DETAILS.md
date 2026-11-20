@@ -7,18 +7,23 @@ and command is in [SETUP.md](SETUP.md).
 
 **An index of every session** — date, project, the title Claude gave the
 conversation, and how many prompts you actually typed. Click a row anywhere to
-read it; the conversation links back to the index from its own header. Links to
+read it, or its title, which is a link a keyboard can reach too; the
+conversation links back to the index from its own header. Links to
 claude.ai and to your usage sit under the title. Sessions are listed newest
 first, and where a project has more than one a **group by project** switch
 appears: projects in the order you last worked in them, each with its session
 and prompt count, and its name still opens the project. Under the title the
 index says when it was last built and how long ago, so a hook that has
 stopped firing shows. On a narrow window the least useful columns step aside
-rather than push the table off the screen.
+rather than push the table off the screen, the time goes before the date
+does, and a title takes two lines rather than be cut to a word; on a phone
+the table scrolls sideways in its own box.
 
 **Search across every conversation at once.** Your prompts, Claude's replies and
 its thinking. Results show a snippet with your terms highlighted and link to the
-exact message, which the page scrolls to and highlights. Several words must all
+exact message, which the page scrolls to and highlights. Each conversation
+shows its five newest matches, newest first, and says how many more it holds,
+with a link to the next of them. Several words must all
 appear in the same message; `"quoted text"` matches as a phrase. A **match
 case** option appears as you type. If a session's search file is missing, the
 results say how many conversations went unsearched rather than leave them out
@@ -34,7 +39,14 @@ the prompt arrows — so on a narrow window it no longer takes a third of the
 screen; it opens again at the top of the page, or with ▾. Nothing on the page
 moves when it does. Tool calls are labelled rather than dumped as JSON,
 and every `Edit` becomes a real diff. Commands, diffs and file writes are shown
-without a click; what a call returned stays folded. Thinking is kept, collapsed.
+without a click; what a call returned stays folded. Thinking is kept, folded:
+a click opens either, the page remembers it while you read, and find opens
+whatever hides the match it lands on. A Markdown table in a reply is drawn as
+a table.
+
+**Printing** gives the light palette whatever the screen shows, the whole
+header once at the top, and none of the buttons; on the index, none of the
+search or the resume column either. What is folded on screen prints folded.
 
 **Two ways to read a long session.** A **Conversation / Everything** switch in
 the header: Conversation hides every tool call, its output and Claude's
@@ -59,10 +71,11 @@ their own. A sub-agent page says whose it is and links back.
 session carries its own total — a column on the index, and a line under the
 title of the conversation itself: total, output, input, cached, replies, and
 output per reply. `usage.html` gathers all of them: a stacked bar per week,
-per month, or over all time — by day until you have used it on more than 130
-days, by week after that — broken down by model or by project, the
+per month, or over all time — by day while your history spans no more than
+130 days, by week after that — broken down by model or by project, the
 latest period compared with the one just before it, even when that one was
-empty. Cache reads are nearly all of the volume and the cheapest part of it,
+empty. A period with nothing in it is an empty column, so a quiet month
+looks like one; a bar is a button that takes you to its row in the table. Cache reads are nearly all of the volume and the cheapest part of it,
 which is why output is always named separately.
 
 **Click a name to filter.** A model or a project — in either table or in the
@@ -293,6 +306,7 @@ bash tests/run-all.sh           # every suite below, one verdict — what CI run
 node tests/viewer.test.js       # the renderer's tests, long-page windowing included
 node tests/diff.test.js         # the diff, against every edit ever made here
 node tests/index.test.js        # the index: search, its failures, and what Linux is shown
+node tests/pages.test.js        # every page's head, print and words; the dashboard's chart, empty periods included
 node tests/docs.test.js         # every setting the code reads is in SETUP.md, and every link resolves
 bash tests/backend.test.sh      # osascript and node build byte-identical pages; nested projects
 bash tests/archive.test.sh      # a page made from the archive alone is the page made from the transcript

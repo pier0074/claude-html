@@ -26,6 +26,12 @@
       ("0" + d.getDate()).slice(-2) + " " + ("0" + d.getHours()).slice(-2) + ":" +
       ("0" + d.getMinutes()).slice(-2);
   }
+  // The same on a row, with the time in a span of its own: a narrow window
+  // drops it and keeps the day, which gives the title its width back.
+  function stampCell(secs) {
+    var t = stamp(secs);
+    return t ? t.slice(0, 10) + '<span class="hm">' + t.slice(10) + "</span>" : "";
+  }
 
   // How old the page is, in the one unit that reads at a glance.
   function ago(secs) {
@@ -125,14 +131,18 @@
     // Under a project heading the project cell would say the heading again,
     // so it is left empty — but the name is still on the row, in data-proj,
     // because searching for a project has to keep working either way.
-    return '<tr data-href="sessions/' + esc(s.id) + '.html" data-proj="' +
-      esc(s.project || "") + '"><td class="dt">' + stamp(s.mtime) + "</td><td>" +
+    var href = "sessions/" + esc(s.id) + ".html";
+    return '<tr data-href="' + href + '" data-proj="' +
+      esc(s.project || "") + '"><td class="dt">' + stampCell(s.mtime) + "</td><td>" +
       (inGroup ? "" : project(s)) + "</td>" +
       // The title truncates; the sub-agent count sits beside it and does not,
       // so a long title can never hide how many agents a session spawned.
       // The flex row lives in a div inside the cell. A <td> made display:flex
       // stops being a table cell at all, and the whole row comes apart.
-      '<td class="what"><div class="wl"><span class="ti">' + esc(s.title || "") + "</span>" +
+      // The title is the link to the conversation: the one way to it that is
+      // there at every width, and the one a keyboard can reach.
+      '<td class="what"><div class="wl"><a class="ti" href="' + href + '" title="' +
+      esc(s.title || s.id) + '">' + esc(s.title || s.id.slice(0, 8) + "…") + "</a>" +
       (s.agents ? '<span class="nag">' + s.agents + " agent" + (s.agents === 1 ? "" : "s") +
         "</span>" : "") + "</div></td>" +
       '<td class="num">' + (s.prompts || 0) + "</td>" +
@@ -144,7 +154,14 @@
   }
 
   var tbody = document.getElementById("rows");
-  var rows = [];
+  var table = document.getElementById("ix");
+  var rows = [], order = [];
+
+  // What the filter above the table searches: the row's date, project, title
+  // and id — not the words on its buttons, or "copy" would match every row.
+  function filterText(s) {
+    return [stamp(s.mtime), s.project || "", s.title || "", s.id].join(" ");
+  }
 
   // Sessions of the same project, gathered. Most projects have one, which is
   // why the toggle only appears when at least one of them has more.
@@ -175,26 +192,49 @@
     var tok = list.reduce(function (t, s) {
       return t + (s.tok ? s.tok[0] + s.tok[1] + s.tok[2] + s.tok[3] : 0);
     }, 0);
-    return '<tr class="grp"><th colspan="10">' +
+    return '<tr class="grp"><th colspan="' + visibleCols() + '">' +
       (openable ? project(openable) : esc(name || "—")) +
-      ' <span class="gc">' + list.length + " session" + (list.length === 1 ? "" : "s") +
-      " · " + prompts + " prompts" +
+      ' <span class="gc">' + CH.plural(list.length, "session") +
+      " · " + CH.plural(prompts, "prompt") +
       (tok ? " · " + CH.fmtTokens(tok) + " tokens" : "") + "</span></th></tr>";
   }
 
+  // A heading spans the columns that are showing, not all ten: a narrow
+  // window hides some, and a span over hidden ones adds columns of its own
+  // to the table, which took their width from the title.
+  function visibleCols() {
+    var n = [].filter.call(document.querySelectorAll("#ix thead th"), function (th) {
+      return window.getComputedStyle(th).display !== "none";
+    }).length;
+    return n || 10;
+  }
+  function fitHeadings() {
+    var n = visibleCols();
+    [].forEach.call(tbody.querySelectorAll("tr.grp th"), function (th) {
+      if (th.colSpan !== n) th.colSpan = n;
+    });
+  }
+  window.addEventListener("resize", fitHeadings);
+  // Paper hides resume and the bin, so the span is counted again for it.
+  window.matchMedia("print").addListener(fitHeadings);
+
   function draw() {
+    // Grouped, the project is the heading, so its column goes.
+    table.classList.toggle("grouped", grouped);
+    order = [];
     tbody.innerHTML = grouped
       ? names.map(function (name) {
-          return heading(name) + byProject[name].slice()
-            .sort(function (a, b) { return (b.mtime || 0) - (a.mtime || 0); })
-            .map(function (s) { return row(s, true); }).join("");
+          var list = byProject[name].slice()
+            .sort(function (a, b) { return (b.mtime || 0) - (a.mtime || 0); });
+          order = order.concat(list);
+          return heading(name) + list.map(function (s) { return row(s, true); }).join("");
         }).join("")
-      : sessions.map(function (s) { return row(s, false); }).join("");
+      : (order = sessions.slice()).map(function (s) { return row(s, false); }).join("");
     rows = [].slice.call(tbody.querySelectorAll("tr:not(.grp)"));
-    rows.forEach(function (r) { r.dataset.s = r.textContent + " " + (r.dataset.proj || ""); });
+    rows.forEach(function (r, i) { r.dataset.s = filterText(order[i]); });
   }
   draw();
-  document.getElementById("count").textContent = sessions.length;
+  document.getElementById("count").textContent = CH.plural(sessions.length, "session");
 
   // A heading with nothing under it is noise, so it goes while a search is
   // narrowing the table down.
@@ -217,6 +257,8 @@
     function paint() {
       bd.classList.toggle("on", !grouped);
       bp.classList.toggle("on", grouped);
+      bd.setAttribute("aria-pressed", String(!grouped));
+      bp.setAttribute("aria-pressed", String(grouped));
     }
     function set(v) {
       if (v === grouped) return;
@@ -232,6 +274,8 @@
   })();
 
   if (!sessions.length) {
+    // A table of headings over nothing says less than the sentence does.
+    document.getElementById("tw").hidden = true;
     document.getElementById("empty").innerHTML =
       "No sessions yet. They appear here as you use Claude Code — run " +
       "<code>claude-html</code> again once one has ended.<br>Looking for projects under " +
@@ -337,6 +381,16 @@
   });
 
   // Quoted runs stay together; everything else splits on whitespace.
+  // The longest word or phrase searched for, as typed: the session page
+  // looks for it again, which opens what hides it (thinking starts folded).
+  function findWord(s) {
+    var best = "", re = /"([^"]+)"|(\S+)/g, m;
+    while ((m = re.exec(s)) !== null) {
+      var w = m[1] || m[2];
+      if (w.length > best.length) best = w;
+    }
+    return best.length >= 2 ? ":find=" + encodeURIComponent(best) : "";
+  }
   function parse(s) {
     var out = [], re = /"([^"]+)"|(\S+)/g, m;
     while ((m = re.exec(s)) !== null) out.push(fold(m[1] || m[2]));
@@ -377,7 +431,7 @@
   // than leave "searching…" standing forever.
   function noSearch(shown) {
     mr.innerHTML = '<p class="d">no search index — run <code>claude-html</code> to build one</p>';
-    n.textContent = shown + " of " + rows.length + " sessions · messages not searchable";
+    n.textContent = shown + " of " + CH.plural(rows.length, "session") + " · messages not searchable";
   }
 
   function need(cb, shown) {
@@ -421,36 +475,74 @@
 
   var WHO = { u: "You", t: "Claude", k: "thinking" };
 
+  // Newest first: what you said last week is likelier to be what you meant
+  // than the same words in a session from March. Each session's messages
+  // are read from its last back, so the PER it shows are its newest, and
+  // every match is counted, so the page can say how many it is not showing.
+  var CAP = 200, PER = 5;
   function messages(ts) {
-    var out = [], CAP = 200, PER = 5;
-    for (var i = 0; i < window.SEARCH.length && out.length < CAP; i++) {
-      var sess = window.SEARCH[i], rws = sess[3], lc = LC[i], per = 0;
-      for (var j = 0; j < rws.length && out.length < CAP && per < PER; j++) {
+    var found = [];
+    for (var i = 0; i < window.SEARCH.length; i++) {
+      var sess = window.SEARCH[i], rws = sess[3], lc = LC[i], f = null;
+      for (var j = rws.length - 1; j >= 0; j--) {
         var lo = cs ? rws[j][2] : lc[j], ok = true;
         for (var k = 0; k < ts.length; k++) {
           if (lo.indexOf(ts[k]) < 0) { ok = false; break; }
         }
-        if (ok) { out.push([sess, rws[j], lo]); per++; }
+        if (!ok) continue;
+        if (!f) found.push(f = { sess: sess, hits: [], n: 0, next: null });
+        f.n++;
+        if (f.hits.length < PER) f.hits.push([sess, rws[j], lo, f]);
+        else if (!f.next) f.next = rws[j];
       }
     }
-    return out;
+    return found;
   }
 
-  function render(hits, ts, shown) {
-    // Newest first: what you said last week is likelier to be what you meant
-    // than the same words in a session from March.
+  function render(found, ts, shown) {
+    var hits = [], total = 0, ids = {};
+    found.forEach(function (f) {
+      hits = hits.concat(f.hits);
+      total += f.n;
+      ids[f.sess[0]] = 1;
+      f.left = f.n;
+    });
     hits.sort(function (a, b) { return (b[1][3] || 0) - (a[1][3] || 0); });
-    mr.innerHTML = hits.map(function (h) {
-      var sess = h[0], r = h[1], when = stamp(r[3]);
-      return '<a class="r" href="sessions/' + esc(sess[0]) + ".html#m" + r[0] + '">' +
+    var cut = hits.slice(CAP);
+    hits = hits.slice(0, CAP);
+    // A hit the cap left out is where that session's "more" link goes.
+    cut.forEach(function (h) { if (!h[3].cutAt) h[3].cutAt = h[1]; });
+    hits.forEach(function (h) { h[3].shown = (h[3].shown || 0) + 1; });
+    var fw = esc(findWord(q.value));
+    var out = hits.map(function (h) {
+      var sess = h[0], r = h[1], f = h[3], when = stamp(r[3]);
+      var html = '<a class="r" href="sessions/' + esc(sess[0]) + ".html#m" + r[0] + fw + '">' +
         '<span class="rh">' + (when ? '<span class="rt">' + when + "</span> · " : "") +
         esc(sess[1]) + (sess[2] ? " · " + esc(sess[2]) : "") +
         " · " + WHO[r[1]] + "</span>" +
         '<span class="rs">' + snippet(r[2], h[2], ts) + "</span></a>";
-    }).join("") || '<p class="d">no messages match</p>';
-    n.textContent = shown + " of " + rows.length + " sessions · " + hits.length +
-      (hits.length >= 200 ? "+" : "") + " messages" +
-      (missing ? " · " + missing + " conversation" + (missing === 1 ? "" : "s") +
+      // Under the last of a session's results, how many more it holds, and
+      // a way to the next of them.
+      if (--f.left === f.n - f.shown && f.n > f.shown) {
+        var next = f.cutAt || f.next;
+        html += '<a class="more" href="sessions/' + esc(sess[0]) + ".html#m" + next[0] + fw + '">+ ' +
+          (f.n - f.shown) + " more in this session</a>";
+      }
+      return html;
+    });
+    // Sessions the cap left out altogether are said in one line.
+    var unseen = found.filter(function (f) { return !f.shown; });
+    if (unseen.length) {
+      out.push('<p class="d more">+ ' + CH.plural(unseen.reduce(function (t, f) { return t + f.n; }, 0), "message") +
+        " in " + CH.plural(unseen.length, "more session") + " — add a word to narrow it down</p>");
+    }
+    mr.innerHTML = out.join("") || '<p class="d">no messages match</p>';
+    // A session counts once, whether its row matched, its messages, or both.
+    rows.forEach(function (r, i) { if (!r.hidden) ids[order[i].id] = 1; });
+    var matched = Object.keys(ids).length;
+    n.textContent = matched + " of " + CH.plural(rows.length, "session") + " · " +
+      CH.plural(total, "message") +
+      (missing ? " · " + CH.plural(missing, "conversation") +
         " not searched, search file missing — run claude-html" : "");
   }
 
@@ -458,6 +550,7 @@
     var ts = parse(q.value);
     if (!ts.length) {
       rows.forEach(function (r) { r.hidden = false; });
+      document.getElementById("tw").hidden = !sessions.length;
       syncGroups();
       mh.hidden = true;
       mr.innerHTML = "";
@@ -471,7 +564,9 @@
       if (hit) shown++;
     });
     syncGroups();
-    n.textContent = shown + " of " + rows.length + " sessions · searching…";
+    // No row left: the column headings over nothing go too.
+    document.getElementById("tw").hidden = !shown;
+    n.textContent = shown + " of " + CH.plural(rows.length, "session") + " · searching…";
     mh.hidden = false;
     need(function () { render(messages(ts), ts, shown); }, shown);
   }

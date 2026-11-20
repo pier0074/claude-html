@@ -5,6 +5,23 @@ fixes, a minor adds without breaking, a major needs something from you
 (usually `./install.sh` again). To update: `claude-html --update`; before
 3.1.0, `git checkout main && git pull && ./install.sh`.
 
+## 3.2.0 — 2026-11-20
+
+- **What a call returned, and thinking, start folded**, as the docs always
+  said; a click opens them, they stay open while you read, and find opens
+  whatever hides its match. A Markdown table in a reply is drawn as a table.
+- **Search lands on the match.** A result opens the conversation with the
+  words you searched for already found and highlighted, even inside folded
+  thinking. Each conversation shows its newest matches first and says how
+  many more it has; "copy" or "resume" in the box no longer matches every row.
+- **Index:** grouped by project, the table no longer squeezes titles to four
+  letters on a narrower window. The title is the link to the conversation.
+- **Dashboard:** a month or week with nothing in it is a gap on the chart,
+  not hidden. An empty dashboard shows its one sentence.
+- Every page prints in the light palette without its buttons, fits a phone,
+  opens in the theme you chose without a flash, and has readable timestamps
+  and labels. "1 prompt", not "1 prompts".
+
 ## 3.1.3 — 2026-11-20
 
 - **The guard no longer waves a command through.** Allow, Safe or Stop on a

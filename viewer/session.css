@@ -2,6 +2,7 @@
 @media(prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#16150f;--fg:#e8e4dc;--dim:#8f887c;--line:#2b2922;--u:#7fc79b;--a:#d3a06a;--code:#211f18;--hit:#5c4a1e;--cur:#c98a12}}
 :root[data-theme=dark]{--bg:#16150f;--fg:#e8e4dc;--dim:#8f887c;--line:#2b2922;--u:#7fc79b;--a:#d3a06a;--code:#211f18;--hit:#5c4a1e;--cur:#c98a12}
 *{box-sizing:border-box}
+html{scrollbar-gutter:stable}
 body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}
 header{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--line);padding:14px 0;z-index:5}
 h1{margin:0;font-size:17px;font-weight:600}
@@ -10,10 +11,9 @@ h1{margin:0;font-size:17px;font-weight:600}
 .crumbs a{text-decoration:none}
 .crumbs a:hover{text-decoration:underline}
 .crumbs .brand{color:var(--fg)}
-.crumbs .sep{color:var(--dim);opacity:.5;font-weight:400}
+.crumbs .sep{color:var(--dim);font-weight:400}
 .crumbs .proj{color:var(--fg);font-weight:500}
 .crumbs .sid{font-size:13px;font-weight:400;color:var(--dim);word-break:break-all}
-.crumbs .here{opacity:.8}
 .meta{color:var(--dim);font-size:12px;margin-top:3px}
 /* The column follows the window instead of stopping at a thousand pixels:
    on a wide screen a diff, a command and a table all get the room they
@@ -56,9 +56,12 @@ html.win{overflow-anchor:none}
 /* Conversation mode: prompts and replies only. */
 body.talk .tool,body.talk .res,body.talk .think,body.talk .m.notext{display:none}
 body.talk .m.prompt{margin-top:6px;padding-top:18px}
-/* The first prompt has no gap above it to share, so it keeps its own. */
-.blk:first-child>.m.prompt:first-child{margin-top:34px}
-body.talk .blk:first-child>.m.prompt:first-child{margin-top:26px}
+/* The first prompt sits right under the header, whose own rule is the line
+   above it: no second rule, no band of space, and the conversation starts
+   as far down as the index's table and the dashboard's figures do. */
+main{padding-top:28px}
+.blk:first-child>.m.prompt:first-child,
+body.talk .blk:first-child>.m.prompt:first-child{margin-top:0;padding-top:0;border-top:0}
 .bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:9px;font-size:12px}
 .bar button{background:var(--code);color:var(--dim);border:1px solid var(--line);
 border-radius:4px;padding:3px 10px;font:inherit;font-size:11px;cursor:pointer}
@@ -66,7 +69,8 @@ border-radius:4px;padding:3px 10px;font:inherit;font-size:11px;cursor:pointer}
 .bar button.on{color:var(--fg);border-color:var(--dim)}
 .who{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin-bottom:5px}
 .user .who{color:var(--u)} .asst .who{color:var(--a)}
-.ts{opacity:.6;margin-left:6px;letter-spacing:0;text-transform:none}
+/* The time is information, so it is the muted colour at full strength. */
+.ts{color:var(--dim);margin-left:6px;letter-spacing:0;text-transform:none}
 .m:target,.m.tgt{background:rgba(200,160,60,.15);border-radius:4px;box-shadow:0 0 0 8px rgba(200,160,60,.15)}
 .sys .who{color:var(--dim)}
 .sys .t{color:var(--dim);font-size:13px;border-left:2px dotted var(--line);padding-left:12px;white-space:pre-wrap}
@@ -87,6 +91,9 @@ summary::-webkit-details-marker{display:none}
 summary::before{content:"▸ ";opacity:.6}
 details[open]>summary::before{content:"▾ "}
 .tool summary{color:var(--a)}
+/* Folded output is one line, and a run of them reads as a list, not as
+   paragraphs twenty pixels apart. */
+details.m.res:not([open]){margin-bottom:8px}
 .think .t{color:var(--dim);font-size:13.5px;border-left:2px solid var(--line);padding-left:12px}
 .tn{font-weight:600} .td{color:var(--dim);margin-left:8px;overflow-wrap:anywhere}
 .oldfmt{font-size:12px;color:var(--dim);opacity:.75;padding:2px 0}
@@ -108,6 +115,13 @@ overflow-wrap:anywhere}
 white-space:pre-wrap;overflow-wrap:anywhere}
 .add{background:rgba(64,160,96,.16)} .del{background:rgba(200,72,72,.16)}
 .hunk{color:var(--dim)} .ctx{opacity:.75}
+/* A Markdown table in a reply, drawn as one. Wide ones scroll in their own
+   box rather than push the page sideways. */
+.tbl{overflow-x:auto;margin:6px 0 10px}
+table.md{border-collapse:collapse;font-size:13px;line-height:1.45}
+table.md th,table.md td{border:1px solid var(--line);padding:4px 10px;text-align:left;vertical-align:top}
+table.md th{background:var(--code);font-weight:600}
+table.md .ar{text-align:right} table.md .ac{text-align:center}
 a{color:inherit}
 .resume{display:flex;gap:8px;align-items:center;margin-top:8px}
 /* display:flex outranks the hidden attribute, which left an empty box and a
@@ -129,8 +143,9 @@ padding:5px 12px;font-size:12px;text-decoration:none}
 .find .group,.nav{display:flex;gap:6px;align-items:center}
 /* Two identical clusters side by side need one word to tell them apart;
    the other sits against the field it searches, so it needs none. */
-.nav .lbl{color:var(--dim);font-size:11px;opacity:.75;margin-right:1px}
+.nav .lbl{color:var(--dim);font-size:11px;margin-right:1px}
 .nav{margin-left:auto}
+.nav[hidden]{display:none}
 .find .group button,.nav button{padding:3px 9px;font-size:13px;line-height:1}
 #fc,#pc{color:var(--dim);font-size:11px;min-width:62px;text-align:center;white-space:nowrap}
 /* Match case sits inside the field, as it does on the index, and appears once
@@ -219,4 +234,22 @@ header.mini #fc,header.mini #pc{min-width:0}
    and count, rather than two counters squeezed into each other. */
 @media (max-width:640px){
 header.mini .find.on~.nav{display:none}
+}
+
+/* On paper: the light palette whatever the screen shows, the whole header
+   at the top of the first page and not on every one, and none of the
+   controls. What is folded on screen prints folded. */
+@media print{
+:root:root:root{--bg:#fff;--fg:#111;--dim:#555;--line:#ccc;--u:#2f6f4f;--a:#7a4f2a;--code:#f3f3f3;--hit:#fbe3a0;--cur:#f0b429}
+html{scrollbar-gutter:auto}
+header{position:static;margin-bottom:0!important}
+header .bar,header .resume,.hx{display:none!important}
+header.mini{padding:14px 0}
+header.mini .hw{display:block}
+header.mini .meta:not([hidden]){display:block}
+header.mini .crumbs{display:flex;font-size:17px;white-space:normal;overflow:visible}
+header.mini .crumbs .brand,header.mini .crumbs .brand+.sep{display:inline}
+main,.hw{max-width:none;padding-left:0;padding-right:0}
+.m:target,.m.tgt{background:none;box-shadow:none}
+.who{break-after:avoid}
 }

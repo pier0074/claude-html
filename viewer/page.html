@@ -1,5 +1,7 @@
-<!doctype html><meta charset="utf-8">
+<!doctype html><html lang="en"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>session</title>
+<script>(function(){try{var t=localStorage.getItem("ch-theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}})()</script>
 <style>/*{{css}}*/</style>
 <header><div class="hw">
 <h1 class="crumbs" id="crumbs"></h1>
@@ -9,18 +11,18 @@
 <div class="resume" id="resume" hidden><code id="rc"></code><button id="copy">copy</button></div>
 <div class="bar">
 <span class="modes"><button id="mtalk">Conversation</button><button id="mall">Everything</button></span>
-<span class="find"><span class="fbox" id="fbox"><input id="fq" type="search" placeholder="find in this conversation   /" autocomplete="off" spellcheck="false">
+<span class="find"><span class="fbox" id="fbox"><input id="fq" type="search" aria-label="find in this conversation" placeholder="find in this conversation   /" autocomplete="off" spellcheck="false">
 <label class="case" title="match upper and lower case exactly"><input type="checkbox" id="fcs"> match case</label></span>
-<span class="group"><button id="ffirst" title="first match">«</button>
-<button id="fprev" title="previous match (shift+enter)">‹</button>
-<span id="fc"></span><button id="fnext" title="next match (enter)">›</button>
-<button id="flast" title="last match">»</button></span></span>
-<span class="nav"><span class="lbl">prompts</span><button id="first" title="first prompt">«</button>
-<button id="prev" title="previous prompt (k)">‹</button>
-<span id="pc"></span><button id="next" title="next prompt (j)">›</button>
-<button id="last" title="last prompt">»</button></span>
-<button id="theme" class="th" title="theme">◐</button>
-<button id="hx" class="hx" title="show the whole header">▾</button>
+<span class="group"><button id="ffirst" aria-label="first match" title="first match">«</button>
+<button id="fprev" aria-label="previous match (shift+enter)" title="previous match (shift+enter)">‹</button>
+<span id="fc"></span><button id="fnext" aria-label="next match (enter)" title="next match (enter)">›</button>
+<button id="flast" aria-label="last match" title="last match">»</button></span></span>
+<span class="nav"><span class="lbl">prompts</span><button id="first" aria-label="first prompt" title="first prompt">«</button>
+<button id="prev" aria-label="previous prompt (k)" title="previous prompt (k)">‹</button>
+<span id="pc"></span><button id="next" aria-label="next prompt (j)" title="next prompt (j)">›</button>
+<button id="last" aria-label="last prompt" title="last prompt">»</button></span>
+<button id="theme" class="th" aria-label="theme" title="theme">◐</button>
+<button id="hx" class="hx" aria-label="show the whole header" title="show the whole header">▾</button>
 </div>
 </div></header>
 <main id="main"></main>

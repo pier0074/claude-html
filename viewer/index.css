@@ -1,7 +1,10 @@
-:root{--bg:#faf9f7;--fg:#1c1a17;--dim:#6b665e;--line:#e6e2dc;--code:#f2efe9;--hit:#f6e2a8}
-@media(prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#16150f;--fg:#e8e4dc;--dim:#8f887c;--line:#2b2922;--code:#211f18;--hit:#5c4a1e}}
-:root[data-theme=dark]{--bg:#16150f;--fg:#e8e4dc;--dim:#8f887c;--line:#2b2922;--code:#211f18;--hit:#5c4a1e}
+:root{--bg:#faf9f7;--fg:#1c1a17;--dim:#6b665e;--line:#e6e2dc;--code:#f2efe9;--hit:#f6e2a8;--warn:#9a5518}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#16150f;--fg:#e8e4dc;--dim:#8f887c;--line:#2b2922;--code:#211f18;--hit:#5c4a1e;--warn:#d9975a}}
+:root[data-theme=dark]{--bg:#16150f;--fg:#e8e4dc;--dim:#8f887c;--line:#2b2922;--code:#211f18;--hit:#5c4a1e;--warn:#d9975a}
 *{box-sizing:border-box}
+/* A search that grows the page past the window does not shift it sideways
+   by a scrollbar's width. */
+html{scrollbar-gutter:stable}
 body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 ui-monospace,Menlo,monospace}
 :root{--col:min(1320px,92vw)}
 main{width:100%;max-width:var(--col);margin:0 auto;padding:28px 20px}
@@ -15,6 +18,7 @@ p.sub.upd button.cp{margin-left:4px}
 border-radius:5px;padding:8px 11px;font:inherit;font-size:13px;margin-bottom:6px}
 #q:focus{outline:none;border-color:var(--dim)}
 #n{color:var(--dim);font-size:11px;margin:0 0 14px;min-height:14px}
+#n:empty{min-height:0;margin:0}
 h2{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);
 font-weight:500;margin:22px 0 6px;border-bottom:1px solid var(--line);padding-bottom:5px}
 /* Fixed layout: the columns share the width they are given rather than
@@ -45,6 +49,9 @@ a{color:inherit;text-decoration:none} a:hover{text-decoration:underline}
 .d{color:var(--dim)}
 .ti{display:block;color:var(--dim);font-size:11.5px;overflow:hidden;
 text-overflow:ellipsis;white-space:nowrap}
+/* The title is the row's link: it reads as the row does, and underlines
+   under the pointer or the keyboard like any other link. */
+a.ti:hover,a.ti:focus-visible{color:var(--fg)}
 button.cp{background:transparent;color:var(--dim);border:1px solid var(--line);border-radius:4px;
 padding:2px 9px;font:inherit;font-size:11px;cursor:pointer}
 button.cp:hover{color:var(--fg);border-color:var(--dim)}
@@ -55,6 +62,10 @@ padding:2px 9px;font-size:11px;line-height:1.6;margin-left:6px;vertical-align:ba
 a.go:hover{color:var(--fg);border-color:var(--dim);text-decoration:none}
 a.r{display:block;border-bottom:1px solid var(--line);padding:8px;text-decoration:none}
 a.r:hover{background:rgba(128,128,128,.07);text-decoration:none}
+/* How many more a session holds than the results show, under its last one. */
+a.more{display:block;font-size:11px;color:var(--dim);padding:4px 8px 8px;border-bottom:1px solid var(--line)}
+a.more:hover{color:var(--fg)}
+p.more{font-size:11px;padding:8px}
 .rh{display:block;font-size:11px;color:var(--dim);margin-bottom:2px}
 .rs{display:block;font-size:12.5px;line-height:1.55;word-break:break-word}
 mark{background:var(--hit);color:inherit;border-radius:2px}
@@ -63,7 +74,7 @@ mark{background:var(--hit);color:inherit;border-radius:2px}
 .errors{border:1px solid #c05a5a;background:rgba(200,72,72,.08);border-radius:5px;
 padding:12px 14px;margin:0 0 16px;font-size:12.5px;line-height:1.7}
 .errors ul{margin:6px 0 0;padding-left:20px}
-.stale{color:#b06a2a;font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-left:5px}
+.stale{color:var(--warn);font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;margin-left:5px}
 .rt{color:var(--fg);opacity:.75}
 /* The match-case option appears once there is something to search for, or
    while it is switched on, so an idle index stays uncluttered. */
@@ -79,8 +90,9 @@ td.dt{white-space:nowrap;color:var(--dim)}
 /* "archive (inferred)" on two lines made rows of different heights for
    no reason at all. */
 td.d{white-space:nowrap}
-.del{text-decoration:none;color:var(--dim);opacity:.35;font-size:13px}
-tr:hover .del{opacity:.8}
+/* Quiet until the row is pointed at, but never so faint it cannot be found. */
+.del{text-decoration:none;color:var(--dim);opacity:.75;font-size:13px}
+tr:hover .del{opacity:1}
 .del:hover{opacity:1;color:#c05a5a;text-decoration:none}
 tr.pending td{opacity:.4}
 .proj{color:inherit;text-decoration:none;border-bottom:1px dotted var(--line)}
@@ -93,6 +105,8 @@ tr.pending td{opacity:.4}
 .links a{color:var(--dim);text-decoration:none;border-bottom:1px dotted var(--line)}
 .links a:hover{color:var(--fg);border-bottom-color:var(--dim);text-decoration:none}
 #rows tr{cursor:pointer}
+/* Grouped, the project is the heading over its rows: its column goes. */
+#ix.grouped th:nth-child(2),#ix.grouped td:nth-child(2){display:none}
 /* The What cell: a title that gives way, and a badge that does not. */
 td.what .wl{display:flex;align-items:baseline;gap:8px}
 td.what .ti{flex:1;min-width:0}
@@ -100,7 +114,7 @@ td.what .ti{flex:1;min-width:0}
 border-radius:3px;padding:1px 6px;white-space:nowrap}
 /* Group by project, or stay in date order. Only shown when some project has
    more than one session, since otherwise the two views are the same list. */
-.view{margin:0 0 10px;font-size:11px;color:var(--dim)}
+.view{margin:16px 0 10px;font-size:11px;color:var(--dim)}
 .view button{background:var(--code);color:var(--dim);border:1px solid var(--line);
 padding:3px 10px;font:inherit;font-size:11px;cursor:pointer;margin-left:5px}
 .view button:first-of-type{border-radius:4px 0 0 4px;margin-left:7px}
@@ -141,9 +155,10 @@ td.cost{font-size:12px;overflow:hidden}
 @media(max-width:1100px){
 #ix th:nth-child(7),#ix td:nth-child(7),#ix th:nth-child(8),#ix td:nth-child(8){display:none}
 }
-@media(max-width:900px){
-main.ix{max-width:100%;padding:20px 14px}
-#ix{min-width:670px}
+/* From here the figures, the date and the buttons take tighter columns, and
+   the title may take two lines, its agent count under it, rather than be
+   cut to a word. */
+@media(max-width:1100px){
 #ix thead th,#rows td{padding-left:8px;padding-right:8px}
 #ix thead th:first-child,#rows td:first-child{padding-left:0}
 #ix thead th:last-child,#rows td:last-child{padding-right:0}
@@ -155,4 +170,35 @@ main.ix{max-width:100%;padding:20px 14px}
 #rows tr:not(.grp) td:nth-child(9),#ix thead th:nth-child(9){width:124px}
 #ix.nomac #rows tr:not(.grp) td:nth-child(9),#ix.nomac thead th:nth-child(9){width:72px}
 #rows tr:not(.grp) td:nth-child(10),#ix thead th:nth-child(10){width:26px}
+td.what .wl{flex-wrap:wrap;row-gap:3px}
+td.what .ti{flex:1 1 100%;white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;
+-webkit-line-clamp:2;line-height:1.45}
+}
+/* Narrower, the day without the time. */
+@media(max-width:900px){
+main.ix{max-width:100%;padding:20px 14px}
+#ix{min-width:600px}
+td.dt .hm{display:none}
+#rows tr:not(.grp) td:nth-child(1),#ix thead th:nth-child(1){width:96px}
+#rows tr:not(.grp) td:nth-child(2),#ix thead th:nth-child(2){width:104px}
+#rows tr:not(.grp) td:nth-child(4),#ix thead th:nth-child(4){width:64px}
+}
+/* A phone has no width for every column: the table keeps one the title can
+   be read in, and scrolls sideways in its own box. */
+@media(max-width:640px){
+#ix{min-width:760px}
+}
+/* On paper: the light palette whatever the screen shows, the table at its
+   natural width, and none of what only works on a screen — search, the
+   toggles, copy, resume, the bin. */
+@media print{
+:root:root:root{--bg:#fff;--fg:#111;--dim:#555;--line:#ccc;--code:#f3f3f3;--hit:#fbe3a0;--warn:#8a4a12}
+html{scrollbar-gutter:auto}
+main{max-width:none;padding:0}
+.th,.searchbox,.view,#update,.links,#launch,#ix th:nth-child(9),#ix td:nth-child(9),
+#ix th:nth-child(10),#ix td:nth-child(10),a.more{display:none}
+#ix{min-width:0}
+.tw{overflow:visible}
+tr,a.r{break-inside:avoid}
+tr:hover td{background:none}
 }

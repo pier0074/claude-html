@@ -142,6 +142,33 @@
 
   function talking() { return body.classList.contains("talk"); }
 
+  // Output and thinking start folded. What you open or close stays that way
+  // when a far-away block is taken down and built again: each <details> is
+  // known by its row and its place in the row.
+  var folds = {};
+  function foldKey(d) {
+    var m = d.closest(".m");
+    if (!m || !m.id) return null;
+    return m.id + ":" + [m].concat([].slice.call(m.querySelectorAll("details"))).indexOf(d);
+  }
+  main.addEventListener("toggle", function (e) {
+    var k = foldKey(e.target);
+    if (k) folds[k] = e.target.open;
+  }, true);
+  function refold(sec) {
+    [].forEach.call(sec.querySelectorAll("details"), function (d) {
+      var k = foldKey(d);
+      if (k && k in folds && d.open !== folds[k]) d.open = folds[k];
+    });
+  }
+  // A match or a link inside folded output opens what hides it.
+  function unfold(el) {
+    if (el.closest("summary")) return;
+    for (var d = el.closest("details:not([open])"); d; d = d.parentNode.closest("details:not([open])")) {
+      d.open = true;
+    }
+  }
+
   function fillBlock(b) {
     if (real[b]) return;
     var sec = secs[b];
@@ -149,7 +176,8 @@
     sec.classList.remove("ph");
     sec.removeAttribute("style");
     real[b] = true;
-    var t = /^#(m\d+)$/.exec(location.hash), el = t && document.getElementById(t[1]);
+    refold(sec);
+    var t = /^#(m\d+)(?::find=[^#]*)?$/.exec(location.hash), el = t && document.getElementById(t[1]);
     if (el && sec.contains(el)) el.classList.add("tgt");
     marksIn(b);
   }
@@ -278,6 +306,7 @@
     root.style.overflowAnchor = anchor;
     hx.textContent = on ? "▾" : "▴";
     hx.title = on ? "show the whole header" : "fold the header to one line";
+    hx.setAttribute("aria-label", hx.title);
     headerRoom();
   }
   // The open header's height follows the window and the find bar, so the
@@ -366,8 +395,9 @@
       parts.join('<span class="sep">/</span>');
   })();
   document.getElementById("subtitle").textContent = meta.title || "";
-  var counts = prompts + " prompts · " + data.messages.length + " messages · from " + (meta.kind || "");
-  if ((data.agents || []).length) counts += " · " + data.agents.length + " sub-agents";
+  var counts = CH.plural(prompts, "prompt") + " · " + CH.plural(data.messages.length, "message") +
+    " · from " + (meta.kind || "");
+  if ((data.agents || []).length) counts += " · " + CH.plural(data.agents.length, "sub-agent");
   document.getElementById("counts").textContent = counts;
 
   // What this conversation cost, in one line: the total, then where it went.
@@ -465,6 +495,8 @@
       body.classList.toggle("talk", m === "talk");
       talk.classList.toggle("on", m === "talk");
       all.classList.toggle("on", m !== "talk");
+      talk.setAttribute("aria-pressed", String(m === "talk"));
+      all.setAttribute("aria-pressed", String(m !== "talk"));
     }, el);
     if (!opening && el && el.classList.contains("m")) {
       var gap = el.getBoundingClientRect().top - y - 12;
@@ -482,6 +514,9 @@
   // last one are right from the start, whether or not they have been built.
   var ps = [], at = 0, pc = document.getElementById("pc");
   for (var pr = 0; pr < R; pr++) if (plan.prompt[pr]) ps.push(pr);
+  // A sub-agent's page has no prompts of yours: four arrows around "no
+  // prompts" would be four buttons that do nothing.
+  if (!ps.length) document.querySelector(".nav").hidden = true;
 
   function showPrompt() { pc.textContent = ps.length ? (at + 1) + " / " + ps.length : "no prompts"; }
   function jump(i) {
@@ -540,7 +575,7 @@
   // A link to one message — what the index's search results are — opens on
   // that message, built first if it was not, and marked the way :target is.
   function toHash() {
-    var t = /^#m(\d+)$/.exec(location.hash);
+    var t = /^#m(\d+)(?::find=([^#]*))?$/.exec(location.hash);
     if (!t || +t[1] >= msgs.length) return;
     [].forEach.call(main.querySelectorAll(".tgt"), function (el) { el.classList.remove("tgt"); });
     var el = reveal(rowOf[+t[1]]);
@@ -549,9 +584,18 @@
     // scroll to: the page would open at the top with the match nowhere.
     if (!el.getClientRects().length && talking()) mode("all", true);
     if (el.id === "m" + t[1]) el.classList.add("tgt");
+    // Output a link points at is opened, not left folded under its summary.
+    if (el.tagName === "DETAILS") el.open = true;
     scrollToEl(el);
     fillNear(400);
     scrollToEl(rowEl(rowOf[+t[1]]));
+    // Come from a search: the same words are looked for again from here,
+    // which opens what hides them, as thinking does, folded.
+    if (t[2]) {
+      var w = "";
+      try { w = decodeURIComponent(t[2]); } catch (e) {}
+      if (w.length >= 2) { fq.value = w; showOption(); find(); }
+    }
   }
   window.addEventListener("hashchange", toHash);
   // The browser scrolls to a link's target on its own as well, at a moment
@@ -664,6 +708,7 @@
     markRow(r);
     var mk = marks[cur];
     if (mk && mk.isConnected) {
+      unfold(mk);
       mk.classList.add("cur");
       mk.scrollIntoView({ block: "center" });
       fillNear(400);
@@ -700,7 +745,9 @@
     for (var h = 0; h < hits.length; h++) {
       if (hits[h] < from) continue;
       var mk = marks[h];
-      if (!mk || !mk.isConnected || mk.getBoundingClientRect().top >= y) { start = h; break; }
+      // One folded away has no place on the page yet: it counts as ahead.
+      if (!mk || !mk.isConnected || !mk.getClientRects().length ||
+          mk.getBoundingClientRect().top >= y) { start = h; break; }
     }
     if (hits.length) goto(start < 0 ? 0 : start); else showFind();
   }
@@ -720,7 +767,9 @@
   });
   fq.addEventListener("keydown", function (e) {
     if (e.key === "Enter") { e.preventDefault(); step(e.shiftKey ? -1 : 1); }
-    else if (e.key === "Escape") { fq.value = ""; find(); fq.blur(); }
+    // Emptied, the arrows and match case go with the text, as they do when
+    // the text is deleted by hand.
+    else if (e.key === "Escape") { fq.value = ""; showOption(); find(); fq.blur(); }
   });
   fcs.addEventListener("change", function () {
     try { localStorage.setItem("ch-case", fcs.checked ? "1" : "0"); } catch (e) {}
@@ -753,7 +802,7 @@
   var saved = "all";
   try { saved = localStorage.getItem("ch-mode") || "all"; } catch (e) {}
   mode(saved, true);
-  if (/^#m\d+$/.test(location.hash)) toHash();
+  if (/^#m\d+(?::find=[^#]*)?$/.test(location.hash)) toHash();
   else fillNear(NEAR);
   // Which prompt you are under, from the moment the page opens — not only
   // once you have scrolled.

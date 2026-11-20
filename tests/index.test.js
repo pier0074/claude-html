@@ -18,16 +18,18 @@ function test(name, fn) {
 }
 
 function el(id) {
-  const cls = new Set();
+  const cls = new Set(), attrs = {};
   return {
     id, innerHTML: "", textContent: "", title: "", hidden: false, value: "",
-    checked: false, dataset: {}, handlers: {},
+    checked: false, dataset: {}, handlers: {}, attrs,
+    setAttribute(k, v) { attrs[k] = String(v); },
     classList: {
       add: (c) => cls.add(c), remove: (c) => cls.delete(c),
       contains: (c) => cls.has(c),
       toggle: (c, on) => { if (on === undefined) on = !cls.has(c); on ? cls.add(c) : cls.delete(c); }
     },
     addEventListener(t, f) { this.handlers[t] = f; },
+    classes: () => cls,
     // Rows only, which is all the index asks for after drawing the table.
     querySelectorAll(sel) {
       if (sel !== "tr:not(.grp)") return [];
@@ -39,9 +41,51 @@ function el(id) {
   };
 }
 
+// Which of the table's ten columns index.css hides, at a window width, for
+// the classes the table carries: read from the stylesheet itself, so the
+// page's own column count is checked against the rules that really apply.
+const CSS = fs.readFileSync(path.join(V, "index.css"), "utf8");
+function hiddenCols(width, classes) {
+  const hidden = new Set(), media = [];
+  const re = /([^{}]*)\{|\}/g;
+  let m, rule = null;
+  while ((m = re.exec(CSS)) !== null) {
+    if (m[0] === "}") {
+      if (rule !== null) {
+        const body = CSS.slice(rule.at, m.index);
+        const applies = media.every((q) => q === null || width <= q);
+        if (applies && /display:none/.test(body)) {
+          rule.sel.split(",").forEach((sel) => {
+            const x = /^#ix((?:\.[\w-]+)*) (?:thead )?th:nth-child\((\d+)\)$/.exec(sel.trim());
+            if (x && x[1].split(".").filter(Boolean).every((c) => classes.has(c))) hidden.add(+x[2]);
+          });
+        }
+        rule = null;
+      } else media.pop();
+      continue;
+    }
+    const pre = m[1].replace(/\/\*[\s\S]*?\*\//g, "").trim();
+    if (/^@media/.test(pre)) {
+      const w = /max-width:\s*(\d+)px/.exec(pre);
+      media.push(/print/.test(pre) ? -1 : w ? +w[1] : null);
+    } else rule = { sel: pre, at: re.lastIndex };
+  }
+  return hidden;
+}
+
 // Builds an index page from data, runs it, and hands back its elements.
-// searchable lists the session ids whose search file exists.
-function load(data, searchable) {
+// searchable lists the session ids whose search file exists; rowsFor, when
+// given, says what each one's search file holds.
+// The clock a loaded page sees: the real one, or a fixed "now" a test sets,
+// so no result depends on when or how fast the test runs.
+let NOW = null;
+function clockAt(ms) {
+  return class extends Date {
+    constructor(...a) { if (a.length) super(...a); else super(ms); }
+    static now() { return ms; }
+  };
+}
+function load(data, searchable, width, rowsFor) {
   const els = {}, docHandlers = {}, clipboard = [];
   const get = (id) => els[id] || (els[id] = el(id));
   get("index-data").textContent = JSON.stringify(data);
@@ -49,8 +93,12 @@ function load(data, searchable) {
   const store = () => { const m = {}; return {
     getItem: (k) => (k in m ? m[k] : null), setItem: (k, v) => { m[k] = String(v); },
     removeItem: (k) => { delete m[k]; } }; };
+  const ths = Array.from({ length: 10 }, (_, i) => ({ col: i + 1 }));
   const ctx = {
-    console, JSON, Date, Math,
+    console, JSON, Date: NOW === null ? Date : clockAt(NOW), Math,
+    getComputedStyle: (th) => ({
+      display: hiddenCols(width || 1600, get("ix").classes()).has(th.col) ? "none" : "table-cell" }),
+    matchMedia: () => ({ matches: false, addListener() {} }),
     localStorage: store(), sessionStorage: store(),
     setTimeout: (f) => { timers.push(f); return timers.length; },
     clearTimeout: () => {},
@@ -60,6 +108,7 @@ function load(data, searchable) {
     addEventListener() {}, removeEventListener() {},
     document: {
       getElementById: get,
+      querySelectorAll: (sel) => (sel === "#ix thead th" ? ths : []),
       addEventListener(t, f) { (docHandlers[t] = docHandlers[t] || []).push(f); },
       querySelector: () => null,
       documentElement: { setAttribute() {}, removeAttribute() {} },
@@ -68,7 +117,7 @@ function load(data, searchable) {
         const id = decodeURIComponent(tag.src.replace(/^search\/|\.js$/g, ""));
         timers.push(() => {
           if ((searchable || []).indexOf(id) < 0) return tag.onerror();
-          ctx.CH_SEARCH(id, [[0, "u", "hello there " + id, 1]]);
+          ctx.CH_SEARCH(id, (rowsFor && rowsFor[id]) || [[0, "u", "hello there " + id, 1]]);
           tag.onload();
         });
       } }
@@ -145,8 +194,10 @@ test("grouped by project, the headings are plain text too", () => {
 
 // ── when it was built ────────────────────────────────────────────────
 test("the build time is shown when the data carries it", () => {
-  const t = Math.floor(Date.now() / 1000) - 7200;
+  NOW = Date.UTC(2026, 10, 20, 12, 0, 0);
+  const t = NOW / 1000 - 7200;
   const txt = load({ sessions: S, built: t }).get("built").textContent;
+  NOW = null;
   assert.ok(/^ · built \d{4}-\d\d-\d\d \d\d:\d\d \(2 h ago\)$/.test(txt), txt);
 });
 
@@ -269,7 +320,117 @@ test("a search typed while the files load is the one answered", () => {
   p.get("q").value = "hello"; p.get("q").handlers.input();
   p.get("q").value = "hello aaaaaaaa"; p.get("q").handlers.input();
   p.search("hello aaaaaaaa");
-  assert.ok(/^0 of 3 sessions · 1 messages$/.test(p.get("n").textContent), p.get("n").textContent);
+  // the one session whose message matched counts, though its row did not
+  assert.ok(/^1 of 3 sessions · 1 message$/.test(p.get("n").textContent), p.get("n").textContent);
+});
+
+// ── search: newest first, and what it is not showing ─────────────────
+// Each session shows its five newest matches, and says how many more it has.
+// It once took the first five it met, the oldest, and said nothing of the rest.
+const MANY = [
+  { id: "aaaaaaaa-1", kind: "transcript", project: "app", cwd: "/x/app", title: "one", mtime: 1700000000, prompts: 3 },
+  { id: "bbbbbbbb-2", kind: "transcript", project: "web", cwd: "/x/web", title: "two", mtime: 1700000500, prompts: 1 }
+];
+function manyRows() {
+  const r = [];
+  for (let i = 0; i < 8; i++) r.push([i * 2, "u", "needle number " + i, 1700000000 + i * 60]);
+  return { "aaaaaaaa-1": r, "bbbbbbbb-2": [[0, "t", "a needle elsewhere", 1700000100]] };
+}
+
+test("search shows each session's newest matches first", () => {
+  const p = load({ sessions: MANY, home: "/x" }, MANY.map((s) => s.id), 1600, manyRows());
+  p.search("needle");
+  const html = p.get("mr").innerHTML;
+  const shown = (html.match(/needle<\/mark> number (\d)/g) || []).map((x) => +x.slice(-1));
+  assert.deepStrictEqual(shown, [7, 6, 5, 4, 3], html);
+  assert.ok(html.indexOf("number 3") < html.indexOf("a <mark>needle</mark> elsewhere"), "the older session's hit comes after");
+});
+
+test("and says how many more a session holds, linking to the next of them", () => {
+  const p = load({ sessions: MANY, home: "/x" }, MANY.map((s) => s.id), 1600, manyRows());
+  p.search("needle");
+  const html = p.get("mr").innerHTML;
+  assert.ok(/<a class="more" href="sessions\/aaaaaaaa-1\.html#m4:find=needle">\+ 3 more in this session<\/a>/.test(html), html);
+  assert.strictEqual((html.match(/class="more"/g) || []).length, 1, "not under a session with nothing more");
+  assert.strictEqual(p.get("n").textContent, "2 of 2 sessions · 9 messages");
+});
+
+// A hit in thinking lands on a folded block: the words searched for go with
+// the link, and the session page looks for them again, which opens it.
+test("every result link carries the longest word searched for", () => {
+  const p = load({ sessions: MANY, home: "/x" }, MANY.map((s) => s.id), 1600, manyRows());
+  p.search('nee "needle number"');
+  const links = p.get("mr").innerHTML.match(/href="sessions\/[^"]+"/g) || [];
+  assert.ok(links.length > 0, "no result links");
+  links.forEach((l) => assert.ok(/#m\d+:find=needle%20number"$/.test(l), l));
+});
+
+// ── the filter over the rows ─────────────────────────────────────────
+// It matched the rows' own text, button labels included: "copy" or
+// "resume" kept every row that could be resumed.
+test("the filter reads date, project, title and id, not button labels", () => {
+  const p = load({ sessions: S, home: "/x", actions: true }, S.map((s) => s.id));
+  ["copy", "resume", "transcript", "agents"].forEach((w) => {
+    p.search(w);
+    assert.ok(p.get("n").textContent.startsWith("0 of 3 sessions"), w + ": " + p.get("n").textContent);
+  });
+  p.search("bbbbbbbb");
+  assert.ok(p.get("n").textContent.startsWith("1 of 3"), "the id still finds its row");
+  p.search("app two");
+  assert.ok(p.get("n").textContent.startsWith("1 of 3"), "project and title together");
+});
+
+// ── the title opens the conversation ─────────────────────────────────
+// Below 1500px the session-id column is hidden, and it held the only link:
+// a keyboard could not open a conversation at all.
+test("the title is a link to the conversation, with the full title on it", () => {
+  const html = load({ sessions: S, home: "/x" }).get("rows").innerHTML;
+  assert.ok(html.includes('<a class="ti" href="sessions/aaaaaaaa-1.html" title="one">one</a>'), html);
+  assert.strictEqual((html.match(/<a class="ti" href="sessions\//g) || []).length, 3);
+});
+
+// ── grouped, the heading spans what is showing ───────────────────────
+// A span of ten over a table showing eight added two empty columns, which
+// took the title's width: titles cut to four letters at 1100px.
+[1600, 1500, 1400, 1100, 1000, 700, 400].forEach((w) => {
+  [true, false].forEach((links) => {
+    test(`at ${w}px${links ? "" : " without the helper"} a heading spans the visible columns`, () => {
+      const p = load({ sessions: S, home: "/x", actions: links }, [], w);
+      p.get("gproj").handlers.click();
+      const spans = (p.get("rows").innerHTML.match(/colspan="(\d+)"/g) || []).map((x) => +x.match(/\d+/)[0]);
+      const classes = p.get("ix").classes();
+      assert.ok(classes.has("grouped"), "the table knows it is grouped");
+      const visible = 10 - hiddenCols(w, classes).size;
+      assert.ok(spans.length > 0);
+      spans.forEach((n) => assert.strictEqual(n, visible));
+      assert.ok(visible < 10, "the project column at least is hidden when grouped");
+    });
+  });
+});
+
+// ── counts in words ──────────────────────────────────────────────────
+test("one session, one prompt: never 1 sessions or 1 prompts", () => {
+  const one = S.concat([{ id: "dddddddd-4", kind: "transcript", project: "solo", cwd: "/x/solo", title: "s", mtime: 1700002000, prompts: 1 }]);
+  const p = load({ sessions: one, home: "/x" });
+  p.get("gproj").handlers.click();
+  const html = p.get("rows").innerHTML;
+  assert.ok(html.includes("1 session · 1 prompt<"), html);
+  assert.ok(html.includes("2 sessions · 4 prompts"), html);
+  assert.strictEqual(p.get("count").textContent, "4 sessions");
+  assert.strictEqual(load({ sessions: [S[0]], home: "/x" }).get("count").textContent, "1 session");
+});
+
+test("an empty index hides the table's headings and says why", () => {
+  const p = load({ sessions: [], home: "/x" });
+  assert.strictEqual(p.get("tw").hidden, true);
+  assert.strictEqual(p.get("empty").hidden, false);
+});
+
+test("the group toggle says which view is on", () => {
+  const p = load({ sessions: S, home: "/x" });
+  p.get("gproj").handlers.click();
+  assert.strictEqual(p.get("gproj").attrs["aria-pressed"], "true");
+  assert.strictEqual(p.get("gdate").attrs["aria-pressed"], "false");
 });
 
 if (failed.length) {
