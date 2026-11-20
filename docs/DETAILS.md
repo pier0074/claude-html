@@ -1,6 +1,7 @@
 # claude-html, in detail
 
-The front page says what it is; this says how it all works.
+The front page says what it is; this says how it all works. Every setting
+and command is in [SETUP.md](SETUP.md).
 
 ## What you get
 
@@ -139,7 +140,7 @@ copy lives on claude.ai.
 `~/Downloads`, in the projects root, or one folder inside either, and those
 conversations are rendered and searched alongside the Claude Code ones. If
 yours lives anywhere else, `CLAUDE_HTML_EXPORT` names it — and then that file
-is the only one read (see [Configuration](#configuration)).
+is the only one read (see [SETUP.md](SETUP.md#claudeai-exports)).
 
 **Nothing to run.** Each session is saved after every reply and again when it
 ends, and the pages rebuild with it — open a conversation's page while you are
@@ -276,30 +277,15 @@ download the repository as a zip instead — the tool does not use git.
 
 ## Commands
 
-Sessions appear on their own as they end. These are for when you want to look
-now, or rebuild after changing something:
+Every `claude-html` and `./install.sh` command and flag is listed in
+[SETUP.md](SETUP.md#commands). The test suites:
 
 ```bash
-claude-html                     # build what changed, open the index
-claude-html --force             # rebuild every session
-claude-html <session-id>        # rebuild one session
-claude-html --delete <full id>  # the index's bin, from the terminal
-claude-html --open <full id>    # open that session's project
-claude-html --open-plan <id>    # say what it would open, and open nothing
-claude-html --resume-session <full id>  # the resume button, from the terminal
-claude-html --resume-plan <id>  # say which launcher and terminal, and run nothing
-claude-html --doctor            # what this machine is, and which tool does each job
-
-./install.sh                    # install using the defaults
-./install.sh --out DIR          # write the pages to DIR instead
-./install.sh --root DIR         # archive sessions started under DIR instead
-./install.sh --uninstall        # remove the command and the hooks
-./install.sh --help             # every option, with the defaults filled in
-
 bash tests/run-all.sh           # every suite below, one verdict — what CI runs
 node tests/viewer.test.js       # the renderer's tests, long-page windowing included
 node tests/diff.test.js         # the diff, against every edit ever made here
 node tests/index.test.js        # the index: search, its failures, and what Linux is shown
+node tests/docs.test.js         # every setting the code reads is in SETUP.md, and every link resolves
 bash tests/backend.test.sh      # osascript and node build byte-identical pages; nested projects
 bash tests/engine.test.sh       # node does the data work when it is here and works; osascript when not
 bash tests/incremental.test.sh  # a save that reads only what was appended writes what a build from nothing does
@@ -308,6 +294,8 @@ bash tests/build.test.sh        # a failed build never costs a page, nor does a 
 bash tests/hooks.test.sh        # a save finds its transcript; a cut-short archive never wins
 bash tests/agents.test.sh       # sub-agents land inside their parent, never rows of their own
 bash tests/usage.test.sh        # the dashboard counts every reply once, and every cost, from transcript or archive
+bash tests/redact.test.sh       # no secret reaches an archive, a page or a cache; the transcript is never touched
+bash tests/guard.test.sh        # a prompt or command holding a secret is stopped, and each answer does what it says
 bash tests/install.test.sh      # a second install keeps your conf; env, conf, default, in that order
 bash tests/safety.test.sh       # an outside file cannot write elsewhere or break a page
 bash tests/delete.test.sh       # deleting removes everything it should, and nothing else (macOS)
@@ -327,23 +315,7 @@ from the start, reading every transcript whole.
 
 ### Configuration
 
-`install.sh` writes `~/.claude/claude-html.conf`, and a later run leaves your
-edits in it alone. The command, the hook and the installer all decide in the
-same order: a variable set in the environment wins, then the conf, then the
-default. (A hook sees the environment Claude Code was started with.)
-
-| Variable | Meaning | Default |
-| -------- | ------- | ------- |
-| `CLAUDE_HTML_OUT` | where the pages are written | the clone |
-| `CLAUDE_HTML_ROOT` | which projects get archived: every session started in it or below | the folder the clone is in |
-| `CLAUDE_HTML_WEEK_RESET` | when your plan's weekly allowance resets, e.g. `tue 09:00` or `thu 17`, so the dashboard's weeks match the ones you are billed for. Local time; the conf offers it commented out | calendar weeks, from Monday 00:00 |
-| `CLAUDE_HTML_EXPORT` | one claude.ai `conversations.json` to read instead of looking in `~/Downloads` and the projects root | looking there |
-| `CLAUDE_HTML_ENGINE` | `node` or `osascript`: which one reads the transcripts and builds the pages. A value that is neither, or names one this machine does not have, is set aside — the save goes ahead with the other, and `claude-html --doctor` shows a note saying so | node when a working one is found, else `osascript` |
-
-`CLAUDE_HTML_EXPORT` is read straight from the environment, so in the conf it
-needs `export` in front of it: `export CLAUDE_HTML_EXPORT="$HOME/exports/conversations.json"`.
-A conf line without it sets a shell variable the build never sees. A leading
-`~` works in the first two; a week reset it cannot read falls back to Mondays.
+Moved to [SETUP.md](SETUP.md), with every variable, its default and an example.
 
 ## How it works
 
@@ -550,12 +522,88 @@ up-arrow history are there too, as a file named
 `claude-html removed history <id>.jsonl`. A hidden claude.ai chat is listed in
 `~/.claude/claude-html.hidden` — delete its line to bring it back.
 
+## Secrets
+
+A token or a password pasted into a conversation, or printed by a tool, is
+written as `***` in everything claude-html writes: the archives (sub-agents,
+thinking, tool inputs and outputs included), the pages, the search, the
+index, the launchers and `.cache/`. Each text is masked as it is read from
+the transcript, before it is cut to length, so half a secret is never left
+at a cut. The settings, your own list and the rules by name are in
+[SETUP.md](SETUP.md#secrets).
+
+**What is caught**: formats that say what they are — known token prefixes
+(Anthropic, OpenAI, GitHub, GitLab, AWS, Google, Slack, Stripe, npm, PyPI,
+Hugging Face, SendGrid, Twilio, Telegram, Discord), JWTs, private key
+blocks, `Authorization` headers and cookies, passwords in URLs, in
+`curl -u`, `mysql -p` and `sshpass -p`, values whose name says secret,
+password, token or key — `.env` names in capitals with the word anywhere
+(`SECRET_KEY_BASE`), and `mot de passe`/`mdp` — and, in a tool's input,
+a value under such a key (`{"api_key": …}`) at any depth. Hashes, ids, commit
+SHAs and pictures are never touched: nothing is guessed from how random a
+string looks.
+
+**What is not**: a secret of no known shape, pasted on its own with no name
+before it, is kept as it is unless your own list names it. A value after a
+secret-sounding name or key is masked only if it has a digit or a symbol in
+it, and a number under such a key is kept.
+
+**Claude Code's transcript is left exactly as it is**, in
+`~/.claude/projects`, because resuming a conversation needs it. It keeps
+the secret for as long as Claude Code keeps the transcript — and the
+installer set `cleanupPeriodDays` to 3650, unless you had set it. Rotate a
+secret you pasted; masking the copies is not revoking it.
+
+**Changing the rules or your list** makes every page and cache again on the
+next build, and every archive whose transcript is still there on the next
+save: each records the md5 of the rules and of the list it was made with,
+and anything made with others is made again. An archive whose transcript
+has gone is masked on its page, but the archive itself is changed only by
+`claude-html --redact-archives`, which rewrites each one holding something
+to mask, whole and atomically, and leaves the rest alone.
+`claude-html --redact-check` reads everything, changes nothing, and says
+per session and archive how many it found under each rule — never what.
+`--doctor` and the build say how many archives are left.
+
+### The guard
+
+Masking acts on what claude-html writes, after the fact; the guard acts
+before: a prompt or a Bash command that holds a secret is stopped before it
+reaches Claude, and you choose what happens to it. Where it sits:
+
+```text
+  you type a prompt              Claude wants to run a command
+          │                                   │
+          ▼                                   ▼
+   [guard: UserPromptSubmit]          [guard: PreToolUse · Bash]
+    secret? ask, or stop               secret? ask, or refuse
+          │ sent                              │ run
+          ▼                                   ▼
+  Claude Code writes its own transcript and prompt history
+  (~/.claude/projects, history.jsonl — in clear, never touched by us)
+          │
+          ▼
+  save hook (after every reply, at session end)
+          │
+          ▼
+  masking (redact.js) ──▶ archives, pages, search, index, caches (masked)
+```
+
+It uses only the rules that are sure of themselves, and your own list, and
+fails open: a fault of its own lets the prompt or command through
+quietly. The answers, the dialog, the words that stand in for it when
+nobody can see a dialog, and the settings are in
+[SETUP.md](SETUP.md#guard). A blocked prompt may still be in Claude Code's
+prompt history and its transcript: its documentation says so of every
+prompt a hook blocks.
+
 ## Privacy
 
 Everything stays on your machine. The pages make no network requests — no
 fonts, no analytics, no CDN.
 
-They do contain your conversations in full, including anything you pasted in.
+They do contain your conversations in full, including anything you pasted in,
+except the [secrets](#secrets) they recognise.
 The generated files are gitignored for that reason, and so are the archives
 of any session run inside the clone, so cloning here and committing later will
 not publish them. If you serve this directory over HTTP,

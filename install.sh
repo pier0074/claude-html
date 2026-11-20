@@ -27,6 +27,8 @@ Usage
   ./install.sh                    install, using the defaults below
   ./install.sh --out DIR          write pages to DIR instead
   ./install.sh --root DIR         watch DIR instead
+  ./install.sh --no-guard         install without the guard: prompts and
+                                  commands holding a secret are not stopped
   ./install.sh --uninstall        remove the command and the hooks
   ./install.sh --help             this
 
@@ -59,12 +61,13 @@ leaves your pages alone.
 EOF
 }
 
-ROOT=""; OUT=""; UNINSTALL=0
+ROOT=""; OUT=""; UNINSTALL=0; NOGUARD=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --root) ROOT="$2"; shift 2 ;;
     --out)  OUT="$2";  shift 2 ;;
     --uninstall) UNINSTALL=1; shift ;;
+    --no-guard) NOGUARD=no-guard; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown option: $1" >&2; echo "try --help" >&2; exit 1 ;;
   esac
@@ -154,6 +157,11 @@ else
   # in any form means the user has seen it, and maybe chosen to leave it out.
   grep -q 'CLAUDE_HTML_WEEK_RESET' "$CONF" || conf_add "$WEEK_NOTE"
 fi
+# --no-guard turns the guard off in the conf, as --out sets its own line.
+if [ -n "$NOGUARD" ]; then
+  if conf_has CLAUDE_HTML_GUARD; then conf_set CLAUDE_HTML_GUARD off
+  else conf_add "CLAUDE_HTML_GUARD=$(conf_value off)"; fi
+fi
 
 # What the command and the hook will now use, by the rule they both follow,
 # so this run builds the very pages they will.
@@ -187,7 +195,7 @@ fi
 # ── 3. hooks ───────────────────────────────────────────────────────
 # || true: a failure here must not abandon the install half-done.
 HOOKED=1
-RESULT="$(run_js "$HERE/settings-hooks.js" "$SETTINGS" "$HERE" add 2>/dev/null || true)"
+RESULT="$(run_js "$HERE/settings-hooks.js" "$SETTINGS" "$HERE" add $NOGUARD 2>/dev/null || true)"
 case "$RESULT" in
   unparseable)
     HOOKED=0

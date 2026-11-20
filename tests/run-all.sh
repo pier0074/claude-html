@@ -8,13 +8,17 @@
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 failed=0
+# The suites run node directly below, without lib.sh: nothing of the
+# owner's own redaction settings may reach them.
+unset CLAUDE_HTML_REDACT
+export CLAUDE_HTML_REDACT_FILE="${TMPDIR:-/tmp}/claude-html-tests-no-such.redact"
 
-for t in viewer diff index; do
+for t in viewer diff index docs; do
   printf '%-9s ' "$t"
   if out="$(node "$HERE/$t.test.js" 2>&1)"; then echo "$out" | tail -1
   else echo "$out" | tail -3; failed=1; fi
 done
-for t in backend engine incremental races build hooks agents usage delete open helper install safety linux; do
+for t in backend engine incremental races build hooks agents usage redact guard delete open helper install safety linux; do
   printf '%-9s ' "$t"
   if out="$(bash "$HERE/$t.test.sh" 2>&1)"; then echo "$out" | tail -1
   else echo "$out" | grep -E "FAIL|failed" | tail -5; failed=1; fi

@@ -336,6 +336,115 @@ ch_engine_line() {
   esac
 }
 
+# ── the redaction's signature ─────────────────────────────────────────
+# Which rules and which own list an archive was redacted by, as convert.js
+# and the archiver work it out: "off", or the md5 of redact.js and of the
+# list ("" for a list that is not there). The save compares it with the
+# one an archive records, without starting a JavaScript engine to ask.
+ch_md5() {
+  [ -f "$1" ] && [ -r "$1" ] || return 0
+  if ch_have md5sum; then md5sum < "$1" 2>/dev/null | cut -d' ' -f1
+  elif [ -x /sbin/md5 ]; then /sbin/md5 -q "$1" 2>/dev/null
+  else md5 -q "$1" 2>/dev/null; fi
+}
+ch_redact_off() {
+  case "$(ch_lower "${CLAUDE_HTML_REDACT:-}")" in off|0|no|false) return 0 ;; esac
+  return 1
+}
+ch_redact_sig() {
+  if ch_redact_off; then printf off; return 0; fi
+  printf 'on:%s:%s' "$(ch_md5 "$1/redact.js")" "$(ch_md5 "${CLAUDE_HTML_REDACT_FILE:-$HOME/.claude/claude-html.redact}")"
+}
+
+# ── the guard's question ──────────────────────────────────────────────
+# Whether someone is at this machine to answer a dialog: a desktop, not a
+# session over ssh, and not switched off with CLAUDE_HTML_GUARD_DIALOG=off.
+# Call after ch_detect.
+ch_can_ask() {
+  case "$(ch_lower "${CLAUDE_HTML_GUARD_DIALOG:-on}")" in off|0|no|false) return 1 ;; esac
+  [ -z "${SSH_CONNECTION:-}${SSH_TTY:-}" ] || return 1
+  case "$CH_DIALOG" in
+    osascript)
+      # A login session at the screen, not one started for ssh or cron.
+      [ -n "${CH_DRY:-}" ] || [ "$(launchctl managername 2>/dev/null)" = Aqua ] ;;
+    zenity|kdialog|yad|xmessage) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Four choices, Cancel picked already, and one button, OK: Return is OK,
+# Escape and any failure are Cancel. It waits CH_GUARD_LIMIT seconds, ten
+# minutes, well inside the hooks' own timeout; past it the window closes
+# and the answer is "timeout". Prints cancel, allow, safe, stop, timeout, or
+# nothing when no dialog could be shown. It names the kinds of secret,
+# never one. CH_DRY prints the command instead, for the tests.
+#   ch_choose prompt|bash <project> <found>
+CH_GUARD_LIMIT="${CLAUDE_HTML_GUARD_TEST_LIMIT:-600}"
+ch_choose() {
+  _kind="$1"; _proj="$2"; _found="$3"
+  if [ "$_kind" = bash ]; then
+    _verb=run; _head="Claude's command has been interrupted"; _where="a command from Claude"
+  else
+    _verb=send; _head="Your prompt has been interrupted"; _where="your prompt in Claude Code"
+  fi
+  [ -n "$_proj" ] && _where="$_where  ·  project $_proj"
+  _c1="Cancel — do not $_verb"
+  _c2="Allow once — it is sensitive, $_verb it this time only"
+  _c3="Safe — it is not sensitive, $_verb it and never ask again"
+  _c4="Stop — turn this check off"
+  _text="$_head
+Sensitive information detected
+
+Where:  $_where
+Found:  $_found"
+  case "$CH_DIALOG" in
+    # A window of osascript's own, whichever engine does the data work:
+    # AppleScript's dialogs have no radio buttons.
+    osascript) set -- osascript -l JavaScript "$CH_HERE/dialog.js" "$_kind" "$_proj" "$_found" ;;
+    # zenity, yad and kdialog keep a Cancel button of their own, which
+    # answers as the Cancel choice does. Their look is the desktop's.
+    zenity) set -- zenity --list --radiolist --title=claude-html --no-markup --text="$_text" \
+              --ok-label=OK --column=" " --column=Choice \
+              TRUE "$_c1" FALSE "$_c2" FALSE "$_c3" FALSE "$_c4" ;;
+    yad) set -- yad --list --radiolist --title=claude-html --text="$_text" --print-column=2 --separator= \
+           --button=OK:0 --column=" " --column=Choice TRUE "$_c1" FALSE "$_c2" FALSE "$_c3" FALSE "$_c4" ;;
+    kdialog) set -- kdialog --title claude-html --ok-label OK --radiolist "$_text" \
+               cancel "$_c1" on allow "$_c2" off safe "$_c3" off stop "$_c4" off ;;
+    # No radio buttons: four buttons, Cancel the default.
+    xmessage) set -- xmessage -center -title claude-html \
+                -buttons "Cancel:1,Allow once:2,Safe:3,Stop:4" -default Cancel "$_text" ;;
+    *) return 1 ;;
+  esac
+  if [ -n "${CH_DRY:-}" ]; then ch_quote_args "$@"; echo; return 0; fi
+  _out="$(mktemp "${TMPDIR:-/tmp}/chguard.XXXXXX")" || return 1
+  "$@" >"$_out" 2>/dev/null &
+  _pid=$!
+  # Past the limit it is closed, and that is noted, so the answer is known
+  # to be "nobody", not "Cancel".
+  rm -f "$_out.late"
+  ( _n=0
+    while [ "$_n" -lt $((CH_GUARD_LIMIT * 10)) ]; do
+      sleep 0.1; kill -0 "$_pid" 2>/dev/null || exit 0; _n=$((_n + 1))
+    done
+    : > "$_out.late"; kill "$_pid" ) >/dev/null 2>&1 &
+  _watch=$!
+  wait "$_pid"; _rc=$?
+  wait "$_watch" 2>/dev/null
+  _ans="$(tr -d '\n' < "$_out")"; rm -f "$_out"
+  if [ -f "$_out.late" ]; then rm -f "$_out.late"; echo timeout; return 0; fi
+  if [ "$CH_DIALOG" = xmessage ]; then
+    case "$_rc" in 1) _ans=cancel ;; 2) _ans=allow ;; 3) _ans=safe ;; 4) _ans=stop ;; *) _ans="" ;; esac
+  fi
+  # Their own Cancel button, or the window closed, is exit 1 and no output.
+  if [ -z "$_ans" ] && [ "$_rc" = 1 ] && [ "$CH_DIALOG" != osascript ]; then _ans=cancel; fi
+  # Nothing at all — the tool failed — prints nothing: the caller asks in
+  # words instead.
+  case "$_ans" in
+    cancel|Cancel*) echo cancel ;; allow|Allow*) echo allow ;; safe|Safe*) echo safe ;; stop|Stop*) echo stop ;;
+  esac
+  return 0
+}
+
 # Prints the command line instead of running it when CH_DRY is set, which is
 # what --doctor shows and what the tests compare.
 ch_run() {

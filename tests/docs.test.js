@@ -1,0 +1,78 @@
+// The documentation keeps up with the code: every CLAUDE_HTML_ variable
+// the scripts read is in docs/SETUP.md, SETUP.md names none they do not,
+// and every relative link in the three documents reaches a file and, where
+// it names one, a heading that exists.
+//
+//   node tests/docs.test.js
+"use strict";
+var fs = require("fs"), path = require("path");
+var HERE = path.resolve(__dirname, "..");
+var pass = 0, fail = 0;
+function check(name, ok, detail) {
+  if (ok) { pass++; return; }
+  fail++;
+  console.log("  FAIL  " + name + (detail ? "\n        " + detail : ""));
+}
+
+// ── variables ──
+var code = ["claude-html", "helper.applescript"]
+  .concat(fs.readdirSync(HERE).filter(function (f) { return /\.(sh|js)$/.test(f); }))
+  .concat(fs.readdirSync(path.join(HERE, "viewer")).filter(function (f) { return /\.js$/.test(f); })
+    .map(function (f) { return "viewer/" + f; }));
+function names(text) {
+  var out = {};
+  (text.match(/CLAUDE_HTML_[A-Z0-9]+(?:_[A-Z0-9]+)*/g) || []).forEach(function (n) { out[n] = true; });
+  return out;
+}
+var inCode = {};
+code.forEach(function (f) {
+  var p = path.join(HERE, f);
+  if (fs.existsSync(p)) Object.keys(names(fs.readFileSync(p, "utf8"))).forEach(function (n) { inCode[n] = f; });
+});
+var setup = fs.readFileSync(path.join(HERE, "docs", "SETUP.md"), "utf8"), inDoc = names(setup);
+var missing = Object.keys(inCode).filter(function (n) { return !inDoc[n]; });
+var extra = Object.keys(inDoc).filter(function (n) { return !inCode[n]; });
+check("every variable the code reads is in SETUP.md (" + Object.keys(inCode).length + ")", !missing.length,
+      "missing: " + missing.map(function (n) { return n + " (" + inCode[n] + ")"; }).join(", "));
+check("SETUP.md names no variable the code does not read", !extra.length, "unknown: " + extra.join(", "));
+
+// ── links ──
+// A heading's anchor as GitHub makes it: lower case, punctuation gone,
+// spaces as hyphens, and -1, -2 … after a repeat.
+function anchors(text) {
+  var out = {}, seen = {};
+  stripCode(text).split("\n").forEach(function (l) {
+    var m = /^#{1,6}\s+(.*?)\s*#*\s*$/.exec(l);
+    if (!m) return;
+    var a = m[1].toLowerCase().replace(/[^\w\- ]+/g, "").replace(/ /g, "-");
+    var k = seen[a] === undefined ? a : a + "-" + seen[a];
+    seen[a] = (seen[a] || 0) + 1;
+    out[k] = true;
+  });
+  return out;
+}
+function stripCode(text) {
+  return text.replace(/```[\s\S]*?```/g, "").replace(/`[^`\n]*`/g, "");
+}
+var docs = ["README.md", "docs/SETUP.md", "docs/DETAILS.md"], bad = [], total = 0;
+docs.forEach(function (d) {
+  var text = fs.readFileSync(path.join(HERE, d), "utf8"), re = /!?\[[^\]]*\]\(([^)\s]+)\)/g, m;
+  var body = stripCode(text);
+  while ((m = re.exec(body)) !== null) {
+    var target = m[1];
+    if (/^(https?:|mailto:)/.test(target)) continue;
+    total++;
+    var hash = target.indexOf("#"), file = hash > -1 ? target.slice(0, hash) : target;
+    var anchor = hash > -1 ? target.slice(hash + 1) : "";
+    var p = file ? path.resolve(path.dirname(path.join(HERE, d)), file) : path.join(HERE, d);
+    if (!fs.existsSync(p)) { bad.push(d + " → " + target + " (no such file)"); continue; }
+    if (anchor && !anchors(fs.readFileSync(p, "utf8"))[anchor]) bad.push(d + " → " + target + " (no such heading)");
+  }
+});
+check("every relative link in README, SETUP and DETAILS resolves (" + total + ")", !bad.length, bad.join("\n        "));
+check("SETUP.md is linked from the README and DETAILS",
+      /\(docs\/SETUP\.md\)/.test(fs.readFileSync(path.join(HERE, "README.md"), "utf8")) &&
+      /\(SETUP\.md\)/.test(fs.readFileSync(path.join(HERE, "docs", "DETAILS.md"), "utf8")));
+
+console.log("  " + pass + " passed, " + fail + " failed");
+process.exitCode = fail ? 1 : 0;

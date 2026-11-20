@@ -58,6 +58,7 @@ FORCE=false
 DELETE=""; PLAN=""; YES=false
 OPEN=""; OPENPLAN=""
 RESUME=""; RESUMEPLAN=""; DOCTOR=""
+REDACTCHECK=""; REDACTARCHIVES=""; GUARD=""; GUARDARG=""
 ONLY=""
 for arg in "$@"; do
   case "$arg" in
@@ -69,6 +70,9 @@ for arg in "$@"; do
     --resume-plan) RESUMEPLAN=1 ;;
     --delete-plan) PLAN=1 ;;
     --doctor) DOCTOR=1 ;;
+    --redact-check) REDACTCHECK=1 ;;
+    --redact-archives) REDACTARCHIVES=1 ;;
+    --guard) GUARD=1 ;;
     --yes|-y) YES=true ;;
     -h|--help)
       echo "claude-html            rebuild what changed, open the index"
@@ -78,8 +82,11 @@ for arg in "$@"; do
       echo "claude-html --open <full id>            open that session's project: its server, page or folder"
       echo "claude-html --resume-session <full id>  reopen that conversation in a terminal"
       echo "claude-html --doctor   what this machine is, and which of its tools does each job"
+      echo "claude-html --redact-check     what would be masked as secret, per session and archive; changes nothing"
+      echo "claude-html --redact-archives  rewrite the archives that still hold secrets, masked"
+      echo "claude-html --guard on|prompt|off|status   stop a secret before it reaches Claude"
       exit 0 ;;
-    *) ONLY="$arg" ;;
+    *) if [ -n "$GUARD" ] && [ -z "$GUARDARG" ]; then GUARDARG="$arg"; else ONLY="$arg"; fi ;;
   esac
 done
 
@@ -104,12 +111,96 @@ full_id() {
   fi
 }
 
+# ── the guard ────────────────────────────────────────────────────────
+SETTINGS="$HOME/.claude/settings.json"
+GUARD_LIST="${CLAUDE_HTML_REDACT_FILE:-$HOME/.claude/claude-html.redact}"
+guard_hooks() { grep -c 'guard\.sh' "$SETTINGS" 2>/dev/null || true; }
+guard_safe() { grep -c '^[[:space:]]*safe:' "$GUARD_LIST" 2>/dev/null || true; }
+guard_line() {
+  local what asks n
+  case "$(printf '%s' "${CLAUDE_HTML_GUARD:-on}" | tr '[:upper:]' '[:lower:]')" in
+    off|0|no|false) what="off" ;;
+    prompt) what="on for prompts only" ;;
+    *) what="on" ;;
+  esac
+  case "$(printf '%s' "${CLAUDE_HTML_GUARD_DIALOG:-on}" | tr '[:upper:]' '[:lower:]')" in
+    off|0|no|false) asks="in words, as the next prompt" ;;
+    *) asks="in a dialog when someone is at the screen" ;;
+  esac
+  n="$(guard_hooks)"
+  printf 'guard %s · %s safe value(s) · hooks %s of 2 in settings.json · asks %s · %s\n' \
+    "$what" "$(guard_safe)" "${n:-0}" "$asks" "$(ch_engine_line | cut -d' ' -f1)"
+}
+# One line of the conf, changed where it stands or added: the rest of the
+# file, comments and all, as it was. Copied back, not moved, so a conf kept
+# as a symlink stays one.
+conf_line() {
+  mkdir -p "$(dirname "$CONF")"; [ -f "$CONF" ] || : > "$CONF"
+  local tmp="$CONF.tmp.$$"
+  if grep -Eq "^[[:space:]]*(export[[:space:]]+)?$1=" "$CONF"; then
+    KEY="$1" LINE="$1=\"$2\"" awk '
+      $0 ~ "^[[:space:]]*(export[[:space:]]+)?" ENVIRON["KEY"] "=" { print ENVIRON["LINE"]; next } { print }' \
+      "$CONF" > "$tmp" && cat "$tmp" > "$CONF"; rm -f "$tmp"
+  else
+    [ -z "$(tail -c 1 "$CONF")" ] || echo >> "$CONF"
+    printf '%s="%s"\n' "$1" "$2" >> "$CONF"
+  fi
+}
+if [ -n "$GUARD" ]; then
+  case "$GUARDARG" in
+    on|prompt|off)
+      conf_line CLAUDE_HTML_GUARD "$GUARDARG"
+      CLAUDE_HTML_GUARD="$GUARDARG"
+      echo "$(guard_line)"
+      [ "$(guard_hooks)" = 2 ] || [ "$GUARDARG" = off ] ||
+        echo "the guard's hooks are not in $SETTINGS: run ./install.sh in $HERE to add them" ;;
+    status|"")
+      echo "$(guard_line)"
+      # The safe values by rule and date: what a line says after its #.
+      grep '^[[:space:]]*safe:' "$GUARD_LIST" 2>/dev/null | sed -n 's/^[^#]*#[[:space:]]*/  safe  /p'
+      [ "$(guard_safe)" = 0 ] || echo "  to forget one, delete its line in $GUARD_LIST" ;;
+    *) echo "claude-html --guard on|prompt|off|status" >&2; exit 2 ;;
+  esac
+  exit 0
+fi
+
+# The options every data command starts from, plus its own.
+js_opts() { printf '{"root":"%s","out":"%s","here":"%s"%s}' "$ROOT" "$OUT" "$HERE" "${1:-}"; }
+
 if [ -n "$DOCTOR" ]; then
   actions_setup
   ch_doctor
   echo
   echo "  pages     $OUT"
   echo "  projects  $ROOT"
+  # Which secrets are masked, and how many archives still hold some. Never
+  # what the own list says.
+  run_js "$HERE/convert.js" "$(js_opts ',"redactInfo":true')" 2>/dev/null ||
+    echo "  redact    could not be checked: $CH_ENGINE_WHY"
+  echo "  $(guard_line)"
+  exit 0
+fi
+
+# ── secrets ─────────────────────────────────────────────────────────
+# A look, which reads everything and writes nothing, and the one command
+# that rewrites archives: they are permanent, and a build only ever reads
+# them. It takes its turn with the saves, and then builds, so the pages
+# say the archives are clean.
+if [ -n "$REDACTCHECK" ]; then
+  run_js "$HERE/convert.js" "$(js_opts ',"redactCheck":true')" || exit 1
+  exit 0
+fi
+if [ -n "$REDACTARCHIVES" ]; then
+  if ! take_lock; then
+    echo "a save is still running; try again in a moment — nothing was rewritten" >&2
+    exit 1
+  fi
+  RESULT="$(run_js "$HERE/convert.js" "$(js_opts ',"redactArchives":true')")" || {
+    echo "$RESULT" >&2; exit 1; }
+  printf '%s\n' "$RESULT"
+  run_js "$HERE/convert.js" "$(js_opts)" >/dev/null 2>&1 || true
+  release_lock
+  case "$RESULT" in *"could not rewrite"*) exit 1 ;; esac
   exit 0
 fi
 
@@ -240,15 +331,20 @@ esac
 
 # One line of prose from the report, rather than the JSON.
 summary() {
-  local built skipped removed sessions errors
+  local built skipped removed sessions errors redacted dirty
   sessions=$(printf '%s' "$REPORT" | sed -n 's/.*"sessions":\([0-9]*\).*/\1/p')
   built=$(printf '%s' "$REPORT" | sed -n 's/.*"built":\([0-9]*\).*/\1/p')
   skipped=$(printf '%s' "$REPORT" | sed -n 's/.*"skipped":\([0-9]*\).*/\1/p')
   removed=$(printf '%s' "$REPORT" | sed -n 's/.*"removed":\([0-9]*\).*/\1/p')
   errors=$(printf '%s' "$REPORT" | grep -o '"error":' | wc -l | tr -d ' ')
+  redacted=$(printf '%s' "$REPORT" | sed -n 's/.*"redacted":\([0-9]*\).*/\1/p')
+  dirty=$(printf '%s' "$REPORT" | sed -n 's/.*"unredactedArchives":\([0-9]*\).*/\1/p')
   printf '%s session(s): %s built, %s unchanged' "$sessions" "$built" "$skipped"
   [ "${removed:-0}" -gt 0 ] && printf ', %s stale file(s) removed' "$removed"
   printf '\n'
+  [ "${redacted:-0}" -gt 0 ] && printf '%s secret(s) masked in what was built\n' "$redacted"
+  [ "${dirty:-0}" -gt 0 ] &&
+    printf '%s archive(s) still hold secrets the pages hide: claude-html --redact-archives rewrites them\n' "$dirty"
   if [ "${errors:-0}" -gt 0 ]; then
     printf '%s session(s) failed — see the banner on the index, or %s\n' \
       "$errors" "$OUT/.build-errors.json" >&2

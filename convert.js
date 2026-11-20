@@ -312,6 +312,62 @@ function run(argv) {
   // Downloads — is only trusted once it has this shape.
   var SESSION_ID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
+  // ── secrets ─────────────────────────────────────────────────────────
+  // Every string that can carry what was said is passed through redact.js
+  // as it is parsed, before anything is cut or written, so no page, search
+  // file, index or cache ever holds a secret it recognises. The same file
+  // is appended to the archiver, so archives are redacted by the same rules.
+  // CLAUDE_HTML_REDACT=off turns it off; the owner's own list of strings
+  // and regexes is CLAUDE_HTML_REDACT_FILE. The signature says which rules
+  // and which list: whatever was made under another is made again.
+  var REDACT_ON = typeof opt.redact === "boolean" ? opt.redact
+    : !/^(off|0|no|false)$/i.test(env("CLAUDE_HTML_REDACT") || "");
+  var REDACT_LIST = opt.redactList || env("CLAUDE_HTML_REDACT_FILE") || HOME + "/.claude/claude-html.redact";
+  // The md5s before the texts: if either changes in between, the signature
+  // is the older one, and the next build makes it all again.
+  var RSIG = REDACT_ON ? "on:" + digest(HERE + "/redact.js") + ":" + digest(REDACT_LIST) : "off";
+  var REDACT_SRC = read(HERE + "/redact.js");
+  if (REDACT_SRC === null) {
+    // Without it nothing could be redacted, so nothing is built.
+    return JSON.stringify({ error: "redact.js is missing from " + HERE + ", so nothing was built" });
+  }
+  var REDACTOR = new Function(REDACT_SRC + "\nreturn claudeHtmlRedactor;")();
+  var OWN_LIST = REDACT_ON ? read(REDACT_LIST) || "" : "";
+  // node compiles regular expressions and osascript does not, which
+  // decides how the redactor looks for where a secret could start.
+  function newRedactor(on) { return REDACTOR(OWN_LIST, on, !JXA); }
+  var RED = newRedactor(REDACT_ON);
+  function red(s) { return RED.text(s); }
+  // A long text that is about to be cut: only what is kept needs reading,
+  // and enough after it that a secret the cut would halve is still seen
+  // whole. The rest is only counted.
+  // Longer than any password, URL or name=value a rule matches. What is
+  // longer still — a key block, a long token — is masked from where it
+  // starts: the text as cut is looked at once more, and what is left of a
+  // token right before the cut, or of a key block, goes.
+  var RED_MARGIN = 1024;
+  function capRed(s, n) {
+    s = s == null ? "" : String(s);
+    var r = null;
+    if (s.length > n + RED_MARGIN) {
+      var head = red(s.slice(0, n + RED_MARGIN));
+      if (head.length >= n + RED_MARGIN / 2) r = head + s.slice(n + RED_MARGIN);
+    }
+    if (r === null) r = red(s);
+    var c = cap(r, n);
+    return c === r ? r : red(c);
+  }
+  // The text of a message read back from an archive or an export.
+  function redMessage(m) {
+    if (!m || typeof m !== "object") return m;
+    if (typeof m.text === "string") m.text = red(m.text);
+    if (typeof m.thinking === "string") m.thinking = red(m.thinking);
+    if (Array.isArray(m.tools)) {
+      m.tools.forEach(function (t) { if (t && typeof t === "object") t.input = RED.value(t.input); });
+    }
+    return m;
+  }
+
   // ── text ────────────────────────────────────────────────────────────
   function cap(s, n) {
     s = s == null ? "" : String(s);
@@ -416,7 +472,7 @@ function run(argv) {
   var PEEK_LINES = 400;
   function peekLine(p, e) {
     p.cwd = p.cwd || e.cwd || null;
-    p.title = p.title || e.aiTitle || null;
+    p.title = p.title || red(e.aiTitle) || null;
   }
 
   function peek(text) {
@@ -645,30 +701,30 @@ function run(argv) {
     if (t === "user") {
       if (e.isMeta) return msgs;            // harness context, not a turn
       if (typeof content === "string") {
-        var text1 = cleanUserText(content);
+        var text1 = red(cleanUserText(content));
         if (text1) msgs.push({ role: "user", timestamp: ts, side: side, text: text1 });
       } else if (Array.isArray(content)) {
         content.forEach(function (b) {
           if (!b || typeof b !== "object") return;
           if (b.type === "text") {
-            var tx = cleanUserText(b.text);
+            var tx = red(cleanUserText(b.text));
             if (tx) msgs.push({ role: "user", timestamp: ts, side: side, text: tx });
           } else if (b.type === "image") {
             msgs.push({ role: "user", timestamp: ts, side: side, text: "[image]" });
           } else if (b.type === "tool_result") {
             msgs.push({ role: "tool_result", timestamp: ts, side: side,
-                        text: cap(blocksToText(b.content), 6000) });
+                        text: capRed(blocksToText(b.content), 6000) });
           }
         });
       }
     } else if (t === "assistant" && Array.isArray(content)) {
-      var text2 = content.filter(function (b) { return b && b.type === "text"; })
-                         .map(function (b) { return b.text || ""; }).join("\n");
-      var think = content.filter(function (b) { return b && b.type === "thinking"; })
-                         .map(function (b) { return b.thinking || ""; }).join("\n\n");
+      var text2 = red(content.filter(function (b) { return b && b.type === "text"; })
+                             .map(function (b) { return b.text || ""; }).join("\n"));
+      var think = red(content.filter(function (b) { return b && b.type === "thinking"; })
+                             .map(function (b) { return b.thinking || ""; }).join("\n\n"));
       var tools = content.filter(function (b) { return b && b.type === "tool_use"; })
                          .map(function (b) {
-                           return { id: b.id, name: b.name, input: b.input || {} };
+                           return { id: b.id, name: b.name, input: RED.value(b.input || {}) };
                          });
       if (text2 || tools.length || think) {
         msgs.push({ role: "assistant", timestamp: ts, side: side,
@@ -729,9 +785,9 @@ function run(argv) {
         // The message's own text and attachments belong to its first part.
         if (first) {
           first = false;
-          if (!anyText) text = x.text || "";
+          if (!anyText) text = red(x.text || "");
           (x.files || []).concat(x.attachments || []).forEach(function (a) {
-            text = (text + "\n[attached: " + (a.file_name || a.file_kind || "file") + "]").trim();
+            text = (text + "\n[attached: " + red(a.file_name || a.file_kind || "file") + "]").trim();
           });
         }
         if (who === "user") {
@@ -743,16 +799,16 @@ function run(argv) {
       }
       blocks.forEach(function (b) {
         if (!b || typeof b !== "object") return;
-        if (b.type === "text") open().text.push(b.text || "");
-        else if (b.type === "thinking") open().think.push(b.thinking || "");
+        if (b.type === "text") open().text.push(red(b.text || ""));
+        else if (b.type === "thinking") open().think.push(red(b.thinking || ""));
         else if (b.type === "tool_use") {
-          open().tools.push({ id: b.id, name: b.name, input: b.input || {} });
+          open().tools.push({ id: b.id, name: b.name, input: RED.value(b.input || {}) });
         } else if (b.type === "tool_result") {
           var content = b.content;
           if (Array.isArray(content)) content = blocksToText(content);
           if (typeof content === "string" && content.trim()) {
             if (seg || first) close();
-            msgs.push({ role: "tool_result", timestamp: ts, side: false, text: cap(content, 6000) });
+            msgs.push({ role: "tool_result", timestamp: ts, side: false, text: capRed(content, 6000) });
           }
         }
       });
@@ -913,6 +969,7 @@ function run(argv) {
     list(dir).forEach(function (f) {
       if (!/\.json$/.test(f)) return;
       var id = f.replace(/\.json$/, ""), path = dir + "/" + f, when = mtime(path);
+      everyArchive[path] = id;
       var prior = found[id];
       if (prior && (prior.kind !== "archive" || prior.mtime >= when)) return;
       found[id] = { id: id, project: projectFromCwd(cwd), cwd: cwd, title: "",
@@ -922,6 +979,12 @@ function run(argv) {
 
   // Export chats refused for an id that is not one, reported with the build.
   var rejected = [];
+  // Every archive file seen, copies the newest one hides included, for the
+  // commands that look for secrets in them. path → session id.
+  var everyArchive = {};
+  // Set by the commands that only look: nothing is written, not even the
+  // list of archive folders.
+  var READONLY = false;
 
   function discover(known, force) {
     var found = {}, scanned = {};
@@ -961,7 +1024,8 @@ function run(argv) {
         }
         var entry;
         var cached = known[id];
-        if (!force && cached && cached.sig === sg && cached.kind !== "web") {
+        // Its title, from the manifest, is redacted as that build redacted.
+        if (!force && cached && cached.sig === sg && cached.kind !== "web" && cached.rsig === RSIG) {
           // Its page is already current, so nothing in the file can have
           // changed. Reading a hundred megabytes to re-learn the project name
           // is the whole cost of a build where nothing happened.
@@ -1017,7 +1081,7 @@ function run(argv) {
     var newDirs = Object.keys(scanned).filter(function (d) {
       return scanned[d] === "archives" && !onList[d];
     });
-    if (listedDirs === null || newDirs.length || Object.keys(dropDirs).length) {
+    if (!READONLY && (listedDirs === null || newDirs.length || Object.keys(dropDirs).length)) {
       saveArchiveList(newDirs, dropDirs);
     }
 
@@ -1045,12 +1109,12 @@ function run(argv) {
         if (typeof c.uuid !== "string" || !SESSION_ID.test(c.uuid)) {
           rejected.push({ id: "?", source: path,
                           error: "not a claude.ai conversation id, skipped: " +
-                                 JSON.stringify(String(c.uuid).slice(0, 80)) });
+                                 JSON.stringify(red(String(c.uuid)).slice(0, 80)) });
           return;
         }
         var chatWhen = c.updated_at || c.created_at;
         found[c.uuid] = {
-          id: c.uuid, project: "claude.ai", cwd: "", title: c.name || "",
+          id: c.uuid, project: "claude.ai", cwd: "", title: red(c.name || ""),
           path: path, kind: "web", chat: c,
           url: "https://claude.ai/chat/" + c.uuid,
           source: path, sourceSig: sg, sig: sg + ":" + (chatWhen || ""),
@@ -1072,7 +1136,7 @@ function run(argv) {
     for (var id in known) {
       if (known[id].kind === "web" && known[id].source === path) {
         seen = true;
-        if (known[id].sourceSig !== sg) return false;
+        if (known[id].sourceSig !== sg || known[id].rsig !== RSIG) return false;
       }
     }
     return seen;
@@ -1214,7 +1278,7 @@ function run(argv) {
       ids[a.agentId] = true;
       var rel = s.id + "/agent-" + a.agentId + ".html", page = OUT + "/sessions/" + rel;
       var key = JSON.stringify([a.sig, sig(a.metaPath), parentMeta.project, parentMeta.open || "",
-                                parentMeta.title || "", s.id, VIEWER]);
+                                parentMeta.title || "", s.id, VIEWER, RSIG]);
       var k = kept && kept[a.agentId];
       if (k && k.key === key && (k.out === null || exists(page))) {
         replay(usageAcc, k.ops);
@@ -1240,7 +1304,7 @@ function run(argv) {
       write(page, sessionPage({
         id: a.agentId, project: parentMeta.project, cwd: "", kind: "sub-agent",
         open: parentMeta.open || "",
-        title: info.description || "a sub-agent",
+        title: red(info.description) || "a sub-agent",
         mtime: Math.round(Number(String(a.sig).split(":")[1] || 0) / 1000),
         sig: a.sig, viewer: VIEWER, up: "../../index.html",
         agentType: info.agentType || "", model: info.model || "",
@@ -1249,7 +1313,7 @@ function run(argv) {
       }, msgs, []));
       var item = {
         id: a.agentId, href: rel, toolUseId: info.toolUseId || "",
-        description: info.description || "", agentType: info.agentType || "",
+        description: red(info.description) || "", agentType: info.agentType || "",
         model: info.model || "", messages: msgs.length,
         prompts: msgs.filter(function (m) { return m.role === "user"; }).length
       };
@@ -1442,7 +1506,9 @@ function run(argv) {
   // holds the lock. Two builds writing one cache could leave each other's
   // halves; without it, a build is what it always was, whole and safe.
   var USE_CACHE = opt.cache !== false;
-  var CACHE_KEY = "1:" + USAGE_VERSION + ":" + hashText(String(run));
+  // The redaction's signature too: a cache holds text, redacted by the
+  // rules and the list of the build that wrote it.
+  var CACHE_KEY = "1:" + USAGE_VERSION + ":" + hashText(String(run)) + ":" + RSIG;
   var WINDOW = 4096;
 
   // The start, the middle and the end of the bytes a cache was made from.
@@ -1563,6 +1629,142 @@ function run(argv) {
   var raw = read(OUT + "/.manifest.json");
   if (raw) { try { manifest = JSON.parse(raw); } catch (e) { manifest = {}; } }
 
+  // ── secrets, by command ─────────────────────────────────────────────
+  // Every archive folder there is: those discover reads, and those a walk
+  // of the root finds.
+  function findAllArchives(walk) {
+    var found = {}, scanned = {};
+    scanArchives(ROOT, found, scanned);
+    list(ROOT).forEach(function (name) {
+      if (name.charAt(0) !== ".") scanArchives(ROOT + "/" + name, found, scanned);
+    });
+    Object.keys(manifest).forEach(function (id) {
+      if (manifest[id].cwd) scanArchives(manifest[id].cwd, found, scanned);
+    });
+    (readArchiveList() || []).forEach(function (d) { scanArchives(d, found, scanned); });
+    if (walk) walkForArchives().forEach(function (d) { scanArchives(d, found, scanned); });
+    return Object.keys(everyArchive).sort();
+  }
+  // What a redactor of its own found, rule by rule: names and numbers,
+  // never the text.
+  function countsOf(r) {
+    return Object.keys(r.counts).sort().map(function (k) { return k + " " + r.counts[k]; }).join(", ");
+  }
+  // One archive, redacted in memory: { archive, redactor }, or null when
+  // it cannot be read as one.
+  function redactedArchive(path) {
+    var a;
+    try { a = JSON.parse(read(path) || "null"); } catch (e) { a = null; }
+    if (!a || typeof a !== "object" || !Array.isArray(a.messages)) return null;
+    RED = newRedactor(true);
+    a.messages.forEach(redMessage);
+    return { archive: a, redactor: RED };
+  }
+  // Written by the archiver under these very rules and this list: nothing
+  // in it can be redacted further.
+  function currentArchive(path) {
+    var head = String(read(path) || "").slice(0, 200);
+    return REDACT_ON && head.indexOf('"format":4,"redact":' + JSON.stringify(RSIG) + ",") > -1;
+  }
+  function rulesLine() {
+    var r = newRedactor(true), own = r.own + " own rule" + (r.own === 1 ? "" : "s");
+    if (r.ignored.length) {
+      own += ", " + r.ignored.length + " ignored (line" + (r.ignored.length > 1 ? "s " : " ") +
+             r.ignored.join(", ") + ")";
+    }
+    return r.rules + " built-in rules · " + (exists(REDACT_LIST) ? own + " in " + REDACT_LIST
+                                              : "no own list at " + REDACT_LIST);
+  }
+
+  if (opt.redactInfo) {
+    // For --doctor: the rules, the list, and the archives still holding
+    // what the pages hide.
+    READONLY = true;
+    var dirtyArchives = 0, paths = findAllArchives(false);
+    if (REDACT_ON) {
+      paths.forEach(function (p) {
+        if (currentArchive(p)) return;
+        var x = redactedArchive(p);
+        if (x && x.redactor.total()) dirtyArchives++;
+      });
+    }
+    return "  redact    " + (REDACT_ON ? "on" : "off (CLAUDE_HTML_REDACT)") + " · " + rulesLine() + "\n" +
+      (REDACT_ON ? "  archives  " + paths.length + " found, " + dirtyArchives + " holding secrets the pages hide" +
+                   (dirtyArchives ? " — claude-html --redact-archives rewrites them" : "") : "");
+  }
+
+  if (opt.redactCheck) {
+    // Reads everything and writes nothing: per session, what a build would
+    // redact; per archive, what it holds now.
+    READONLY = true;
+    var lines = [], hitSessions = 0, hitArchives = 0;
+    if (!REDACT_ON) lines.push("redaction is off (CLAUDE_HTML_REDACT): a build redacts nothing. With it on:");
+    var all = discover(manifest, false), paths2 = findAllArchives(true);
+    all.forEach(function (s) {
+      RED = newRedactor(true);
+      if (s.kind === "transcript") {
+        eachLine(read(s.path) || "", function (e) { red(e.aiTitle); messagesOf(e); });
+        (s.agents || []).forEach(function (a) {
+          eachLine(read(a.path) || "", function (e) { messagesOf(e); });
+          var info = {};
+          try { info = JSON.parse(read(a.metaPath) || "{}") || {}; } catch (e) { info = {}; }
+          red(info.description);
+        });
+      } else if (s.kind === "web") {
+        var c = s.chat || chatFromExport(s.path, s.id);
+        red(c.name);
+        fromExportChat(c);
+      } else {
+        var x = redactedArchive(s.path);
+        if (!x) return;
+      }
+      if (!RED.total()) return;
+      hitSessions++;
+      lines.push(s.id + "  " + s.project + "  " + (s.kind === "web" ? "claude.ai" : s.kind) + ": " + countsOf(RED));
+    });
+    paths2.forEach(function (p) {
+      var x = redactedArchive(p);
+      if (!x || !x.redactor.total()) return;
+      hitArchives++;
+      lines.push("archive " + p + ": " + countsOf(x.redactor));
+    });
+    lines.push(all.length + " session(s) read, " + hitSessions + " with something to redact; " +
+               paths2.length + " archive(s), " + hitArchives + " holding secrets" +
+               (hitArchives ? " — claude-html --redact-archives rewrites them" : ""));
+    return lines.join("\n");
+  }
+
+  if (opt.redactArchives) {
+    // Every archive holding something the rules or the list now catch is
+    // written again, redacted, in place; one with nothing is left alone.
+    // An archive is permanent and may be all that is left of a session, so
+    // it is replaced whole and atomically, and only when the new one is
+    // whole too.
+    if (!REDACT_ON) return "redaction is off (CLAUDE_HTML_REDACT): nothing rewritten";
+    var out2 = [], rewrote = 0, failed = 0, paths3 = findAllArchives(true);
+    paths3.forEach(function (p) {
+      var x = redactedArchive(p);
+      if (!x || !x.redactor.total()) return;
+      var a = x.archive, o = {};
+      if ("sourceBytes" in a) o.sourceBytes = a.sourceBytes;
+      // 4 is 3 redacted. Older formats keep their number, so the save
+      // still brings them up to date from a transcript that is still here.
+      if ("format" in a) o.format = a.format === 3 ? 4 : a.format;
+      o.redact = RSIG;
+      Object.keys(a).forEach(function (k) { if (!(k in o)) o[k] = a[k]; });
+      var text = JSON.stringify(o);
+      if (write(p, text) && read(p) === text) {
+        rewrote++;
+        out2.push("rewrote " + p + ": " + countsOf(x.redactor));
+      } else {
+        failed++;
+        out2.push("could not rewrite " + p);
+      }
+    });
+    out2.push(paths3.length + " archive(s), " + rewrote + " rewritten" + (failed ? ", " + failed + " failed" : ""));
+    return out2.join("\n");
+  }
+
   var sessions = discover(manifest, FORCE);
   if (ONLY) {
     sessions = sessions.filter(function (s) { return s.id.indexOf(ONLY) === 0; });
@@ -1594,7 +1796,7 @@ function run(argv) {
     if (!again && !force && cached && exists(page) &&
         exists(OUT + "/search/" + s.id + ".js") &&
         cached.sig === s.sig && cached.viewer === VIEWER &&
-        cached.uv === USAGE_VERSION) {
+        cached.uv === USAGE_VERSION && cached.rsig === RSIG) {
       fresh[s.id] = cached;
       skipped++;
       // A launcher of the other system's kind was pruned, or one was deleted
@@ -1604,7 +1806,7 @@ function run(argv) {
     }
     try {
       var msgs = null, kind = s.kind, replies = newReplies(), archived = null, carried = null;
-      var cost = null, costPart = false, sc = null, kept = null;
+      var cost = null, costPart = false, sc = null, kept = null, unredacted = 0;
       var count, prompts, first;
       if (s.kind === "transcript") {
         kept = force ? null : keptFor(s.id, s.path);
@@ -1624,6 +1826,12 @@ function run(argv) {
         var arch = read(s.path);
         if (arch === null) throw new Error("cannot read " + s.path);
         var parsed = JSON.parse(arch);
+        // An archive written before redaction, or under other rules, is
+        // redacted here, on its way to the page; the archive itself is only
+        // ever rewritten by claude-html --redact-archives.
+        var before = RED.total();
+        (Array.isArray(parsed.messages) ? parsed.messages : []).forEach(redMessage);
+        unredacted = RED.total() - before;
         var fixed = repairArchiveRoles(parsed.messages || []);
         msgs = fixed.messages;
         if (fixed.inferred) kind = "archive (inferred)";
@@ -1662,7 +1870,7 @@ function run(argv) {
       }
 
       var meta = { id: s.id, project: s.project, cwd: s.cwd, kind: kind,
-                   title: s.title || first, mtime: s.mtime, sig: s.sig,
+                   title: red(s.title) || first, mtime: s.mtime, sig: s.sig,
                    viewer: VIEWER,
                    // What the project crumb opens, when there is a folder to
                    // open: the same link the index's project name carries.
@@ -1710,6 +1918,9 @@ function run(argv) {
       else removeLaunchers(meta);
 
       meta.prompts = prompts;
+      meta.rsig = RSIG;
+      // What the archive still holds that the page does not show.
+      if (unredacted) meta.unredacted = unredacted;
       delete meta.home;
       meta.agents = agents.length;
       // Kept in the manifest only, after the page is written: the page has
@@ -1823,6 +2034,8 @@ function run(argv) {
     delete e.usage;                 // the dashboard reads them, the index need not
     delete e.ids;
     delete e.shared;
+    delete e.rsig;
+    delete e.unredacted;
     // A page built before its source changed is showing an old conversation.
     e.stale = live[id] !== undefined && live[id] !== e.sig;
     return e;
@@ -1893,9 +2106,12 @@ function run(argv) {
   if (errors.length) write(OUT + "/.build-errors.json", JSON.stringify(errors));
   else remove(OUT + "/.build-errors.json");
 
+  // How many secrets this build kept out of what it wrote, and how many
+  // archives, read only from their archive, still hold some.
+  var dirty = order.filter(function (id) { return fresh[id].unredacted > 0; }).length;
   return JSON.stringify({
     sessions: order.length, built: built, skipped: skipped,
-    removed: removed, errors: shown, out: OUT
+    removed: removed, redacted: RED.total(), unredactedArchives: dirty, errors: shown, out: OUT
   });
 }
 

@@ -118,6 +118,15 @@ parts.push(reply(6, null, [{ type: "text", text: "no id here" }], tokens(1, 1)))
 parts.push(JSON.stringify({ type: "assistant", cwd: APP, sessionId: P, timestamp: at(6),
   message: { role: "assistant", model: "claude-sonnet-4", content: [{ type: "text", text: "nor here" }],
              usage: tokens(1, 2) } }) + "\n");
+// Secrets, which every build and archive must mask the same way wherever
+// the transcript was cut: in a prompt, in a key block inside a result, and
+// a name and its value. The cuts below fall inside each of them.
+var FS = require("./fake-secrets");
+var SECRET_TOK = FS.cases[2].secret, SECRET_PEM = FS.cases.filter(function (c) { return c.rule === "private-key"; })[0];
+var SECRET_PW = FS.rnd(15);
+parts.push(user(5, "my token is " + SECRET_TOK + " — keep it out of the pages"));
+parts.push(user(5, [{ type: "tool_result", tool_use_id: "toolu_PEM", content: "cat key.pem\n" + SECRET_PEM.text }]));
+parts.push(reply(5, "msg_PW", [{ type: "text", text: "set it with: export DB_PASSWORD=" + SECRET_PW }], tokens(1, 1)));
 // A copy carried over from another session, which this one's cost ignores.
 parts.push(reply(7, "msg_CARRIED", [{ type: "text", text: "carried" }], tokens(3, 4), { sessionId: "someone-else" }));
 parts.push(line({ type: "assistant", cwd: APP, isSidechain: true, timestamp: at(7),
@@ -243,6 +252,17 @@ check("  with its sub-agent pages", fs.existsSync(path.join(SCRATCH, "sessions",
 check("  and a cache for each transcript", fs.existsSync(path.join(SCRATCH, ".cache", P + ".build")) &&
       fs.existsSync(path.join(SCRATCH, ".cache", S2 + ".build.md5")));
 var manifest = JSON.parse(fs.readFileSync(path.join(SCRATCH, ".manifest.json"), "utf8"));
+// Nothing written holds a secret: not a page, a search file, the cache.
+function holdsSecret(dir) {
+  var probes = [SECRET_TOK, SECRET_PEM.secret, SECRET_PW], hit = 0;
+  var all = files(dir);
+  Object.keys(all).forEach(function (k) {
+    var t = all[k].toString("utf8");
+    if (probes.some(function (x) { return t.indexOf(x) > -1; })) hit++;
+  });
+  return hit;
+}
+check("  and no file it wrote holds a secret", holdsSecret(SCRATCH) === 0);
 check("  the fork and its source both keep the replies they share",
       !!manifest[P].shared && !!manifest[S2].shared &&
       Object.keys(manifest[P].shared).join() === Object.keys(manifest[S2].shared).join());
@@ -260,6 +280,10 @@ var uni = whole.indexOf("déjà");
 inner.push(Buffer.byteLength(whole.slice(0, uni + 2), "utf8") + 1);       // inside the é
 var multi = Buffer.byteLength(whole.slice(0, whole.indexOf("msg_MULTI") + 4), "utf8");
 inner.push(multi);                                                         // inside a record of a split reply
+// Inside the token, inside the key block, between the name and its value.
+function byteAt(sub, plus) { return Buffer.byteLength(whole.slice(0, whole.indexOf(sub) + (plus || 0)), "utf8"); }
+var secretCuts = [byteAt(SECRET_TOK, 20), byteAt(SECRET_PEM.secret, 30), byteAt("DB_PASSWORD=", 12)];
+inner = inner.concat(secretCuts);
 splits = splits.concat(inner).filter(function (x) { return x > 0 && x < WHOLE.length; });
 splits = splits.filter(function (x, i) { return splits.indexOf(x) === i; }).sort(function (a, b) { return a - b; });
 
@@ -274,6 +298,7 @@ function lineEndAfter(sub) {
 var hard = [lineEndAfter('"msg_MULTI"'), lineEndAfter('"text":"Let me look."'),
             lineEndAfter('"tool_use_id":"toolu_LATE"') - 1, lineEndAfter('"costUSD":0.2}'),
             lineEndAfter('"costUSD":0.15}'), lineEndAfter("question 139"), lineEndAfter("the fork") ]
+  .concat(secretCuts)
   .concat(inner.slice(-2), [inner[3], lineEnds[lineEnds.length - 1], WHOLE.length - 30]);
 // --all takes every one, which is a minute's work under node.
 var ALL = args.indexOf("--all") > -1;
@@ -500,7 +525,9 @@ if (ENGINE === "osascript") (function () {
 // nothing. The archive and the state it keeps must both be the same bytes.
 var sh = fs.readFileSync(path.join(HERE, "save-conversation.sh"), "utf8");
 var ARCHIVER = path.join(T, "archive.js");
-fs.writeFileSync(ARCHIVER, sh.slice(sh.indexOf("<<'ARCHIVEREOF'\n") + 16, sh.indexOf("\nARCHIVEREOF\n") + 1));
+// As the save writes it: the archiver, then the redactor after it.
+fs.writeFileSync(ARCHIVER, sh.slice(sh.indexOf("<<'ARCHIVEREOF'\n") + 16, sh.indexOf("\nARCHIVEREOF\n") + 1) +
+                 fs.readFileSync(path.join(HERE, "redact.js"), "utf8"));
 var archiveRun = loadRun(ARCHIVER);
 var AR = path.join(T, "arch"), ARCH = path.join(AR, P + ".json"), STATE = path.join(AR, ".cache", P + ".archive");
 fs.mkdirSync(AR, { recursive: true });
@@ -524,6 +551,8 @@ setMain(WHOLE, T_WHOLE); fresh(); archive();
 var ASCRATCH = snapshot();
 check("the archiver archives the fixture", !!ASCRATCH.a && !!ASCRATCH.s &&
       JSON.parse(ASCRATCH.a).messageCount > 400 && JSON.parse(ASCRATCH.a).costPart === true);
+check("  masking every secret in it", [SECRET_TOK, SECRET_PEM.secret, SECRET_PW].every(function (x) {
+  return ASCRATCH.a.toString("utf8").indexOf(x) < 0 && ASCRATCH.s.toString("utf8").indexOf(x) < 0; }));
 function sameArchive(name, extra) {
   var now = snapshot();
   var ok = now.a && now.a.equals(ASCRATCH.a) && now.s && now.s.equals(ASCRATCH.s);

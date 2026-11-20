@@ -39,6 +39,10 @@ no dependencies, and not one byte leaves your machine.
 - **Cost** — where Claude Code records it, shown on the index, the session and
   the dashboard; never estimated
 - **Private** — static files, zero network requests; light and dark, with a ◐ toggle
+- **Secrets masked** — tokens, keys and passwords become `***` in the pages, the
+  search and the archives; Claude Code's own transcript is left as it is
+- **Guard** — a prompt or a command holding a secret is stopped before Claude
+  sees it, and you choose: cancel, allow once, safe, or stop
 
 ## Install
 
@@ -58,7 +62,8 @@ into `~/Sites/claude-html` and everything under `~/Sites` is covered. Or say
 so: `./install.sh --out DIR --root DIR`.
 
 The installer only adds: its hooks go beside the ones you have, and a second
-run keeps `~/.claude/claude-html.conf` as you left it.
+run keeps `~/.claude/claude-html.conf` as you left it. Every setting, and
+every way to set it up, is in [docs/SETUP.md](docs/SETUP.md).
 
 ## Use
 
@@ -82,6 +87,8 @@ the pages, the archives and your conf. Details, including how to erase every
 trace, are in [docs/DETAILS.md](docs/DETAILS.md#uninstall).
 
 ## More
+
+**[docs/SETUP.md](docs/SETUP.md)** — every setting, command and hook, with defaults.
 
 **[docs/DETAILS.md](docs/DETAILS.md)** — how saving works and why no message
 can be lost, the engine choice, search, long conversations, the dashboard,

@@ -7,12 +7,14 @@
 //
 //   osascript -l JavaScript settings-hooks.js <settings.json> <scripts dir> add
 //   osascript -l JavaScript settings-hooks.js <settings.json> <scripts dir> remove
+//   … add no-guard     the saves only: the guard's two hooks left out, and
+//                      taken out if an earlier install put them in
 
 function run(argv) {
-  var settingsPath = argv[0], here = argv[1], mode = argv[2];
+  var settingsPath = argv[0], here = argv[1], mode = argv[2], noGuard = argv[3] === "no-guard";
   // save-session-link.sh is gone, but an early install may still have its
   // hook in settings.json; recognising the name lets remove clean it up.
-  var OURS = ["save-conversation.sh", "save-session-link.sh"];
+  var OURS = ["save-conversation.sh", "save-session-link.sh", "guard.sh"];
 
   var JXA = typeof $ !== "undefined";
 
@@ -143,6 +145,35 @@ function run(argv) {
       added.push("PreCompact/" + matcher);
     }
   });
+
+  // The guard: before a prompt is sent, and before a Bash command runs. Its
+  // dialog waits up to ten minutes, and a hook Claude Code gives up on lets
+  // the prompt or the command through — its own default for a prompt hook
+  // is 30 seconds — so its timeout is ten minutes and a margin.
+  var guard = "bash " + quote(here + "/guard.sh");
+  if (noGuard) {
+    ["UserPromptSubmit", "PreToolUse"].forEach(function (event) {
+      var keptGroups = [];
+      groups(event).forEach(function (g) {
+        var before = (g.hooks || []).length;
+        g.hooks = (g.hooks || []).filter(function (h) { return (h.command || "").indexOf("guard.sh") < 0; });
+        if (g.hooks.length < before) added.push("removed guard/" + event);
+        if (g.hooks.length) keptGroups.push(g);
+      });
+      if (keptGroups.length) hooks[event] = keptGroups; else delete hooks[event];
+    });
+  } else {
+    if (!already("UserPromptSubmit", "guard.sh")) {
+      hooks.UserPromptSubmit = groups("UserPromptSubmit").concat([
+        { hooks: [{ type: "command", command: guard + " prompt", timeout: 660 }] }]);
+      added.push("UserPromptSubmit");
+    }
+    if (!already("PreToolUse", "guard.sh", "Bash")) {
+      hooks.PreToolUse = groups("PreToolUse").concat([
+        { matcher: "Bash", hooks: [{ type: "command", command: guard + " bash", timeout: 660 }] }]);
+      added.push("PreToolUse/Bash");
+    }
+  }
 
   // Raw transcripts hold more than the archives do and are deleted after 30
   // days. Only decide this for someone who has not decided it themselves.

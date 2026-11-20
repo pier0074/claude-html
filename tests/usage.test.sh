@@ -114,6 +114,8 @@ check "  and the dashboard returns from the manifest alone" \
 # rewrites its own history the day the transcript goes.
 sed -n "/^cat > \"\$ARCHIVER\" <<'ARCHIVEREOF'\$/,/^ARCHIVEREOF\$/p" "$HERE/save-conversation.sh" |
   sed '1d;$d' > "$T/archive.js"
+# The save appends the redactor to it, and so does this.
+cat "$HERE/redact.js" >> "$T/archive.js"
 printf '{"type":"assistant","cwd":"%s","timestamp":"2026-10-07T09:00:01Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"SECRET REASONING"}]}}\n' "$APP" >> "$J"
 build >/dev/null
 BEFORE="$(usage_json)"

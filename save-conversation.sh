@@ -180,6 +180,10 @@ function run(argv) {
   // The archive this one replaces, and where to keep what lets the next save
   // carry on from this one: both optional, and either may be gone or stale.
   var prevPath = argv[4] || "", statePath = argv[5] || "";
+  // The redaction's signature, as the shell worked it out, and the owner's
+  // own list. "off" is no redaction; no signature at all, as when a test
+  // runs this alone, is the built-in rules, and an archive no save trusts.
+  var rsig = argv[6] || "", listPath = argv[7] || "";
 
   // ── the platform ──
   var JXA = typeof $ !== "undefined";
@@ -334,6 +338,31 @@ function run(argv) {
     return s.length > n ? s.slice(0, n) + "\n…[truncated]" : s;
   }
 
+  // ── secrets ──
+  // redact.js is appended to this script by the save, so the archive is
+  // redacted by the very rules the pages are. Every string that can carry
+  // what was said goes through it as it is read, before it is cut: a
+  // secret the cut would halve is still seen whole.
+  if (typeof claudeHtmlRedactor !== "function") throw new Error("redact.js is missing: nothing archived");
+  var RED = claudeHtmlRedactor(rsig !== "off" && listPath ? readText(listPath) || "" : "", rsig !== "off", !JXA);
+  function red(s) { return RED.text(s); }
+  // Only what the cut keeps needs reading, and enough after it to see a
+  // password or a name=value there whole; past that the text is dropped
+  // anyway. What is longer — a key block, a long token — is masked from
+  // where it starts: the text as cut is looked at once more, and what is
+  // left of a token right before the cut, or of a key block, goes.
+  function capRed(s, n) {
+    if (typeof s !== "string") return s;
+    var r = null;
+    if (s.length > n + 1024) {
+      var head = red(s.slice(0, n + 1024));
+      if (head.length >= n + 512) r = head;
+    }
+    if (r === null) r = red(s);
+    var c = cap(r, n);
+    return c === r ? r : red(c);
+  }
+
   // The arguments worth keeping per tool. Anything else is dropped, so a new
   // tool with a huge payload cannot bloat the archive silently.
   function toolInput(inp) {
@@ -343,12 +372,12 @@ function run(argv) {
       url: 0, skill: 0
     };
     Object.keys(keep).forEach(function (k) {
-      if (inp[k] != null) out[k] = inp[k];
+      if (inp[k] != null) out[k] = RED.value(inp[k], 0, k);
     });
     ["old_string", "new_string", "content"].forEach(function (k) {
-      if (inp[k] != null) out[k] = cap(String(inp[k]), 4000);
+      if (inp[k] != null) out[k] = capRed(String(inp[k]), 4000);
     });
-    if (inp.prompt != null) out.prompt = cap(String(inp.prompt), 2000);
+    if (inp.prompt != null) out.prompt = capRed(String(inp.prompt), 2000);
     return out;
   }
 
@@ -369,23 +398,23 @@ function run(argv) {
     if (e.type === "user") {
       if (typeof content === "string") {
         // A prompt actually typed.
-        msgs.push({ role: "user", timestamp: e.timestamp, text: content });
+        msgs.push({ role: "user", timestamp: e.timestamp, text: red(content) });
       } else if (Array.isArray(content)) {
         content.forEach(function (b) {
           if (!b || typeof b !== "object") return;
           if (b.type === "text") {
-            msgs.push({ role: "user", timestamp: e.timestamp, text: b.text || "" });
+            msgs.push({ role: "user", timestamp: e.timestamp, text: red(b.text || "") });
           } else if (b.type === "tool_result") {
             msgs.push({
               role: "tool_result", timestamp: e.timestamp,
-              text: cap(textOfResult(b.content), 4000)
+              text: capRed(textOfResult(b.content), 4000)
             });
           }
         });
       }
     } else if (Array.isArray(content)) {
-      var body = content.filter(function (b) { return b && b.type === "text"; })
-                        .map(function (b) { return b.text || ""; }).join("\n");
+      var body = red(content.filter(function (b) { return b && b.type === "text"; })
+                            .map(function (b) { return b.text || ""; }).join("\n"));
       var tools = content.filter(function (b) { return b && b.type === "tool_use"; })
                          .map(function (b) {
                            return { name: b.name, input: toolInput(b.input) };
@@ -396,7 +425,7 @@ function run(argv) {
       if (tools.length) m.tools = tools;
       // Only when there is some: most thinking reaches the transcript
       // redacted to an empty string, and an empty field is just weight.
-      if (think) m.thinking = cap(think, 6000);
+      if (think) m.thinking = capRed(think, 6000);
       msgs.push(m);
     }
     msgs.forEach(function (x) {
@@ -482,7 +511,9 @@ function run(argv) {
   // script changed, the md5 or the archive does not match, the transcript
   // is shorter or different where it was sampled — is a read from the
   // start, and deleting the file is always safe.
-  var KEY = "1:" + hashText(String(run));
+  // The redaction's signature too: messages carried on from the last
+  // archive were redacted by its rules and list, and must be these.
+  var KEY = "2:" + hashText(String(run)) + ":" + rsig;
   var WINDOW = 4096;
   function fingerprint(off) {
     var w = Math.min(WINDOW, off);
@@ -523,7 +554,7 @@ function run(argv) {
   }
   var st = null, messages = [];
   if (state && prev && state.path === path && state.archive === prevPath && state.scan &&
-      prev.format === 3 && prev.sourceBytes === state.sourceBytes &&
+      prev.format === 4 && prev.redact === rsig && prev.sourceBytes === state.sourceBytes &&
       prev.messageCount === state.messageCount && Array.isArray(prev.messages) &&
       prev.messages.length >= state.scan.msgs && typeof state.fp === "string" &&
       state.fp === fingerprint(state.scan.off)) {
@@ -618,8 +649,10 @@ function run(argv) {
   var archive = JSON.stringify({
     sourceBytes: sourceBytes,
     // 2: also thinking, usage and replies. 3: usage may carry the cost.
-    // Read by the skip check below, which is why it sits near the top.
-    format: 3,
+    // 4: redacted, by the rules and the list the signature names.
+    // Read by the skip check below, which is why both sit near the top.
+    format: 4,
+    redact: rsig,
     sessionId: sid,
     project: project,
     startedAt: startedAt,
@@ -663,6 +696,13 @@ if (typeof $ === "undefined" && typeof require !== "undefined" &&
   if (result) process.stdout.write(result + "\n");
 }
 ARCHIVEREOF
+# Which rules and which list: an archive made under others is made again.
+# Worked out before either is read, so that one changed in between leaves
+# the older signature, and the next save makes the archive again.
+RSIG="$(ch_redact_sig "$HERE")"
+# The redactor, after the archiver: a function declaration is there for
+# run() wherever in the file it stands. Missing, the archiver refuses.
+cat "$HERE/redact.js" >> "$ARCHIVER" 2>/dev/null || true
 
 PROJECT_PATH=$(pwd)
 
@@ -730,10 +770,11 @@ for jsonl in "${CANDIDATES[@]+"${CANDIDATES[@]}"}"; do
   # The size is taken before reading, so a file that grows mid-read is only
   # ever archived again, never skipped.
   # An archive in an older format is written again once, while its
-  # transcript is still here to supply what that format did not keep.
+  # transcript is still here to supply what that format did not keep —
+  # and so is one redacted by other rules or another list, or not at all.
   SIZE=$(size_of "$jsonl")
   if [[ -f "$OUTPUT_FILE" ]] && HEAD="$(head -c 200 "$OUTPUT_FILE")" &&
-     [[ "$HEAD" == *'"format":3,'* ]] &&
+     [[ "$HEAD" == *"\"format\":4,\"redact\":\"$RSIG\","* ]] &&
      [[ "$(printf '%s' "$HEAD" |
        sed -n 's/.*"sourceBytes":\([0-9]*\).*/\1/p')" == "$SIZE" ]]; then
     continue
@@ -752,6 +793,7 @@ for jsonl in "${CANDIDATES[@]+"${CANDIDATES[@]}"}"; do
   STATE=""
   [ "$OWN_LOCK" = 1 ] && STATE="$OUT/.cache/$SESSION_ID.archive"
   if run_js "$ARCHIVER" "$jsonl" "$SESSION_ID" "$PROJECT_PATH" "$SIZE" "$OUTPUT_FILE" "$STATE" \
+       "$RSIG" "$CLAUDE_HTML_REDACT_FILE" \
        > "$PARTIAL" 2>"$ARCHIVE_TMP/err" && [[ "$(tail -c 2 "$PARTIAL")" == *"}" ]] &&
      mv -f "$PARTIAL" "$OUTPUT_FILE"; then
     rm -f "$ERRDIR/$SESSION_ID.json"

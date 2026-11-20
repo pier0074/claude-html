@@ -45,3 +45,8 @@ need_osascript() {
 # button breaks. helper-build.sh refuses temp paths on its own; this says it
 # out loud for everything a test launches.
 export CLAUDE_HTML_NO_REGISTER=1
+
+# No suite reads the owner's own list of secrets, nor takes on a switch
+# from the shell it was started in: each one that needs a list makes its own.
+unset CLAUDE_HTML_REDACT
+export CLAUDE_HTML_REDACT_FILE="${TMPDIR:-/tmp}/claude-html-tests-no-such.redact"

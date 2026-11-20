@@ -80,13 +80,13 @@ check "  and clears the failure" "$(exists "$ROOT/pages/.archive-errors/$ID.json
 # An archive written before the format carried tokens and thinking is
 # written again once while its transcript is still here, though the
 # transcript has not grown — and only once.
-check "an archive says which format it is" "$(head -c 200 "$A" | grep -c '"format":3,')" 1
+check "an archive says which format it is" "$(head -c 200 "$A" | grep -c '"format":4,')" 1
 python3 -c "
 import json; p='$A'; a=json.load(open(p)); a.pop('format'); a.pop('usage'); a.pop('replies')
 open(p,'w').write(json.dumps(a,separators=(',',':')))"
 printf '%s' "$NOTE" | save "--try"
 check "an older archive is brought up to date from the same transcript" \
-  "$(head -c 200 "$A" | grep -c '"format":3,') $(grep -c '"usage":{' "$A")" "1 1"
+  "$(head -c 200 "$A" | grep -c '"format":4,') $(grep -c '"usage":{' "$A")" "1 1"
 touch -t 202001010000 "$A"
 printf '%s' "$NOTE" | save "--try"
 check "  and then left alone" "$(mtime_of "$A")" "$(touch -t 202001010000 "$T/ref" && mtime_of "$T/ref")"
@@ -103,7 +103,7 @@ for h in a['usage'].values():
 open(p,'w').write(json.dumps(a,separators=(',',':')))"
 printf '%s' "$NOTE" | save "--try"
 check "a format 2 archive of an unchanged transcript is rewritten with its cost" \
-  "$(head -c 200 "$A" | grep -c '"format":3,') $(python3 -c "
+  "$(head -c 200 "$A" | grep -c '"format":4,') $(python3 -c "
 import json; a=json.load(open('$A'))
 print(sum(m[5] for h in a['usage'].values() for m in h.values() if len(m)>5))")" "1 1250000"
 

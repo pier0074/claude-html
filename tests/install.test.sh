@@ -33,6 +33,7 @@ CONF="$H/.claude/claude-html.conf"
 # Whatever the machine running the suite has set must not leak in.
 clean_env() {
   env -u CLAUDE_HTML_OUT -u CLAUDE_HTML_ROOT -u CLAUDE_HTML_CONF -u CLAUDE_HTML_WEEK_RESET -u CLAUDE_HTML_ENGINE \
+    -u CLAUDE_HTML_GUARD -u CLAUDE_HTML_GUARD_DIALOG \
     HOME="$H" CLAUDE_HTML_FORCE_NODE=1 "$@"
 }
 install() { clean_env bash "$C/install.sh" "$@" > "$T/install.out" 2>&1; }
@@ -62,6 +63,16 @@ cli() { clean_env "$@" "$H/.local/bin/claude-html" "$ID" >/dev/null 2>&1; }
 
 # ── first install ──
 install --root "$ROOT" --out "$PAGES"
+check "the first install adds the guard's two hooks" "$(grep -c 'guard.sh' "$H/.claude/settings.json")" 2
+
+# ── --no-guard: the guard's hooks out, and off in the conf ──
+install --no-guard
+check "--no-guard takes the guard's hooks out" \
+  "$(grep -c 'guard.sh' "$H/.claude/settings.json") $(grep -c 'save-conversation.sh' "$H/.claude/settings.json")" "0 4"
+check "  and turns it off in the conf, the rest kept" \
+  "$(conf_get CLAUDE_HTML_GUARD) $(grep -c '^CLAUDE_HTML_ROOT=' "$CONF")" "off 1"
+install
+check "a later install puts the hooks back, once" "$(grep -c 'guard.sh' "$H/.claude/settings.json")" 2
 check "installs from a path with a space" "$?" 0
 check "  writes the projects given" "$(conf_get CLAUDE_HTML_ROOT)" "$ROOT"
 check "  and the pages given" "$(conf_get CLAUDE_HTML_OUT)" "$PAGES"
@@ -131,7 +142,7 @@ node -e 'var fs=require("fs"),p=process.argv[1],s=JSON.parse(fs.readFileSync(p,"
   s.hooks.SessionEnd[0].hooks[0].command=process.argv[2];
   fs.writeFileSync(p,JSON.stringify(s,null,2))' "$H/.claude/settings.json" "$LEGACY"
 check "remove takes quoted and unquoted alike" \
-  "$(CLAUDE_HTML_FORCE_NODE=1 run_js "$C/settings-hooks.js" "$H/.claude/settings.json" "$C" remove)" "removed 4"
+  "$(CLAUDE_HTML_FORCE_NODE=1 run_js "$C/settings-hooks.js" "$H/.claude/settings.json" "$C" remove)" "removed 6"
 install
 
 # ── one rule for where things go: environment, then conf, then default ──
