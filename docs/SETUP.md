@@ -416,7 +416,7 @@ Knobs the tests set; nothing needs them day to day.
 | Variable | What it does |
 | -------- | ------------ |
 | `CLAUDE_HTML_FORCE_NODE` | pretend there is no `osascript`, so node does everything |
-| `CLAUDE_HTML_NO_REGISTER` | never register a link handler or helper app (the tests' temp folders) |
+| `CLAUDE_HTML_NO_REGISTER` | register nothing, and build no helper app in place: macOS registers any app it sees appear (set by the test runner itself) |
 | `CLAUDE_HTML_UNAME` | what `uname -s` would say |
 | `CLAUDE_HTML_OS_RELEASE` | the os-release file to read |
 | `CLAUDE_HTML_PROC_VERSION` | the kernel version string, for WSL detection |
@@ -427,3 +427,4 @@ Knobs the tests set; nothing needs them day to day.
 | `CLAUDE_HTML_GUARD_TEST_LIMIT` | seconds the guard's dialog waits, instead of ten minutes |
 | `CLAUDE_HTML_UPDATE_REMOTE` | the release repository, a URL or a path, instead of GitHub's |
 | `CLAUDE_HTML_UPDATE_LOCK_WAIT` | seconds an update waits for a save's lock, instead of 60 |
+| `CLAUDE_HTML_TEST_JOBS` | how many suites `tests/run-all.sh` runs at once (default: half the CPUs, 2 to 6; `1` runs them one after another) |

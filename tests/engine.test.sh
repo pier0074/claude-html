@@ -34,7 +34,7 @@ fake() {   # folder, kind
     good) printf '#!/bin/sh\nprintf "%%s|%%s\\n" "$PWD" "$*" >> "%s/runs"\nexec "%s" "$@"\n' "$1" "$REAL" ;;
     old) printf '#!/bin/sh\n[ "$1" = -e ] && exit 3\nprintf "%%s\\n" "$*" >> "%s/runs"\nexec "%s" "$@"\n' "$1" "$REAL" ;;
     broken) printf '#!/bin/sh\nexit 1\n' ;;
-    hangs) printf '#!/bin/sh\nexec sleep 30\n' ;;
+    hangs) printf '#!/bin/sh\nexec </dev/null >/dev/null 2>&1\nsleep 120\necho finished >> "%s/finished"\n' "$1" ;;
     shim) printf '#!/bin/sh\necho installed >> "%s/installs"\nexec "%s" "$@"\n' "$1" "$REAL" ;;
   esac > "$1/node"
   chmod +x "$1/node"
@@ -90,10 +90,12 @@ rm -f "$T/good one/runs"
 (cd "$APP0" && nodeat "$T/good one:$SYS" "" >/dev/null)
 check "node is checked from /, not from the project a version manager reads" \
   "$(wherefrom)" /
-started=$(date +%s)
+# No clock: the slow node writes a mark only if it is let run to its end,
+# which the probe must never wait for. It lets go of its output at once, so
+# nothing but the probe itself could be waiting on it.
 check "one that hangs is given up on" \
   "$(nodeat "$T/hangs:$SYS" "$T/good one" CH_NODE_PROBE_LIMIT=1)" "$T/good one/node"
-check "  within moments" "$(( $(date +%s) - started < 10 ))" 1
+check "  without waiting for it to end" "$([ -f "$T/hangs/finished" ] && echo waited || echo no)" no
 
 # No usable node and no osascript: nothing runs, and it says why, as
 # --doctor does, rather than running the node it turned down.

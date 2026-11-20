@@ -165,7 +165,9 @@ trap 'release_lock' EXIT
 # it is not lost either, since convert.js records it in .build-errors.json and
 # the index shows a banner.
 rebuild_pages() {
-  [ -x "$HERE/helper-build.sh" ] &&
+  # Not when told to register nothing: macOS registers an app by itself soon
+  # after one appears, so to build it here is to register it.
+  [ -z "${CLAUDE_HTML_NO_REGISTER:-}" ] && [ -x "$HERE/helper-build.sh" ] &&
     "$HERE/helper-build.sh" "$HERE/Claude HTML.app" --register --if-stale >/dev/null 2>&1 || true
   [ -f "$HERE/convert.js" ] || return 0
   # The build keeps a cache that only one build at a time may write: one

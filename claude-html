@@ -117,7 +117,10 @@ MAC=false
 [ -z "${CLAUDE_HTML_FORCE_NODE:-}" ] && command -v osascript >/dev/null 2>&1 && MAC=true
 
 # Keep the helper app in step with its source: it holds a copy inside it.
-[ "$MAC" = true ] && [ -x "$HERE/helper-build.sh" ] &&
+# Not when told to register nothing: macOS registers an app by itself a few
+# seconds after one appears in an ordinary folder, so to build it here is to
+# register it.
+[ "$MAC" = true ] && [ -z "${CLAUDE_HTML_NO_REGISTER:-}" ] && [ -x "$HERE/helper-build.sh" ] &&
   "$HERE/helper-build.sh" "$HERE/Claude HTML.app" --register --if-stale >/dev/null 2>&1 || true
 
 # A build keeps a cache of what it parsed, which only one build at a time

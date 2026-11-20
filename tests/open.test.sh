@@ -56,7 +56,7 @@ check "  which is the project itself" "$(where "$B")" "$CODE"
 # A real listener, started in the project's folder.
 PORT=$(( 20000 + RANDOM % 20000 ))
 ( cd "$SERVED" && exec nc -l "$PORT" >/dev/null 2>&1 ) & NC=$!
-for _ in $(seq 1 20); do lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1 && break; sleep 0.2; done
+for _ in $(seq 1 150); do lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1 && break; sleep 0.2; done
 check "a project that is serving opens its server" "$(what "$C")" server
 check "  on the port it is actually using" "$(where "$C")" "http://localhost:$PORT"
 check "  and its neighbours are unaffected" "$(what "$A")" page

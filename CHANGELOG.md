@@ -5,6 +5,19 @@ fixes, a minor adds without breaking, a major needs something from you
 (usually `./install.sh` again). To update: `claude-html --update`; before
 3.1.0, `git pull && ./install.sh`.
 
+## 3.1.2 — 2026-11-20
+
+- The test suites run side by side: `bash tests/run-all.sh` takes about a
+  minute and a half instead of seven. `CLAUDE_HTML_TEST_JOBS=1` runs them one
+  after another.
+- No test reads the clock to decide a result any more, so a busy or a fast
+  machine gives the same answer.
+- A suite passes only on its own verdict line: one cut short by an error no
+  longer counts as passed.
+- The tests never register anything with the system. They no longer build the
+  helper app inside the clone, which macOS registered by itself, leaving a
+  second app claiming the links.
+
 ## 3.1.1 — 2026-11-20
 
 - `--update` says so when it is waiting for a running save, and waits the

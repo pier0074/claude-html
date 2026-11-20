@@ -15,7 +15,7 @@ function check(name, ok, detail) {
 }
 
 // ── variables ──
-var code = ["claude-html", "helper.applescript"]
+var code = ["claude-html", "helper.applescript", "tests/run-all.sh"]
   .concat(fs.readdirSync(HERE).filter(function (f) { return /\.(sh|js)$/.test(f); }))
   .concat(fs.readdirSync(path.join(HERE, "viewer")).filter(function (f) { return /\.js$/.test(f); })
     .map(function (f) { return "viewer/" + f; }));

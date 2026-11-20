@@ -242,6 +242,9 @@ if [ "$MAC" != true ]; then
   else
     say "links:    the helper app needs osascript - the index leaves its links out"
   fi
+elif [ -n "${CLAUDE_HTML_NO_REGISTER:-}" ]; then
+  # macOS registers an app by itself soon after it appears, so none is built.
+  say "delete:   no helper app built (CLAUDE_HTML_NO_REGISTER is set)"
 elif "$HERE/helper-build.sh" "$HERE/Claude HTML.app" --register >/dev/null 2>&1; then
   say "delete:   $HERE/Claude HTML.app"
 else

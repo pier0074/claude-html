@@ -117,7 +117,7 @@ cat > "$UP" <<EOF
 #!/bin/sh
 echo asked >> "$T/asked"
 [ -f "$T/offline" ] && { echo "offline" >&2; exit 1; }
-[ -f "$T/hang" ] && exec sleep 30
+[ -f "$T/hang" ] && { sleep 120 </dev/null >/dev/null 2>&1; echo finished >> "$T/hang.finished"; exit 0; }
 exec git-upload-pack "\$@"
 EOF
 chmod +x "$UP"
@@ -340,11 +340,10 @@ rm -f "$T/fail-install-3.1.0"
 # Not a release checkout: never fetched for.
 clone d v3.0.1
 gitx -C "$INST" commit -q --allow-empty -m "my own work"
-touch "$T/hang"; n="$(asked)"; t0="$(date +%s)"
+touch "$T/hang"; n="$(asked)"
 out="$(ch --update)"; rc=$?
-t1="$(date +%s)"
 check "a development checkout: refused" "$(printf '%s' "$out" | grep -c 'development checkout') $rc" "1 1"
-check "  answered at once, without asking the remote" "$(asked) $([ $((t1 - t0)) -lt 5 ] && echo fast)" "$n fast"
+check "  answered without asking the remote" "$(asked)" "$n"
 out="$(ch --update status)"; rc=$?
 has "  status says so, without fetching" "$out" "development checkout"
 check "  exit 0, the remote not asked" "$rc $(asked)" "0 $n"
@@ -361,12 +360,13 @@ check "  exit 1" "$rc" 1
 save() { (cd "$PROJ/app" && run CLAUDE_HTML_UPDATE_CHECK="${CHK:-on}" bash "$INST/save-conversation.sh" --try </dev/null >/dev/null 2>&1); }
 clone a v3.0.1
 rm -f "$H/.claude/.claude-html.update"; n="$(asked)"
-save
+t0="$(date +%s)"; save; t1="$(date +%s)"
 check "a save asks once, and remembers the newest" "$(state newest) $(state here) $(( $(asked) - n ))" "3.1.0 $INST 1"
-now="$(date +%s)"; c="$(state checked)"
-check "  with when" "$([ $((now - c)) -lt 60 ] && echo now)" now
+c="$(state checked)"
+check "  with when: during that save" "$([ "$t0" -le "$c" ] && [ "$c" -le "$t1" ] && echo then)" then
 save
 check "  not again within a day" "$(( $(asked) - n ))" 1
+now="$(date +%s)"   # not a timing: the state is aged by a day and a bit, by hand
 sed "s/^checked=.*/checked=$((now - 90000))/" "$H/.claude/.claude-html.update" > "$T/st" && mv "$T/st" "$H/.claude/.claude-html.update"
 save
 check "  again after one" "$(( $(asked) - n ))" 2
@@ -386,9 +386,10 @@ CHK=on
 
 # A remote that hangs is given five seconds.
 sed "s/^checked=.*/checked=0/" "$H/.claude/.claude-html.update" > "$T/st" && mv "$T/st" "$H/.claude/.claude-html.update"
-touch "$T/hang"; t0="$(date +%s)"; save; t1="$(date +%s)"; rm -f "$T/hang"
-check "a remote that hangs: given up on within seconds, the newest kept" \
-  "$([ $((t1 - t0)) -lt 15 ] && echo quick) $(state newest)" "quick 3.1.0"
+rm -f "$T/hang.finished"; touch "$T/hang"; save; rm -f "$T/hang"
+# No clock: the slow remote writes a mark only if it was let run to its end.
+check "a remote that hangs: given up on, not waited for, the newest kept" \
+  "$([ -f "$T/hang.finished" ] && echo waited || echo no) $(state newest)" "no 3.1.0"
 
 # The notice goes once the update is made.
 out="$(ch --update)"

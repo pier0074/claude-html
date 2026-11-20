@@ -46,14 +46,14 @@ check "  and archives the session it names" "$(exists "$A")" yes
 # survive the hand-off.
 rm -f "$A"
 printf '%s' "$NOTE" | save "--background"
-for _ in $(seq 1 60); do [ -f "$A" ] && break; sleep 0.25; done
+for _ in $(seq 1 600); do [ -f "$A" ] && break; sleep 0.2; done
 check "the detached save still knows which transcript" "$(exists "$A")" yes
 
 # A save that fails must leave the last good archive where it was: the
 # transcript it was made from may already have been cleaned up.
 GOOD="$(cat "$A")"
 # The detached save above may still hold the lock, and --try would give way.
-for _ in $(seq 1 100); do [ -d "$T/home/.claude/.claude-html.lock" ] || break; sleep 0.1; done
+for _ in $(seq 1 1200); do [ -d "$T/home/.claude/.claude-html.lock" ] || break; sleep 0.1; done
 printf '%s\n' '{"type":"user","cwd":"/somewhere/old","timestamp":"2026-09-11T10:01:00Z","message":{"role":"user","content":"more"}}' >> "$J"
 chmod 000 "$J"
 printf '%s' "$NOTE" | save "--try"
@@ -135,14 +135,16 @@ END_NOTE="{\"session_id\":\"$ID\",\"transcript_path\":\"$J\",\"cwd\":\"$APP\",\"
 # hold the lock, as a save already in progress would, so a hook that waited
 # for its turn in the foreground would visibly hang here
 mkdir -p "$T/home/.claude/.claude-html.lock" && echo $$ > "$T/home/.claude/.claude-html.lock/pid"
-start=$(date +%s)
 printf '%s' "$END_NOTE" | save ""
-took=$(( $(date +%s) - start ))
-check "the session-end hook returns at once, even with another save running" \
-  "$([ "$took" -le 2 ] && echo yes || echo "no, ${took}s")" yes
+# No clock. The lock is released only once the hook has returned, and the
+# checks below see the save made after that: so it was not the hook that made
+# it, but the copy it left waiting. A hook that waited in the foreground would
+# give up and leave nothing, and the last check would fail.
+check "the session-end hook returns with another save still holding the lock" \
+  "$(cat "$T/home/.claude/.claude-html.lock/pid" 2>/dev/null)" "$$"
 check "  and has not saved yet: it is waiting its turn in the background" "$(exists "$A")" no
 rm -rf "$T/home/.claude/.claude-html.lock"
-for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do [ -f "$A" ] && break; sleep 0.5; done
+for _ in $(seq 1 600); do [ -f "$A" ] && break; sleep 0.2; done   # an event, waited for up to two minutes
 check "  and the save still happens once it can" "$(exists "$A")" yes
 
 echo

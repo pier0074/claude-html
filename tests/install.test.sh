@@ -93,7 +93,7 @@ check "the SessionEnd hook archives through the quoted path" "$(exists "$A")" ye
 check "  and rebuilds the pages" "$(exists "$PAGES/sessions/$ID.html")" yes
 rm -f "$A"
 run_hook "$APP" Stop
-for _ in $(seq 1 60); do [ -f "$A" ] && break; sleep 0.25; done
+for _ in $(seq 1 600); do [ -f "$A" ] && break; sleep 0.2; done
 check "the Stop hook detaches and still archives" "$(exists "$A")" yes
 
 # ── a second run keeps what the user chose ──
