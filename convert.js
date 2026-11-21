@@ -363,10 +363,20 @@ function run(argv) {
   var cleanUserText = P.cleanUserText, blocksToText = P.blocksToText, messagesOf = P.messagesOf;
   var PEEK_LINES = P.PEEK_LINES, peekLine = P.peekLine, newReplies = P.newReplies, usageLine = P.usageLine;
   var newCost = P.newCost, costLine = P.costLine;
+  // prices.js and the dated price file: what the tokens cost at list price,
+  // worked out beside — never into — what Claude Code recorded. The page
+  // carries the same file, so the dashboard prices by the same lines.
+  // Without prices.js nothing is calculated, and the pages say so.
+  var PRICES_SRC = read(HERE + "/prices.js") || "";
+  var PRICES_PATH = opt.prices || env("CLAUDE_HTML_PRICES") || HERE + "/prices.tsv";
+  var PRICES_TEXT = PRICES_SRC ? read(PRICES_PATH) || "" : "";
+  var PR = PRICES_SRC ? new Function(PRICES_SRC + "\nreturn claudeHtmlPrices;")()(PRICES_TEXT) : null;
   // The first archive format written through parse.js: from it on, an
   // archive's messages are the page's. (The format a release writes is
   // CH_ARCHIVE_FORMAT, in release.sh.)
   var PARSED_FORMAT = 5;
+  // The first that keeps the cache write's split (5-minute, 1-hour).
+  var SPLIT_FORMAT = 6;
   // The text of a message read back from an archive or an export.
   function redMessage(m) {
     if (!m || typeof m !== "object") return m;
@@ -460,15 +470,21 @@ function run(argv) {
     return { cells: c.cells, part: c.part || Object.keys(c.pending).length > 0 };
   }
 
-  // Cost goes in as a sixth figure on the hour and model it landed on. A cell
-  // with no sixth figure is one whose cost is not known, which is not the same
-  // as a cost of nothing.
+  // A usage cell: input, output, cache read, cache write, replies, of the
+  // write 1-hour, of the write split unknown — parse.js's reply figures,
+  // summed — and, on a cell that has one, the cost (prices.js names them).
+  var FIGURES = 7, COST = 7;
+  function newCell() { return [0, 0, 0, 0, 0, 0, 0]; }
+
+  // Cost goes in as an eighth figure on the hour and model it landed on. A
+  // cell with no eighth figure is one whose cost is not known, which is not
+  // the same as a cost of nothing.
   function addCost(usage, cost) {
     Object.keys(cost.cells).forEach(function (hour) {
       var d = usage[hour] = usage[hour] || {};
       Object.keys(cost.cells[hour]).forEach(function (m) {
-        var a = d[m] = d[m] || [0, 0, 0, 0, 0];
-        a[5] = (a[5] || 0) + cost.cells[hour][m];
+        var a = d[m] = d[m] || newCell();
+        a[COST] = (a[COST] || 0) + cost.cells[hour][m];
       });
     });
     return usage;
@@ -483,8 +499,8 @@ function run(argv) {
     var hours = {};
     countedReplies(acc).forEach(function (r) {
       var d = hours[r.hour] = hours[r.hour] || {};
-      var a = d[r.model] = d[r.model] || [0, 0, 0, 0, 0];
-      for (var i = 0; i < r.t.length; i++) a[i] += r.t[i];
+      var a = d[r.model] = d[r.model] || newCell();
+      for (var i = 0; i < FIGURES; i++) a[i] += r.t[i] || 0;
     });
     return hours;
   }
@@ -521,15 +537,23 @@ function run(argv) {
     if (!a) return;
     for (var i = 0; i < 5; i++) if ((a[i] || 0) < (r[i + 2] || 0)) return;
     for (var j = 0; j < 5; j++) a[j] -= r[j + 2] || 0;
+    // The split is a part of the write: a copy counted with it, from a
+    // transcript, may be taken from a cell that never had it, from an old
+    // archive, so it goes as far as it can and stays within the write.
+    a[5] = Math.min(Math.max(0, (a[5] || 0) - (r[7] || 0)), a[3]);
+    a[6] = Math.min(Math.max(0, (a[6] || 0) - (r[8] || 0)), a[3] - a[5]);
     // Cost is never per reply, so a copy takes none back — and a cell that
     // still holds some is kept, empty of tokens or not.
-    if (!(a[0] || a[1] || a[2] || a[3] || a[4] || a.length > 5)) delete into[r[0]][r[1]];
+    if (!(a[0] || a[1] || a[2] || a[3] || a[4] || a.length > COST)) delete into[r[0]][r[1]];
     if (!Object.keys(into[r[0]]).length) delete into[r[0]];
   }
 
   // Usage read back from an archive, which is a file anyone can edit: only
-  // the shape the dashboard adds up is let through.
-  function cleanUsage(u) {
+  // the shape the dashboard adds up is let through. legacy: written before
+  // the cache write was split (archive format 5, USAGE_VERSION 4), five
+  // figures and the cost as a sixth; its whole write is of unknown
+  // duration, priced as 5-minute, and the page says so.
+  function cleanUsage(u, legacy) {
     var out = {};
     if (!u || typeof u !== "object") return out;
     Object.keys(u).forEach(function (slot) {
@@ -537,11 +561,14 @@ function run(argv) {
       Object.keys(u[slot]).forEach(function (m) {
         var a = u[slot][m];
         if (!Array.isArray(a)) return;
-        var row = [0, 0, 0, 0, 0];
-        for (var i = 0; i < 5; i++) row[i] = Number(a[i]) > 0 ? Number(a[i]) : 0;
-        // The cost, when there is one; five figures is an archive from
+        var row = newCell(), at = legacy ? 5 : COST;
+        for (var i = 0; i < (legacy ? 5 : FIGURES); i++) row[i] = Number(a[i]) > 0 ? Number(a[i]) : 0;
+        if (legacy) row[6] = row[3];
+        row[5] = Math.min(row[5], row[3]);
+        row[6] = Math.min(row[6], row[3] - row[5]);
+        // The cost, when there is one; no figure there is an archive from
         // before cost was kept, and says nothing about it.
-        if (a.length > 5 && Number(a[5]) >= 0) row[5] = Math.round(Number(a[5]));
+        if (a.length > at && Number(a[at]) >= 0) row[COST] = Math.round(Number(a[at]));
         (out[slot] = out[slot] || {})[m] = row;
       });
     });
@@ -552,7 +579,7 @@ function run(argv) {
     Object.keys(from || {}).forEach(function (slot) {
       var d = into[slot] = into[slot] || {};
       Object.keys(from[slot]).forEach(function (m) {
-        var a = d[m] = d[m] || [0, 0, 0, 0, 0];
+        var a = d[m] = d[m] || newCell();
         for (var i = 0; i < from[slot][m].length; i++) a[i] = (a[i] || 0) + from[slot][m][i];
       });
     });
@@ -1022,7 +1049,7 @@ function run(argv) {
   // Every placeholder is filled in one pass. Replacing them one after another
   // would let a conversation that quotes a placeholder — this project's own
   // sessions do — have a later replacement land inside its own data.
-  var PLACEHOLDER = /\/\*\{\{(css|data|viewer|page|index|usage)\}\}\*\//g;
+  var PLACEHOLDER = /\/\*\{\{(css|data|viewer|page|index|usage|prices|plan)\}\}\*\//g;
 
   function fill(template, parts) {
     return template.replace(PLACEHOLDER, function (m, key) {
@@ -1068,14 +1095,47 @@ function run(argv) {
     });
   }
 
-  function usagePage(byProject, coverage) {
+  // The price file goes in as written, with prices.js to read it, and
+  // priceUse: how many sessions of each project each price line priced.
+  function usagePage(byProject, coverage, priceUse, spend) {
+    var d = { byProject: byProject, weekReset: WEEK_RESET, weekResetSet: WEEK_RESET_SET,
+              coverage: coverage || {}, prices: PR ? PRICES_TEXT : null,
+              priceUse: priceUse || {} };
+    // The plan line and the Limits & budget section, where limits.sh gave
+    // something to show; "apply" is a claude-html:// link, drawn only where
+    // something receives those.
+    if (LIMITS) { d.limits = LIMITS; d.spend = spend || null; d.actions = ACTIONS; }
     return fill(asset("usage.html"), {
       css: asset("index.css"),
-      data: embed({ byProject: byProject, weekReset: WEEK_RESET, weekResetSet: WEEK_RESET_SET,
-                    coverage: coverage || {} }),
+      data: embed(d),
       viewer: asset("viewer.js"),
+      prices: PRICES_SRC,
+      plan: asset("plan.js"),
       usage: asset("usage.js")
     });
+  }
+
+  // ── plan limits and the API budget ──────────────────────────────────
+  // What limits.sh worked out for this build (the rules, the week, the
+  // latest figures from Claude Code's status line), and limits.js for what
+  // was spent in the budget's period. The total goes to the pages and to a
+  // small file the status line and the stop rule read without an engine.
+  var LIMITS = opt.limits && typeof opt.limits === "object" ? opt.limits : null;
+  var LIMLIB = null;
+  if (LIMITS) {
+    try { LIMLIB = new Function((read(HERE + "/limits.js") || "") + "\nreturn claudeHtmlLimits();")(); }
+    catch (e) { LIMLIB = null; }
+  }
+  function limitsSpend(sessions) {
+    var b = LIMITS && LIMITS.budget;
+    if (!LIMLIB || !b || typeof b.start !== "number" || typeof b.end !== "number") return null;
+    var got = LIMLIB.weekSpend(sessions, b.start, b.end, PR);
+    var ids = got.counted.filter(function (id) { return SESSION_ID.test(id); });
+    if (typeof LIMITS.spendFile === "string" && LIMITS.spendFile) {
+      write(LIMITS.spendFile, "start=" + b.start + "\nend=" + b.end + "\nmicro=" + got.micro +
+            "\nunpriced=" + got.unpriced + "\nids=" + ids.join(",") + "\n");
+    }
+    return { micro: got.micro, unpriced: got.unpriced, start: b.start, end: b.end };
   }
 
   // A newer release, as the daily check last saw it for this very clone:
@@ -1100,7 +1160,7 @@ function run(argv) {
     return st.newest;
   }
 
-  function indexPage(entries, errors) {
+  function indexPage(entries, errors, spend) {
     var data = { sessions: entries, home: HOME, root: ROOT, errors: errors,
                  built: Math.round(Date.now() / 1000) };
     // Beside the build time, the one other thing two builds of the same
@@ -1108,6 +1168,7 @@ function run(argv) {
     var upd = updateNotice();
     if (upd) data.update = upd;
     data.actions = ACTIONS; data.mac = MAC;
+    if (LIMITS) { data.limits = LIMITS; data.spend = spend || null; }
     return fill(asset("index.html"), {
       css: asset("index.css"),
       // Opening a folder, deleting and resuming go through the macOS helper,
@@ -1115,6 +1176,7 @@ function run(argv) {
       // When it was built, in seconds, so a hook that has stopped firing shows.
       data: embed(data),
       viewer: asset("viewer.js"),
+      plan: asset("plan.js"),
       index: asset("index.js")
     });
   }
@@ -1354,14 +1416,19 @@ function run(argv) {
   // What the page holds is parse.js's making as much as the viewer's, so a
   // change there is a new page too.
   var VIEWER = hashText(["page.html", "session.css", "viewer.js", "page.js"]
-    .map(asset).join("\u0000") + (ACTIONS ? "" : "\u0000no-actions") + "\u0000" + PARSE_SRC);
+    .map(asset).join("\u0000") + (ACTIONS ? "" : "\u0000no-actions") + "\u0000" + PARSE_SRC +
+    // A session's calculated cost is on its page: a new price is a new page.
+    "\u0000" + PRICES_SRC + "\u0000" + PRICES_TEXT);
   // The shape of meta.usage. A change here makes every cached entry stale,
   // which is the only way a rebuild can notice the numbers are keyed
   // differently than they were.
   // 3: each entry also lists its replies, so the dashboard can count a reply
   // shared by a resumed session and its source once.
   // 4: a cell may carry a sixth figure, the cost in micro-dollars.
-  var USAGE_VERSION = 4;
+  // 5: the cache write's 1-hour part and its part of unknown duration are
+  // figures six and seven, so cost moves to the eighth; a reply priced by a
+  // rule of its own has a model of its own (claude-opus-5-5/fast).
+  var USAGE_VERSION = 5;
 
   // ── the parse, kept between saves ───────────────────────────────────
   // A transcript only ever grows, and one here reached 166 MB: reading all of
@@ -1746,18 +1813,25 @@ function run(argv) {
         // since the archiver started keeping them has them; for an older one
         // the last build's numbers are the only copy left, so they are kept
         // rather than the session dropping out of the dashboard's history.
+        // From format 6 the cache write is split; before, all of it is of
+        // unknown duration.
         if (parsed.usage && typeof parsed.usage === "object") {
-          archived = cleanUsage(parsed.usage);
+          var split = fmt >= SPLIT_FORMAT;
+          archived = cleanUsage(parsed.usage, !split);
           costPart = parsed.costPart === true;
           (Array.isArray(parsed.replies) ? parsed.replies : []).forEach(function (r) {
             if (!Array.isArray(r) || !r[0] || String(r[1] || "").length !== 13) return;
+            var w = Number(r[6]) || 0, h1 = split ? Math.min(w, Number(r[7]) || 0) : 0;
             replies.by["m:" + r[0]] = {
               mid: String(r[0]), hour: String(r[1]), model: String(r[2] || "unknown"),
-              t: [Number(r[3]) || 0, Number(r[4]) || 0, Number(r[5]) || 0, Number(r[6]) || 0, 1]
+              t: [Number(r[3]) || 0, Number(r[4]) || 0, Number(r[5]) || 0, w, 1, h1,
+                  split ? Math.min(w - h1, Number(r[8]) || 0) : w]
             };
           });
-        } else if (cached && cached.usage && (cached.uv === USAGE_VERSION || cached.uv === 3)) {
-          // Version 3 numbers are version 4 numbers without a cost, so the
+        } else if (cached && cached.usage &&
+                   (cached.uv === USAGE_VERSION || cached.uv === 3 || cached.uv === 4)) {
+          // Version 3 numbers are version 4 numbers without a cost, and
+          // version 4 numbers are version 5 numbers without the split, so the
           // only copy of an old archive's tokens survives the upgrade.
           carried = cached;
           costPart = cached.costPart === true;
@@ -1788,7 +1862,8 @@ function run(argv) {
 
       var nowAgents = {};
       var agents = buildAgents(s, meta, replies, kept && kept.agents, nowAgents);
-      var usage = archived || (carried ? cleanUsage(carried.usage) : usageOf(replies));
+      var usage = archived ||
+        (carried ? cleanUsage(carried.usage, carried.uv !== USAGE_VERSION) : usageOf(replies));
       if (cost) addCost(usage, cost);
       meta.uv = USAGE_VERSION;
       if (Object.keys(usage).length) {
@@ -1801,11 +1876,19 @@ function run(argv) {
           Object.keys(usage[slot]).forEach(function (m) {
             var u = usage[slot][m];
             for (var i = 0; i < 5; i++) tok[i] += u[i] || 0;
-            if (u.length > 5) tok[5] = (tok[5] || 0) + u[5];
+            if (u.length > COST) tok[5] = (tok[5] || 0) + u[COST];
           });
         });
         meta.tok = tok;
         if (tok.length > 5 && costPart) meta.costPart = true;
+        // What the same tokens come to at the price file's lines of their
+        // hours, apart from what was recorded: calcPart when some model had
+        // no line, so the figure is a floor.
+        if (PR) {
+          var calc = PR.total(usage);
+          if (calc.priced) meta.calc = calc.calc;
+          if (calc.priced && calc.unpriced) meta.calcPart = true;
+        }
         // Which models did the work, biggest first — two words in the header.
         // One that only shows up in the cost (the small calls Claude Code
         // makes for itself, never written as replies) did none of it.
@@ -1974,7 +2057,6 @@ function run(argv) {
     if (!t) return;
     try { var o = JSON.parse(t); if (o) shown.push(o); } catch (e) {}
   });
-  write(OUT + "/index.html", indexPage(entries, shown));
   // The token dashboard: every session's usage lives in the manifest, so a
   // build where nothing changed still writes it whole.
   // A reply copied into a resumed or forked session counts once, for the
@@ -2021,7 +2103,34 @@ function run(argv) {
     if (e.tok.length > 5) c[1]++;
     if (e.tok.length > 5 && e.costPart) c[2]++;
   });
-  write(OUT + "/usage.html", usagePage(byProject, coverage));
+  // Which price lines each session was priced by, counted per project, for
+  // the page's price history.
+  var priceUse = {};
+  if (PR) order.forEach(function (id) {
+    var e = fresh[id], seen = {};
+    if (!e.usage) return;
+    Object.keys(e.usage).forEach(function (hour) {
+      Object.keys(e.usage[hour]).forEach(function (m) {
+        var line = PR.tokens(e.usage[hour][m]) ? PR.lineAt(m, hour) : null;
+        if (line) seen[line.id] = true;
+      });
+    });
+    var p = priceUse[e.project || "unknown"] = priceUse[e.project || "unknown"] || {};
+    Object.keys(seen).forEach(function (k) { p[k] = (p[k] || 0) + 1; });
+  });
+  // The index after the dashboard: both show what was spent in the budget's
+  // period, from the dashboard's de-duplicated figures, session by session.
+  var spend = LIMITS && LIMITS.budget ? limitsSpend(order.filter(function (id) { return fresh[id].usage; })
+    .map(function (id) {
+      // Each session's usage as the dashboard counts it: its shared replies
+      // taken out where another session counts them.
+      var u = {};
+      addUsage(u, fresh[id].usage);
+      (repeats[id] || []).forEach(function (r) { subUsage(u, r); });
+      return [id, u];
+    })) : null;
+  write(OUT + "/usage.html", usagePage(byProject, coverage, priceUse, spend));
+  write(OUT + "/index.html", indexPage(entries, shown, spend));
   if (errors.length) write(OUT + "/.build-errors.json", JSON.stringify(errors));
   else remove(OUT + "/.build-errors.json");
 

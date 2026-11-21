@@ -1,0 +1,41 @@
+# claude-html's price list: what a token cost at Anthropic's API list price, in USD per million tokens.
+# One line per model and per price period. A reply is priced by the line whose from..to holds its day
+# (UTC, both days included); an empty "to" is today's price. When a price changes, set "to" on the old
+# line to the day before and add a line from the day of the change. A new model is a new line.
+# model: the id Claude Code records (message.model). A dated id (claude-haiku-4-5-20251001) is priced by
+#   the line without the date. "/fast" is a reply in fast mode (usage.speed), "/over-100k" a Haiku 5.5
+#   prompt over 100,000 tokens: both have prices of their own. An id with no line is "not priced".
+# cache_write_5m / cache_write_1h: 5-minute and 1-hour cache writes. cache_read: cache hits and refreshes.
+# source: the official page(s) the figures and the dates come from. checked: when they were last compared.
+# Standard rates only: no batch discount, no US-only (inference_geo) 1.1x, no cloud-platform prices.
+# A "from" is the model's launch day in the release notes when no price change was recorded since;
+# a line starting on its "checked" day is one whose earlier start could not be confirmed.
+model	from	to	input	output	cache_read	cache_write_5m	cache_write_1h	source	checked
+claude-opus-4	2025-05-22		15	75	1.50	18.75	30	https://platform.claude.com/docs/en/about-claude/pricing https://platform.claude.com/docs/en/release-notes/overview	2026-11-21
+claude-opus-4-1	2025-08-05		15	75	1.50	18.75	30	https://platform.claude.com/docs/en/about-claude/pricing https://platform.claude.com/docs/en/release-notes/overview	2026-11-21
+claude-opus-4-5	2025-11-24		5	25	0.50	6.25	10	https://platform.claude.com/docs/en/about-claude/pricing https://platform.claude.com/docs/en/release-notes/overview	2026-11-21
+claude-opus-4-6	2026-02-05		5	25	0.50	6.25	10	https://platform.claude.com/docs/en/about-claude/pricing https://platform.claude.com/docs/en/release-notes/overview	2026-11-21
+claude-opus-4-7	2026-04-16		5	25	0.50	6.25	10	https://platform.claude.com/docs/en/about-claude/pricing https://platform.claude.com/docs/en/release-notes/overview	2026-11-21
+claude-opus-4-8	2026-05-28		5	25	0.50	6.25	10	https://platform.claude.com/docs/en/about-claude/pricing https://platform.claude.com/docs/en/release-notes/overview	2026-11-21
+claude-opus-4-8/fast	2026-11-21		10	50	1.00	12.50	20	https://platform.claude.com/docs/en/about-claude/pricing https://platform.claude.com/docs/en/build-with-claude/fast-mode	2026-11-21
+claude-opus-5	2026-07-24		5	25	0.50	6.25	10	https://platform.claude.com/docs/en/about-claude/pricing https://platform.claude.com/docs/en/release-notes/overview	2026-11-21
+claude-opus-5/fast	2026-11-21		10	50	1.00	12.50	20	https://platform.claude.com/docs/en/about-claude/pricing https://platform.claude.com/docs/en/build-with-claude/fast-mode	2026-11-21
+claude-opus-5-5	2026-09-22		4	20	0.20	5	8	https://platform.claude.com/docs/en/about-claude/pricing https://platform.claude.com/docs/en/release-notes/overview	2026-11-21
+claude-opus-5-5/fast	2026-09-22		8	40	0.40	10	16	https://platform.claude.com/docs/en/about-claude/pricing https://platform.claude.com/docs/en/build-with-claude/fast-mode https://www.anthropic.com/claude-opus-5-5	2026-11-21
+claude-sonnet-4	2025-05-22		3	15	0.30	3.75	6	https://platform.claude.com/docs/en/about-claude/pricing https://platform.claude.com/docs/en/release-notes/overview	2026-11-21
+claude-sonnet-4-5	2025-09-29		3	15	0.30	3.75	6	https://platform.claude.com/docs/en/about-claude/pricing https://platform.claude.com/docs/en/release-notes/overview	2026-11-21
+claude-sonnet-4-6	2026-02-17		3	15	0.30	3.75	6	https://platform.claude.com/docs/en/about-claude/pricing https://platform.claude.com/docs/en/release-notes/overview	2026-11-21
+claude-sonnet-5	2026-06-30		2	10	0.20	2.50	4	https://platform.claude.com/docs/en/about-claude/pricing https://platform.claude.com/docs/en/release-notes/overview	2026-11-21
+claude-sonnet-5-5	2026-09-28	2026-10-06	2	10	0.20	2.50	4	https://platform.claude.com/docs/en/release-notes/overview https://www.anthropic.com/claude-haiku-5-5	2026-11-21
+claude-sonnet-5-5	2026-10-07		2	10	0.10	2.50	4	https://platform.claude.com/docs/en/about-claude/pricing https://platform.claude.com/docs/en/release-notes/overview	2026-11-21
+claude-haiku-4-5	2025-10-15		1	5	0.10	1.25	2	https://platform.claude.com/docs/en/about-claude/pricing https://www.anthropic.com/news/claude-haiku-4-5	2026-11-21
+claude-haiku-5-5	2026-10-07		0.10	0.50	0.01	0.125	0.20	https://platform.claude.com/docs/en/about-claude/pricing https://www.anthropic.com/claude-haiku-5-5	2026-11-21
+claude-haiku-5-5/over-100k	2026-10-07		0.50	2.50	0.05	0.625	1	https://platform.claude.com/docs/en/about-claude/pricing https://www.anthropic.com/claude-haiku-5-5	2026-11-21
+claude-fable-5	2026-06-09		10	50	1	12.50	20	https://platform.claude.com/docs/en/about-claude/pricing https://platform.claude.com/docs/en/release-notes/overview	2026-11-21
+claude-fable-5-1	2026-09-01		10	50	0.25	12.50	20	https://platform.claude.com/docs/en/about-claude/pricing https://platform.claude.com/docs/en/release-notes/overview	2026-11-21
+claude-fable-5-2	2026-11-09		8	40	0.20	10	16	https://platform.claude.com/docs/en/about-claude/pricing https://platform.claude.com/docs/en/release-notes/overview	2026-11-21
+claude-fable-5-2/fast	2026-11-09		16	80	0.40	20	32	https://platform.claude.com/docs/en/about-claude/pricing https://platform.claude.com/docs/en/build-with-claude/fast-mode https://platform.claude.com/docs/en/release-notes/overview	2026-11-21
+claude-mythos-5	2026-06-09		10	50	1	12.50	20	https://platform.claude.com/docs/en/about-claude/pricing https://platform.claude.com/docs/en/release-notes/overview	2026-11-21
+claude-mythos-5-1	2026-09-01		10	50	0.25	12.50	20	https://platform.claude.com/docs/en/about-claude/pricing https://platform.claude.com/docs/en/release-notes/overview	2026-11-21
+claude-mythos-5-2	2026-11-09		8	40	0.20	10	16	https://platform.claude.com/docs/en/about-claude/pricing https://platform.claude.com/docs/en/release-notes/overview	2026-11-21
+claude-mythos-5-2/fast	2026-11-21		16	80	0.40	20	32	https://platform.claude.com/docs/en/about-claude/pricing https://platform.claude.com/docs/en/build-with-claude/fast-mode	2026-11-21

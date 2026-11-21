@@ -57,6 +57,11 @@ _conf_env_redact_file="${CLAUDE_HTML_REDACT_FILE:-}"
 _conf_env_guard="${CLAUDE_HTML_GUARD:-}"
 _conf_env_guard_dialog="${CLAUDE_HTML_GUARD_DIALOG:-}"
 _conf_env_update="${CLAUDE_HTML_UPDATE_CHECK:-}"
+# The limits' settings (limits.sh reads them): taken whole, set or not, so
+# one set to nothing in the environment still wins over the conf.
+for _conf_lk in CLAUDE_HTML_LIMITS CLAUDE_HTML_LIMIT_RULES CLAUDE_HTML_BUDGET CLAUDE_HTML_BUDGET_WARN CLAUDE_HTML_LIMIT_NOTIFY; do
+  eval "if [ -n \"\${$_conf_lk+x}\" ]; then _conf_env_has_$_conf_lk=1; _conf_env_val_$_conf_lk=\"\$$_conf_lk\"; else _conf_env_has_$_conf_lk=; fi"
+done
 # shellcheck disable=SC1090
 if [ -f "$CONF" ]; then . "$CONF"; fi
 ROOT="${_conf_env_root:-${CLAUDE_HTML_ROOT:-$(dirname "$HERE")}}"
@@ -88,4 +93,7 @@ CLAUDE_HTML_GUARD_DIALOG="${_conf_env_guard_dialog:-${CLAUDE_HTML_GUARD_DIALOG:-
 # The daily look for a new release, and its notice: on, or off. Exported:
 # the build reads it to decide whether the index mentions one.
 export CLAUDE_HTML_UPDATE_CHECK="${_conf_env_update:-${CLAUDE_HTML_UPDATE_CHECK:-on}}"
-unset _conf_env_update _conf_env_root _conf_env_out _conf_env_week _conf_env_engine _conf_env_redact _conf_env_redact_file _conf_env_guard _conf_env_guard_dialog
+for _conf_lk in CLAUDE_HTML_LIMITS CLAUDE_HTML_LIMIT_RULES CLAUDE_HTML_BUDGET CLAUDE_HTML_BUDGET_WARN CLAUDE_HTML_LIMIT_NOTIFY; do
+  eval "[ -z \"\$_conf_env_has_$_conf_lk\" ] || $_conf_lk=\"\$_conf_env_val_$_conf_lk\"; unset _conf_env_has_$_conf_lk _conf_env_val_$_conf_lk"
+done
+unset _conf_lk _conf_env_update _conf_env_root _conf_env_out _conf_env_week _conf_env_engine _conf_env_redact _conf_env_redact_file _conf_env_guard _conf_env_guard_dialog

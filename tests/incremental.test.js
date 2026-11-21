@@ -84,8 +84,14 @@ function reply(min, id, content, usage, extra) {
   return line(Object.assign({ type: "assistant", cwd: APP, sessionId: P, uuid: "a-" + min + "-" + id,
                               timestamp: at(min), message: m }, extra || {}));
 }
+// An odd output says how its cache write splits (5-minute, 1-hour), an even
+// one does not, and one of them ran in fast mode: every figure a usage cell
+// has, so a build carried on is checked against one from nothing for each.
 function tokens(i, o) {
-  return { input_tokens: i, output_tokens: o, cache_read_input_tokens: 100 + o, cache_creation_input_tokens: 7 };
+  var u = { input_tokens: i, output_tokens: o, cache_read_input_tokens: 100 + o, cache_creation_input_tokens: 7 };
+  if (o % 2) u.cache_creation = { ephemeral_5m_input_tokens: 4, ephemeral_1h_input_tokens: 3 };
+  if (o === 99) u.speed = "fast";
+  return u;
 }
 function costState(start, usd, extra) {
   var mu = {};

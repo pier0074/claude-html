@@ -29,8 +29,8 @@ table{width:100%;table-layout:fixed;border-collapse:collapse;font-size:13px}
 #rows tr:not(.grp) td:nth-child(2),thead th:nth-child(2){width:152px}
 #rows tr:not(.grp) td:nth-child(4),thead th:nth-child(4){width:84px}
 #rows tr:not(.grp) td:nth-child(5),thead th:nth-child(5){width:86px}
-/* Cost: "≈ $1,328" at most, in a slightly smaller face. */
-#rows tr:not(.grp) td:nth-child(6),thead th:nth-child(6){width:88px}
+/* Cost: "≈ $1,328" or "≥ $0.78 calc" at most, in a slightly smaller face. */
+#rows tr:not(.grp) td:nth-child(6),thead th:nth-child(6){width:96px}
 #rows tr:not(.grp) td:nth-child(7),thead th:nth-child(7){width:92px}
 #rows tr:not(.grp) td:nth-child(8),thead th:nth-child(8){width:104px}
 /* Wide enough for "copy" and "resume" side by side on one line, which is
@@ -135,6 +135,9 @@ h1 .th{vertical-align:2px;margin-left:8px}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 td.tok{color:var(--dim)}
 td.cost{font-size:12px;overflow:hidden}
+/* A cost calculated from the price file, where Claude Code recorded none. */
+td.cost.calc{color:var(--dim)}
+.cost .cm{font-size:9.5px;letter-spacing:.03em}
 /* Without the helper app there is no bin to show, so its column gives its
    width back to the title. */
 #ix.nomac th:nth-child(10),#ix.nomac td:nth-child(10){display:none}
@@ -166,7 +169,7 @@ td.cost{font-size:12px;overflow:hidden}
 #rows tr:not(.grp) td:nth-child(2),#ix thead th:nth-child(2){width:112px}
 #rows tr:not(.grp) td:nth-child(4),#ix thead th:nth-child(4){width:70px}
 #rows tr:not(.grp) td:nth-child(5),#ix thead th:nth-child(5){width:66px}
-#rows tr:not(.grp) td:nth-child(6),#ix thead th:nth-child(6){width:70px}
+#rows tr:not(.grp) td:nth-child(6),#ix thead th:nth-child(6){width:90px}
 #rows tr:not(.grp) td:nth-child(9),#ix thead th:nth-child(9){width:124px}
 #ix.nomac #rows tr:not(.grp) td:nth-child(9),#ix.nomac thead th:nth-child(9){width:72px}
 #rows tr:not(.grp) td:nth-child(10),#ix thead th:nth-child(10){width:26px}
@@ -202,3 +205,53 @@ main{max-width:none;padding:0}
 tr,a.r{break-inside:avoid}
 tr:hover td{background:none}
 }
+
+/* ── plan limits: the plan or budget line, and the Limits & budget section
+   (plan.js). Normal below 80 %, amber from 80, red from 95. */
+:root{--pok:#2f6f4f;--pwarn:#a8621c;--pbad:#b3362b}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]){--pok:#7fc79b;--pwarn:#e0a060;--pbad:#e8776b}}
+:root[data-theme=dark]{--pok:#7fc79b;--pwarn:#e0a060;--pbad:#e8776b}
+#plan{margin:-4px 0 16px}
+.plan{font-size:12px;color:var(--fg);line-height:1.5}
+.plan .pk,.plan .psep,.plan .pd,.plan .pasof{color:var(--dim)}
+.plan .pasof{font-size:11px}
+.plan b{font-weight:600}
+.plan .ok{color:var(--pok)} .plan .warn{color:var(--pwarn)} .plan .bad{color:var(--pbad)}
+.plan .pbar{display:inline-block;position:relative;width:110px;height:7px;border-radius:4px;
+background:var(--line);vertical-align:middle;margin:0 2px 0 4px}
+.plan .pbar i{position:absolute;left:0;top:0;bottom:0;border-radius:4px;background:var(--pok)}
+.plan .pbar i.warn{background:var(--pwarn)} .plan .pbar i.bad{background:var(--pbad)}
+/* The stop rule's mark on the week's bar, and when it starts under it. */
+.plan .pbar u{position:absolute;top:-3px;bottom:-3px;width:2px;margin-left:-1px;background:var(--fg);text-decoration:none}
+.plan .pbar em{position:absolute;top:10px;transform:translateX(-50%);font-style:normal;font-size:10px;
+color:var(--dim);white-space:nowrap;line-height:1.2}
+.plan:has(em){padding-bottom:11px}
+@media(max-width:700px){.plan:has(em){line-height:2.5}}
+.plan .pstop.warn{color:var(--pwarn)}
+.plan.stale .pbar i{background:var(--dim)} .plan.stale b{color:var(--dim)}
+#limits{margin:0 0 6px}
+details.lim{border-top:1px solid var(--line);border-bottom:1px solid var(--line);font-size:12px}
+details.lim summary{cursor:pointer;padding:7px 0;color:var(--dim);list-style:none;display:flex;flex-wrap:wrap;gap:0 8px}
+details.lim summary::-webkit-details-marker{display:none}
+details.lim summary::before{content:"\25b8";font-size:10px;margin-right:2px}
+details.lim[open] summary::before{content:"\25be"}
+details.lim .lt{text-transform:uppercase;letter-spacing:.08em;font-size:11px}
+details.lim .lr{margin-left:auto;color:var(--fg)}
+details.lim .lb{padding:6px 0 10px}
+.lim .lrow{display:flex;gap:6px 16px;margin:6px 0}
+.lim .lk{flex:0 0 110px;color:var(--dim)}
+.lim .lv{flex:1;min-width:0}
+.lim .lrule{margin:0 0 6px}
+.lim .lh,.lim .lnote{color:var(--dim);font-size:11px}
+.lim input,.lim select{background:var(--code);color:var(--fg);border:1px solid var(--line);border-radius:4px;
+font:inherit;font-size:12px;padding:3px 6px}
+.lim input[size="3"]{width:44px;text-align:right} .lim input[size="5"]{width:62px} .lim input[size="7"]{width:80px;text-align:right}
+.lim input.bad{border-color:var(--pbad);outline:1px solid var(--pbad)}
+.lim button.lx,.lim button.ladd{background:none;border:0;color:var(--dim);font:inherit;cursor:pointer;padding:0 4px}
+.lim button.ladd{border-bottom:1px dotted var(--line);padding:0}
+.lim button.lx:hover,.lim button.ladd:hover{color:var(--fg)}
+.lim button.cp{font-size:12px;padding:3px 10px}
+.lim button.cp[disabled],.lim a.go.off{opacity:.45;cursor:default}
+.lim a.go{font-size:12px;padding:3px 12px;color:var(--fg);border-color:var(--dim)}
+@media(max-width:700px){.lim .lrow{flex-direction:column}.lim .lk{flex:none}details.lim .lr{margin-left:0}}
+@media print{details.lim,#limits{display:none}}

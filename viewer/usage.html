@@ -19,9 +19,12 @@ padding:4px 14px;font:inherit;font-size:11px;cursor:pointer;margin-left:-1px}
 .view .gap{margin-left:20px}
 /* A label stays on the line of the buttons it names. */
 .view .vg{display:inline-block;white-space:nowrap;margin:2px 0}
+.view .vg[hidden]{display:none}
 .view #pall{border-radius:0 4px 4px 0}
 .view #bmodel{border-radius:4px 0 0 4px;margin-left:7px}
 .view #bproject{border-radius:0 4px 4px 0}
+.view #cthen{border-radius:4px 0 0 4px;margin-left:7px}
+.view #cnow{border-radius:0 4px 4px 0}
 .view button:hover{color:var(--fg)}
 .view button.on{color:var(--fg);border-color:var(--dim);background:var(--bg)}
 /* headline cards */
@@ -35,6 +38,29 @@ padding:4px 14px;font:inherit;font-size:11px;cursor:pointer;margin-left:-1px}
 .card .l{font-size:10.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.07em;margin-top:3px}
 .card .d{font-size:10.5px;margin-top:4px;color:var(--dim)}
 .card .d.up{color:#b06a2a} .card .d.dn{color:var(--m1)}
+/* The calculated cost, under the recorded one and never added to it. */
+.card .c2{font-size:10.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.07em;margin-top:9px}
+.card .c2 b{font-size:15px;font-weight:600;color:var(--m3);letter-spacing:0;text-transform:none;margin-right:3px}
+td.cc{color:var(--m3)}
+td.cc .cm,.cost .cm{font-size:10px;letter-spacing:.04em;opacity:.85}
+/* price history */
+table.ph tr.bucket th{padding-top:14px}
+table.ph .pm i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:7px}
+table.ph tr.old td{color:var(--dim)}
+table.ph .gc{color:var(--m1);font-size:11px}
+table.ph .up{color:#b06a2a} table.ph .dn{color:var(--m1)}
+/* The change gets the room of "cache read 0.20 → 0.10 −50 %" and the period
+   what is left; the five prices are narrower than token counts. */
+table.u.ph{min-width:940px}
+table.u.ph col.c{width:250px}
+table.u.ph col.n,table.u.ph col.n:last-child{width:calc(var(--numw) * .7)}
+table.u.ph th,table.u.ph td{padding-left:8px;padding-right:8px}
+table.u.ph thead th{white-space:normal;vertical-align:bottom}
+table.ph td{white-space:nowrap;text-overflow:ellipsis}
+/* Room in the cost column for "≈ $12.40 calc". */
+table.u:not(.ph) col.n:last-child{width:calc(var(--numw) + 18px)}
+h2 .ps{font-size:11px;color:var(--dim);font-weight:400;text-transform:none;letter-spacing:0}
+#pnotes a{color:inherit}
 /* the chart: one column per period, stacked by model */
 /* Bars and labels are two rows with identical flex, so a full-height bar
    cannot push its own label out of the box. */
@@ -110,6 +136,8 @@ table.u{font-size:12px;min-width:610px}
 table.u th,table.u td{padding-left:8px;padding-right:8px}
 table.u col.n:last-child{width:calc(var(--numw) - 8px)}
 table.u thead th{white-space:normal}
+table.u.ph col.n,table.u.ph col.n:last-child{width:72px}
+table.u.ph col.c{width:240px}
 }
 @media print{
 :root:root:root{--m1:#2f6f4f;--m2:#7a4f2a;--m3:#4a5f8a;--m4:#8a4a6a;--m5:#7a6a2a;--m6:#4a6f7a}
@@ -121,12 +149,16 @@ table.u thead th{white-space:normal}
 <p class="crumb"><a href="index.html">claude-html</a> / token usage <button id="theme" class="th" title="theme" aria-label="theme">◐</button></p>
 <h1>Token usage</h1>
 <p class="sub" id="sub"></p>
+<div id="plan" hidden></div>
+<div id="limits" hidden></div>
 
 <div id="dash">
 <p class="view" id="view"><span class="vg">period ·
 <button id="pweek">week</button><button id="pmonth">month</button><button id="pall">all</button></span>
 <span class="vg gap">broken down by ·
-<button id="bmodel">model</button><button id="bproject">project</button></span></p>
+<button id="bmodel">model</button><button id="bproject">project</button></span>
+<span class="vg gap" id="cgroup">cost at ·
+<button id="cthen">the price of the time</button><button id="cnow">today's prices</button></span></p>
 <p class="filt" id="filt" hidden></p>
 
 <div class="cards" id="cards"></div>
@@ -149,6 +181,19 @@ The chart stays on tokens: a cost lands all at once when a session exits, so cha
 <thead><tr><th id="oth">Project</th><th class="num">Input</th><th class="num">Output</th>
 <th class="num">Cache read</th><th class="num">Cache write</th><th class="num">Replies</th><th class="num">Total</th><th class="num">Cost</th></tr></thead>
 <tbody id="projects"></tbody></table></div>
+
+<div id="prices" hidden>
+<h2>Price history <span class="ps">· USD per million tokens<span id="pcheck"></span></span></h2>
+<div class="tu"><table class="u ph"><colgroup><col class="p"><col class="n"><col class="n"><col class="n"><col class="n"><col class="n"><col class="c"><col class="n"><col class="n"></colgroup>
+<thead><tr><th>Price period</th><th class="num">Input</th><th class="num">Output</th>
+<th class="num">Cache read</th><th class="num">Write 5 min</th><th class="num">Write 1 h</th><th>Change</th><th class="num">Your tokens</th><th class="num">Sessions</th></tr></thead>
+<tbody id="ptable"></tbody></table></div>
+<p class="hint">The calculated cost is the tokens times the price line in force at each hour (UTC days), or
+today's line with “today's prices”: standard API list prices, without batch or US-only (1.1×) pricing.
+Replies in fast mode and Haiku 5.5 prompts over 100,000 tokens have lines of their own. On a subscription
+it is what the same tokens would cost at list price, not a bill.</p>
+<div id="pnotes"></div>
+</div>
 </div>
 
 <p class="none" id="empty" hidden>No usage recorded yet — it comes from the raw transcripts, so sessions whose
@@ -156,4 +201,6 @@ transcript Claude Code has already deleted cannot report theirs.</p>
 </main>
 <script type="application/json" id="usage-data">/*{{data}}*/</script>
 <script>/*{{viewer}}*/</script>
+<script>/*{{prices}}*/</script>
+<script>/*{{plan}}*/</script>
 <script>/*{{usage}}*/</script>

@@ -149,7 +149,7 @@ const cell = [10, 20, 300, 40, 2];
 const GAPPY = { app: {
   "2026-09-16T12": { "claude-opus-4-5": cell },
   "2026-10-14T12": { "claude-opus-4-5": cell },
-  "2026-11-18T12": { "claude-opus-4-5": cell.concat([1234567]) } } };
+  "2026-11-18T12": { "claude-opus-4-5": cell.concat([0, 0, 1234567]) } } };
 const cols = (html) => (html.match(/class="col"/g) || []).length;
 const bars = (html) => (html.match(/<button type="button" class="col"/g) || []).length;
 

@@ -102,7 +102,7 @@ node -e 'var fs=require("fs"),p=process.argv[1],a=JSON.parse(fs.readFileSync(p,"
 printf '%s' "$NOTE" | save "--try"
 check "a format 2 archive of an unchanged transcript is rewritten with its cost" \
   "$(head -c 200 "$A" | grep -c "\"format\":$AF,") $(node -e 'var a=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")),n=0;
-  Object.keys(a.usage).forEach(function(h){ Object.keys(a.usage[h]).forEach(function(m){ var r=a.usage[h][m]; if(r.length>5) n+=r[5]; }); }); console.log(n)' "$A")" "1 1250000"
+  Object.keys(a.usage).forEach(function(h){ Object.keys(a.usage[h]).forEach(function(m){ var r=a.usage[h][m]; if(r.length>7) n+=r[7]; }); }); console.log(n)' "$A")" "1 1250000"
 
 # A nested folder the build cannot find on its own — the transcript is filed
 # elsewhere and names another cwd — goes on the durable list when the hook

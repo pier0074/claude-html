@@ -99,9 +99,10 @@ each bar's tooltip — following the period, the breakdown and the filter
 exactly as the tokens do. Its limits, which the dashboard states with the
 count of sessions it covers:
 
-- Most sessions have no cost at all: older ones were never given the record,
-  and sub-agents spend on their parent's. They show `—`, never `$0.00`, and
-  nothing is estimated for them — no prices are kept here.
+- Most sessions have no recorded cost at all: older ones were never given the
+  record, and sub-agents spend on their parent's. Where nothing was recorded
+  the calculated cost below stands in, marked `calc`; with no price line for
+  any of its models a session still shows `—`, never `$0.00`.
 - The record is a running total written when a session exits, with no time of
   its own. Each one becomes what it added since the one before, filed under
   the hour of the last record before it — so a day's work can land on the
@@ -115,6 +116,49 @@ count of sessions it covers:
   no record. Such a session's cost is a floor and says `≥` instead of `≈`.
 - On a subscription these are what the same use would cost at list prices:
   an equivalent, not a bill.
+
+**What it cost, calculated from a dated price file.** Beside what Claude Code
+recorded — never added to it — every session also gets a calculated cost: its
+tokens times the price of the time, from `prices.tsv` in the repository (one
+line per model and price period, copied from Anthropic's pricing page, with
+the page and the day it was checked; [SETUP.md](SETUP.md#prices) says how to
+add a line). The index and the line under a session's title show it where
+nothing was recorded, as `$12.40 calc` (`≈ $12.40 calc` under the title); the
+dashboard's cost card shows both, `$412` recorded by Claude Code and `$498`
+calculated, and its tables show the recorded cost plain and the calculated one,
+marked `calc`, where none was recorded.
+
+- **The price of the time.** A reply is priced by the line whose `from`–`to`
+  holds its day, in UTC, both days included. The dashboard's third toggle,
+  *cost at · the price of the time / today's prices*, prices every hour at the
+  current line instead, to show what the same work would cost now; the browser
+  remembers the choice.
+- **Five prices.** Input, output, cache reads, and cache writes in two kinds:
+  5-minute and 1-hour writes cost differently (1.25× and 2× the input price),
+  so the two are stored apart, per hour and model, from each reply's
+  `cache_creation` record. A write whose kind no record says — an archive
+  written before 3.3.0 whose transcript is gone, or a transcript older than
+  that record — is priced as a 5-minute write, and the dashboard says how many
+  tokens that is ("split unknown").
+- **Prices of their own.** A reply in fast mode (`usage.speed` is `fast`) is
+  filed under its model with `/fast` (`opus-5-5/fast`), and a Claude Haiku 5.5
+  request whose prompt — input, cache reads and cache writes — is over 100,000
+  tokens under `haiku-5-5/over-100k`, because the pricing page prices both
+  higher, per request. They show as models of their own on the dashboard.
+  Nothing else is applied: no batch discount, no US-only 1.1×, no cloud
+  platform prices — standard list prices only.
+- **Unknown models are not priced.** A model id matches its own line, or, for
+  a dated id such as `claude-haiku-4-5-20251001`, the line without the date.
+  Anything else is "not priced": left out of the calculated cost, never
+  guessed. A session with tokens of such a model says `≥`, and the dashboard
+  lists those models and how many tokens they had.
+- **Price history.** The dashboard's last section lists, per model you used,
+  the current price and the periods before it, what changed (old → new, ± %),
+  and how many of your tokens and sessions fell in each period, with the day
+  the file was last checked and its sources.
+- **A stale file gives quietly wrong numbers.** The file changes only when
+  someone adds a line; that is why each line says when it was checked, and the
+  dashboard shows the newest of those dates.
 
 **Long conversations open quickly.** A session of fifteen thousand messages is
 a hundred thousand DOM nodes, and putting all of them on the page is what made
@@ -221,7 +265,7 @@ To erase every trace as well:
 | Path | Change |
 | ---- | ------ |
 | `~/.claude/claude-html.conf` | the two directories, and the week reset offered commented out; written once, then only added to |
-| `~/.claude/settings.json` | hooks that save after every reply (`Stop`) and at the end (`SessionEnd`, `PreCompact`); `cleanupPeriodDays` set to 3650 **only if you have not set it** |
+| `~/.claude/settings.json` | hooks that save after every reply (`Stop`) and at the end (`SessionEnd`, `PreCompact`); the guard's; `statusLine`, claude-html's or claude-html's around yours; `cleanupPeriodDays` set to 3650 **only if you have not set it** |
 | `~/.local/bin/claude-html` | a symlink, so you can type `claude-html` |
 | `Claude HTML.app` | macOS: built beside the scripts; receives the index's delete, open and resume links |
 | `~/.local/share/applications/claude-html-handler.desktop` | Linux, where there is a desktop: claims `claude-html://` links for `handler.sh`, registered with `xdg-mime` |
@@ -317,6 +361,7 @@ bash tests/build.test.sh        # a failed build never costs a page, nor does a 
 bash tests/hooks.test.sh        # a save finds its transcript; a cut-short archive never wins
 bash tests/agents.test.sh       # sub-agents land inside their parent, never rows of their own
 bash tests/usage.test.sh        # the dashboard counts every reply once, and every cost, from transcript or archive
+bash tests/prices.test.sh       # the price file, the line in force at a boundary, the 5-minute/1-hour split, calculated beside recorded
 bash tests/redact.test.sh       # no secret reaches an archive, a page or a cache; the transcript is never touched
 bash tests/guard.test.sh        # a prompt or command holding a secret is stopped, and each answer does what it says
 bash tests/install.test.sh      # a second install keeps your conf; env, conf, default; only its own hooks
@@ -412,7 +457,8 @@ page is (`parse.js`), so once the transcript is gone the page made from the
 archive shows what it showed before: the same messages, cut where the page
 cuts them, the same title, prompts and search. An archive keeps your prompts, the replies, each tool call with
 its arguments, what it returned, the thinking, the tokens each reply used,
-by hour and model, and the cost where Claude Code recorded one — so once the
+by hour and model (cache writes split into 5-minute and 1-hour), and the cost
+where Claude Code recorded one — so once the
 transcript is gone the page, its search and the dashboard keep their numbers.
 An archive written by an older version is
 rewritten in the new form by the next save of its session while its
@@ -645,6 +691,48 @@ nobody can see a dialog, and the settings are in
 [SETUP.md](SETUP.md#guard). A blocked prompt may still be in Claude Code's
 prompt history and its transcript: its documentation says so of every
 prompt a hook blocks.
+
+### Plan limits and the stop rules
+
+How the figures travel, from Claude Code to the pages and the stop:
+
+```text
+  Claude Code, after each reply (and at a rate-limit reset, or on refreshInterval)
+          │  JSON: rate_limits.five_hour / seven_day (used_percentage, resets_at),
+          │        cost.total_cost_usd, session_id
+          ▼
+  statusline.sh ──▶ the line under the input box (yours first, when wrapped)
+          │  only when something changed, or every five minutes
+          ▼
+  ~/.claude/.claude-html.limits   the latest figures and when they were seen
+          │
+          ├──▶ guard.sh (UserPromptSubmit): a rule in force and reached ──▶ the stop window
+          ├──▶ save-conversation.sh --background (Stop): announce a rule once ──▶ systemMessage
+          └──▶ the build (limits.sh ──▶ convert.js): the plan line, Limits & budget
+                       │  the budget period's cost (limits.js weekSpend: recorded,
+                       │  else the price table's, per session)
+                       ▼
+               ~/.claude/.claude-html.spend ──▶ the status line, the stop, the warnings
+```
+
+Everything on the way is bash and its builtins: the status line starts one
+`date` in the common case, and the prompt hook with no rule and no budget
+starts nothing. When a rule starts in a week is worked out once per week
+and kept in the state file. What was announced, and an "Allow until the
+reset", are in `~/.claude/.claude-html.limits-marks`, each ending at the
+time it means nothing any more. The page writes nothing: its **apply** is a
+`claude-html://limits/…` link, which the helper (macOS) or `handler.sh`
+(Linux) checks against a fixed form before the command checks it again
+and asks in a window, Cancel the default.
+
+**Limits to know.** The figures update only while Claude Code runs; with no
+session open they stand still, and every display says "as of". Anthropic
+decides the `rate_limits` and `cost` fields: older Claude Code versions do
+not send them, and they can change or go. A stop acts on new prompts only:
+a task already running, and the sub-agents it started, carry on. A rule
+uses the week as last seen, so a prompt sent before the next refresh can
+pass a level by a few percent. The settings and the windows are in
+[SETUP.md](SETUP.md#limits-and-budget).
 
 ## Privacy
 

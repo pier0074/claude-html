@@ -24,6 +24,16 @@ HERE="${BASH_SOURCE[0]%/*}"
 case "$HERE" in /*) ;; *) HERE="$PWD/$HERE" ;; esac
 # shellcheck source=conf.sh
 . "$HERE/conf.sh" 2>/dev/null || exit 0
+# The owner's stop rules and API budget (limits.sh), before the secret
+# check: a prompt stopped here never reaches it. With neither set, this
+# is a file sourced and a few variables read, and no command is started.
+if [ "$KIND" = prompt ] && [ -f "$HERE/limits.sh" ] && . "$HERE/limits.sh" 2>/dev/null; then
+  ch_lim_settings
+  if [ -n "$CH_LIM_ON" ] && { [ "$CH_LIM_N" -gt 0 ] || [ "$CH_LIM_BC" -gt 0 ]; }; then
+    LIM_OUT="$(ch_lim_prompt "$NOTE" "$HERE" 2>/dev/null)"
+    case "$LIM_OUT" in '{'*'}') printf '%s\n' "$LIM_OUT"; exit 0 ;; esac
+  fi
+fi
 ch_is_off "$CLAUDE_HTML_GUARD" && exit 0
 case "$CLAUDE_HTML_GUARD" in [Pp][Rr][Oo][Mm][Pp][Tt]) [ "$KIND" = bash ] && exit 0 ;; esac
 # What is pending, one file per session: a prompt in one session must not

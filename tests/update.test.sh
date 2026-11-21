@@ -47,7 +47,8 @@ gitx() { HOME="$H" XDG_CONFIG_HOME="$H/.config" git -c user.name=tester -c user.
 # stub install.sh. 2.0.0 writes archive format 3; 3.1.0 changes the viewer
 # (so its pages are rebuilt) and the hooks (so the update says so).
 FILES="claude-html conf.sh platform.sh release.sh lock.sh update.sh save-conversation.sh guard.sh guard.js
-  convert.js parse.js redact.js dialog.js delete.js open.js resume.js settings-hooks.js handler.sh .gitignore viewer"
+  convert.js parse.js prices.js prices.tsv redact.js dialog.js delete.js open.js resume.js settings-hooks.js handler.sh .gitignore viewer
+  limits.sh limits-cli.sh limits.js statusline.sh"
 changelog_for() {   # the newest version, then all it includes
   echo "# Changelog"; echo
   local v
@@ -320,7 +321,9 @@ kill "$SLEEPER" 2>/dev/null; rm -rf "$H/.claude/.claude-html.lock"
 # Going back.
 clone a v3.1.0
 out="$(ch --update 3.0.0)"; rc=$?
-has "going back: warned, with the archive format" "$out" "archive format 5"
+# The format this tree writes, which every release made from it writes too.
+AFNOW="$(. "$HERE/release.sh"; printf '%s' "$CH_ARCHIVE_FORMAT")"
+has "going back: warned, with the archive format" "$out" "archive format $AFNOW"
 has "  refused without a yes and no terminal" "$out" "going back needs a yes"
 check "  nothing moved" "$rc $(at)" "1 v3.1.0"
 : > "$T/installs"
@@ -328,7 +331,7 @@ out="$(ch --update 3.0.0 --yes)"; rc=$?
 check "  done with --yes" "$rc $(at) $(installs)" "0 v3.0.0 3.0.0"
 clone a v3.1.0
 out="$(ch -y --update 2.0.0)"; rc=$?
-has "  to 2.x, whose format is in its save script: it cannot read format 5" "$out" "2.0.0 cannot read the archives 3.1.0 writes (archive format 5; 2.0.0 knows format 3 and older)"
+has "  to 2.x, whose format is in its save script: it cannot read format $AFNOW" "$out" "2.0.0 cannot read the archives 3.1.0 writes (archive format $AFNOW; 2.0.0 knows format 3 and older)"
 has "  and the way back is said" "$out" "git checkout main && git pull && ./install.sh"
 check "  done" "$rc $(at)" "0 v2.0.0"
 

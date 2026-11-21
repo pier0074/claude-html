@@ -45,7 +45,9 @@ What it changes
                                only what is missing, and --out or --root
                                change just their own line
   ~/.claude/settings.json      adds hooks that save after every reply and at
-                               session end, keeping anything already there
+                               session end, keeping anything already there,
+                               and the status line (around yours, if you
+                               have one: --uninstall gives yours back)
   ~/.local/bin/claude-html     a symlink, so you can type claude-html
   Claude HTML.app              macOS: beside this script, handles the index's
                                delete, open and resume links, and asks before
@@ -102,16 +104,18 @@ if [ "$UNINSTALL" = 1 ]; then
   RESULT="$(run_js "$HERE/settings-hooks.js" "$SETTINGS" "$HERE" remove 2>/dev/null || true)"
   case "$RESULT" in
     unparseable) say "settings.json is not valid JSON — left alone" ;;
-    removed*)    say "$RESULT hook(s); everything else in settings.json is untouched" ;;
+    removed*)    _sl=""; [ "${RESULT#*;}" != "$RESULT" ] && _sl=";${RESULT#*;}"
+                 say "${RESULT%%;*} hook(s)$_sl; everything else in settings.json is untouched" ;;
     *)           say "could not update $SETTINGS — remove the hooks yourself" ;;
   esac
   # What it kept for itself in ~/.claude, which nothing reads without it:
   # the update check's state, the guard's pending answers and engine, the
-  # update launchers. Not the conf, the list of archive folders, the hidden
+  # update launchers, the latest plan figures and what was announced. Not the conf, the list of archive folders, the hidden
   # chats or the own list of secrets: those are yours.
   n=0
   for f in .claude-html.update .claude-html.guard .claude-html.guard-engine .claude-html-guard \
-           .claude-html-update.command .claude-html-update.sh; do
+           .claude-html-update.command .claude-html-update.sh \
+           .claude-html.limits .claude-html.limits-marks .claude-html.spend .claude-html-limits-ask; do
     [ -e "$HOME/.claude/$f" ] && rm -rf "${HOME:?}/.claude/$f" && n=$((n + 1))
   done
   [ "$n" = 0 ] || say "removed $n file(s) of its own state from ~/.claude"
@@ -251,6 +255,12 @@ case "$RESULT" in
     [ -n "$ADDED" ] && say "hooks:    $ADDED" || say "hooks:    already configured"
     THEIRS="$(printf '%s' "$RESULT" | sed -n 's/.*"theirs":\([0-9]*\).*/\1/p' || true)"
     [ "${THEIRS:-0}" -gt 0 ] && say "          ($THEIRS hook(s) of yours left exactly as they were)" || true
+    # The status line: one slot, claude-html's in it, or around yours.
+    case "$RESULT" in
+      *'"statusLine":"added"'*) say "status:   Claude Code's status line shows the plan's usage (claude-html --limits)" ;;
+      *'"statusLine":"wrapped"'*) say "status:   yours first, then the plan's usage, on Claude Code's status line" ;;
+      *'"statusLine":"left"'*) say "status:   your statusLine is not a command, so it was left as it is" ;;
+    esac
     DAYS="$(printf '%s' "$RESULT" | sed -n 's/.*"cleanupPeriodDays":\([0-9]*\).*/\1/p' || true)"
     case "$RESULT" in *'"keptTheirCleanup":true'*)
       [ "${DAYS:-3650}" -lt 365 ] && \

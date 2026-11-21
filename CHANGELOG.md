@@ -5,6 +5,38 @@ fixes, a minor adds without breaking, a major needs something from you
 (usually `./install.sh` again). To update: `claude-html --update`; before
 3.1.0, `git checkout main && git pull && ./install.sh`.
 
+## 3.3.0 — 2026-11-21
+
+- **Plan limits in Claude Code's status line.** Your 5-hour and weekly usage
+  under the prompt, green, amber from 80 %, red from 95 %, with the reset
+  times; the index and the Token usage page show the same line, "as of" when
+  Claude Code last reported it. A status line you already have is kept:
+  claude-html's wraps it, and `--uninstall` gives it back exactly.
+- **Stop rules.** "From Fri 20:00, stop at 80 %" asks before a new prompt, in
+  the guard's window: Cancel, Allow once, Allow until the reset, Stop. A task
+  already running is never interrupted, and old figures never stop anything.
+  Announced once in Claude Code before a rule starts and when it starts;
+  Claude Code's own plan warnings are not repeated.
+- **API budget** per day, week or month: warnings at 80 and 95 %, a stop at
+  100 %.
+- **Set it all** with `claude-html --limits`, or in the Token usage page's
+  Limits & budget section, which copies the commands or applies them through
+  a `claude-html://limits` link that always asks first. Optional desktop
+  banner: `claude-html --limits notify on`.
+- **A calculated cost beside the recorded one**, never mixed: every session's
+  tokens at the list price of their day, from `prices.tsv`, a dated price
+  file citing Anthropic's own pages. Shown marked `calc` where nothing was
+  recorded (`—` before). The dashboard's cost card shows both; a third toggle
+  prices "at the time" or "at today's prices"; a Price history lists each
+  model's price periods, the change, and your tokens in each.
+- Cache writes are kept as 5-minute and 1-hour writes, priced differently;
+  fast mode and Haiku 5.5 prompts over 100,000 tokens have their own lines;
+  a model without a line is said to be unpriced, never guessed.
+  `CLAUDE_HTML_PRICES` points to a price file of your own.
+- After updating: nothing to do. `./install.sh`, which the update runs, adds
+  the status line; every page rebuilds once; each archive whose transcript is
+  still there is rewritten in format 6 at its next save.
+
 ## 3.2.1 — 2026-11-21
 
 - **The weekly reset can be given in UTC**: `CLAUDE_HTML_WEEK_RESET="tue 07:00 UTC"`.

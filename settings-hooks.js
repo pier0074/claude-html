@@ -15,6 +15,13 @@
 // remove takes out this clone's hooks and nothing else. add takes out the
 // hooks of any other copy of claude-html - an earlier clone somewhere else -
 // and puts this clone's in their place, so the hooks are always one set.
+//
+// The status line is one slot, statusLine. add puts claude-html's there
+// when it is empty; when it holds a command of the user's own, claude-html's
+// wraps it — `bash '<clone>/statusline.sh' --wrap '<their command>'`, their
+// command kept whole inside ours, every other field of theirs as it was —
+// and statusline.sh runs theirs first. remove gives theirs back exactly,
+// or empties the slot it filled.
 
 function run(argv) {
   var settingsPath = argv[0], here = argv[1], mode = argv[2], noGuard = argv[3] === "no-guard";
@@ -165,11 +172,36 @@ function run(argv) {
     return n;
   }
 
+  // ── the status line ──
+  // Ours is recognised by its whole command, as a hook is: bash, a path
+  // ending in statusline.sh in a copy of claude-html (or, quoted as only
+  // this installer writes it, one since gone), and nothing after it but
+  // --wrap and one quoted command.
+  var Q = "'((?:[^']|'\\\\'')*)'";
+  var SLRE = new RegExp("^\\s*bash\\s+" + Q + "(?:\\s+--wrap\\s+" + Q + ")?\\s*$");
+  function unq(t) { return t.replace(/'\\''/g, "'"); }
+  function statusLineOf(sl) {
+    if (!sl || typeof sl !== "object" || typeof sl.command !== "string") return null;
+    var m = SLRE.exec(sl.command);
+    if (!m) return null;
+    var p = unq(m[1]), slash = p.lastIndexOf("/");
+    if (slash < 1 || p.slice(slash + 1) !== "statusline.sh") return null;
+    var dir = p.slice(0, slash);
+    var mine = real(dir) === HERE_REAL;
+    if (!mine && !looksOurs(dir) && exists(dir + "/statusline.sh")) return null;
+    return { dir: dir, mine: mine, wrap: m[2] === undefined ? null : unq(m[2]) };
+  }
+
   if (mode === "remove") {
     var removed = drop(function (c) { return isMine(c); });
     if (Object.keys(hooks).length) data.hooks = hooks; else delete data.hooks;
+    var slNote = "", slOurs = statusLineOf(data.statusLine);
+    if (slOurs && slOurs.mine) {
+      if (slOurs.wrap !== null) { data.statusLine.command = slOurs.wrap; slNote = "; status line restored to yours"; }
+      else { delete data.statusLine; slNote = "; status line removed"; }
+    }
     if (!writeFile(settingsPath, JSON.stringify(data, null, 2) + "\n")) return "unwritable";
-    return "removed " + removed;
+    return "removed " + removed + slNote;
   }
 
   // Claude Code hands the command to a shell, so a clone path with a space in
@@ -269,6 +301,26 @@ function run(argv) {
     }
   }
 
+  // The status line: ours in an empty slot, around theirs in a taken one,
+  // moved here from another copy of claude-html with what it wraps.
+  var slCmd = "bash " + quote(here + "/statusline.sh"), slState = "kept";
+  var slNow = statusLineOf(data.statusLine);
+  if (data.statusLine === undefined || data.statusLine === null) {
+    data.statusLine = { type: "command", command: slCmd };
+    slState = "added"; added.push("statusLine");
+  } else if (slNow && !slNow.mine) {
+    data.statusLine.command = slCmd + (slNow.wrap !== null ? " --wrap " + quote(slNow.wrap) : "");
+    slState = slNow.wrap !== null ? "wrapped" : "added"; added.push("statusLine (from " + slNow.dir + ")");
+  } else if (!slNow && data.statusLine && typeof data.statusLine === "object" &&
+             typeof data.statusLine.command === "string" && data.statusLine.command.trim()) {
+    data.statusLine.command = slCmd + " --wrap " + quote(data.statusLine.command);
+    slState = "wrapped"; added.push("statusLine (around yours)");
+  } else if (slNow) {
+    slState = slNow.wrap !== null ? "wrapped" : "ours";
+  } else {
+    slState = "left";
+  }
+
   // Raw transcripts hold more than the archives do and are deleted after 30
   // days. Only decide this for someone who has not decided it themselves.
   var kept = data.cleanupPeriodDays;
@@ -294,6 +346,7 @@ function run(argv) {
     added: added,
     theirs: theirs,
     cleanupPeriodDays: data.cleanupPeriodDays,
+    statusLine: slState,
     keptTheirCleanup: !(kept === undefined || kept === null)
   });
 }

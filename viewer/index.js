@@ -18,6 +18,9 @@
   function esc(s) { return CH.esc(s); }
 
   CH.themeInit(document.getElementById("theme"));
+  // The plan's figures and the stop rule, between the build line and the
+  // search box, where the build put some (plan.js).
+  if (typeof CHPlan !== "undefined") CHPlan.mount(data);
 
   function stamp(secs) {
     if (!secs) return "";
@@ -110,7 +113,15 @@
   // sessions predate the record and say "—", never "$0.00"; "≥" marks one
   // whose record covers only part of it. Whole dollars from ten up, so the
   // column stays narrow enough for the title to keep its room.
+  // Where nothing was recorded, the cost calculated from the price file,
+  // marked "calc": never mistaken for what Claude Code recorded.
   function cost(s) {
+    if ((!s.tok || s.tok.length < 6) && s.calc !== undefined && s.calc !== null) {
+      return '<td class="num cost calc" title="calculated from the price file at the price of the time' +
+        (s.calcPart ? "; some models have no price line, so at least this" : "") +
+        ': Claude Code recorded no cost">' + (s.calcPart ? "≥ " : "") + CH.fmtMoney(s.calc, true) +
+        ' <span class="cm">calc</span></td>';
+    }
     if (!s.tok || s.tok.length < 6) return '<td class="num cost d">—</td>';
     return '<td class="num cost" title="' + (s.costPart
       ? "at least: some replies fall outside what Claude Code recorded"

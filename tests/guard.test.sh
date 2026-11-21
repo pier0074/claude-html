@@ -317,6 +317,26 @@ check "--guard off: the same line" "$(grep -c '^CLAUDE_HTML_GUARD=' "$CONFF") $(
 check "--doctor has a guard line" "$(cli --doctor | grep -c '^  guard off · 1 safe value(s)')" 1
 check "--guard with anything else says how to use it" "$(cli --guard maybe) $(cli --guard maybe >/dev/null; echo $?)" "claude-html --guard on|prompt|off|status 2"
 
+# ── beside the limits (limits.sh) ────────────────────────────────────
+# The same prompt hook stops a prompt by the owner's weekly rule before the
+# secret check; let through, it still meets the secret check.
+reset; ENG=node
+LNOW=1795267740; LR=1795503600
+printf 'asof=%s\nweek_pct=81\nweek_reset=%s\nplan_seen=%s\n' "$LNOW" "$LR" "$LNOW" > "$H/.claude/.claude-html.limits"
+printf 'CLAUDE_HTML_LIMIT_RULES="fri 20:00 80%%"\n' >> "$CONFF"
+lh() { hook prompt "$1" CLAUDE_HTML_TEST_NOW="$LNOW" TZ=Europe/Zurich; }
+check "a rule in force, a secret in the prompt: the rule asks first" \
+  "$(lh "$T/note.secret" | grep -c 'weekly limit rule reached')" 1
+SIDL="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).session_id)' "$T/note.secret")"
+printf '{"session_id":"%s","prompt":"allow"}' "$SIDL" > "$T/note.lallow"
+check "  allowed once, the secret check still stops it" \
+  "$(lh "$T/note.lallow" | grep -c 'Allowed once') $(lh "$T/note.secret" | grep -c 'sensitive information detected')" "1 1"
+rm -f "$H/.claude/.claude-html-guard/limits-$SIDL"
+check "  and with the guard off, the rule still stops a prompt" \
+  "$(hook prompt "$T/note.clean" CLAUDE_HTML_TEST_NOW="$LNOW" TZ=Europe/Zurich CLAUDE_HTML_GUARD=off | grep -c 'weekly limit rule reached')" 1
+check "  a command is never stopped by a rule" "$(hook bash "$T/note.bash_clean" CLAUDE_HTML_TEST_NOW="$LNOW" TZ=Europe/Zurich)" ""
+rm -f "$H/.claude/.claude-html.limits" "$H/.claude/.claude-html.limits-marks"; rm -rf "$H/.claude/.claude-html-guard"
+
 # ── installed beside what is there, once ─────────────────────────────
 S="$T/settings.json"
 printf '{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"theirs.sh"}]}]}}\n' > "$S"

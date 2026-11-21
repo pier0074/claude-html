@@ -52,6 +52,35 @@ UPD_ENV=unset
 # One line of the conf, changed where it stands or added: conf.sh's.
 conf_line() { ch_conf_set "$@"; }
 
+# ── plan limits, the API budget and the stop rules ───────────────────
+# --limits shows and sets them, one conf line at a time; --limits-apply is
+# what a claude-html://limits link from the Token usage page reaches: it
+# asks in a window first, then writes and rebuilds the pages.
+case "${1:-}" in
+  --limits|--limits-apply)
+    set +u
+    # shellcheck source=platform.sh
+    . "$HERE/platform.sh"
+    # shellcheck source=limits.sh
+    . "$HERE/limits.sh"
+    # shellcheck source=limits-cli.sh
+    . "$HERE/limits-cli.sh"
+    if [ "$1" = --limits ]; then shift; ch_lim_cli "$@"; exit $?; fi
+    [ $# = 2 ] || { echo "claude-html --limits-apply <payload>" >&2; exit 2; }
+    ch_lim_apply "$2"; _rc=$?
+    [ "$_rc" = 10 ] || exit "$_rc"
+    # The pages show what was applied: built as a save builds them, in turn.
+    ch_pick_engine
+    # shellcheck source=lock.sh
+    . "$HERE/lock.sh"
+    _nc=""; ch_lock_take 60 || _nc=":cache false"
+    # shellcheck disable=SC2086
+    ch_js "$HERE/convert.js" "$(ch_js_opts "$HERE" $_nc)" >/dev/null 2>&1
+    [ -n "$_nc" ] || ch_lock_release
+    ch_private_out "$OUT"
+    exit 0 ;;
+esac
+
 if [ -n "$UPDATE" ]; then
   case "$UPDWORD" in
     on|off)
@@ -140,6 +169,7 @@ for arg in "$@"; do
     --redact-check) REDACTCHECK=1 ;;
     --redact-archives) REDACTARCHIVES=1 ;;
     --guard) GUARD=1 ;;
+    --limits|--limits-apply) echo "claude-html $arg comes first: claude-html --limits [status|add|remove|rules|budget|notify|on|off]" >&2; exit 2 ;;
     --yes|-y) YES=true ;;
     -h|--help)
       echo "claude-html            rebuild what changed, open the index"
@@ -157,6 +187,10 @@ for arg in "$@"; do
       echo "claude-html --redact-check     what would be masked as secret, per session and archive; changes nothing"
       echo "claude-html --redact-archives  rewrite the archives that still hold secrets, masked"
       echo "claude-html --guard on|prompt|off|status   stop a secret before it reaches Claude"
+      echo "claude-html --limits         plan usage, stop rules, API budget: what is set and the latest figures"
+      echo "claude-html --limits add \"fri 20:00 80%\" | remove <n> | rules \"…\"|none"
+      echo "claude-html --limits budget day|week|month <dollars> | budget off | budget warn <a> <b>"
+      echo "claude-html --limits notify on|off | on|off"
       exit 0 ;;
     *) if [ -n "$GUARD" ] && [ -z "$GUARDARG" ]; then GUARDARG="$arg"; else ONLY="$arg"; fi ;;
   esac
@@ -248,6 +282,8 @@ if [ -n "$DOCTOR" ]; then
   run_js "$HERE/convert.js" "$(js_opts :redactInfo true)" 2>/dev/null ||
     echo "  redact    could not be checked: $CH_ENGINE_WHY"
   echo "  $(guard_line)"
+  # shellcheck source=limits-cli.sh
+  echo "  limits    $( set +u; . "$HERE/limits.sh" && . "$HERE/limits-cli.sh" && ch_lim_doctor 2>/dev/null)"
   exit 0
 fi
 

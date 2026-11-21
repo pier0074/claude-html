@@ -1,8 +1,11 @@
 // The token dashboard. The data is project -> UTC hour -> model -> [input,
-// output, cache read, cache write, replies, cost]; everything on the page is
-// an aggregate of that, converted to local time here, and the period buttons
-// decide how wide a bucket is. The cost, in micro-dollars, is there only
-// where Claude Code recorded one: a cell of five figures has none.
+// output, cache read, cache write, replies, of the write 1-hour, of the
+// write split unknown, cost]; everything on the page is an aggregate of
+// that, converted to local time here, and the period buttons decide how
+// wide a bucket is. The cost, in micro-dollars, is there only where Claude
+// Code recorded one: a cell of seven figures has none. Beside it, never
+// added to it, the calculated cost: the tokens at the price file's lines
+// (prices.js, the build's own), of their hour or of today.
 //
 // Hours, not days, because a usage week can start at 9am — and because a
 // record at 23:00 UTC already belongs to the next day in most of Europe.
@@ -12,21 +15,36 @@
   CH.themeInit(document.getElementById("theme"));
 
   var data = JSON.parse(document.getElementById("usage-data").textContent) || {};
+  // The plan line and the Limits & budget section (plan.js), whatever the
+  // usage below holds.
+  if (typeof CHPlan !== "undefined") { CHPlan.mount(data); CHPlan.copyButtons(); }
   var byProject = data.byProject || {};
   var projects = Object.keys(byProject);
 
   var esc = CH.esc, fmt = CH.fmtTokens, money = CH.fmtMoney;
-  var COLS = 5;
-  // The sixth figure starts as null, not 0: a sum that no known cost went
-  // into is unknown, and must read "—" rather than "$0.00".
-  function zero() { return [0, 0, 0, 0, 0, null]; }
+  // A sum: the seven figures of a cell, then the recorded cost, the
+  // calculated one and the tokens no price line covers. Both costs start
+  // as null, not 0: a sum that no known cost went into is unknown, and must
+  // read "—" rather than "$0.00".
+  var COLS = 7, REC = 7, CALC = 8, MISS = 9;
+  function zero() { return [0, 0, 0, 0, 0, 0, 0, null, null, 0]; }
   function add(into, from) {
     for (var i = 0; i < COLS; i++) into[i] += from[i] || 0;
-    if (from.length > COLS && from[COLS] !== null && from[COLS] !== undefined) {
-      into[COLS] = (into[COLS] || 0) + from[COLS];
-    }
+    [REC, CALC].forEach(function (k) {
+      if (from[k] !== null && from[k] !== undefined) into[k] = (into[k] || 0) + from[k];
+    });
+    into[MISS] += from[MISS] || 0;
   }
-  function cost(t) { return t[COLS] === null || t[COLS] === undefined ? null : t[COLS]; }
+  function cost(t) { return t[REC] === null || t[REC] === undefined ? null : t[REC]; }
+  function calc(t) { return t[CALC] === null || t[CALC] === undefined ? null : t[CALC]; }
+
+  // The price file, read by the build's own prices.js; none, and the page
+  // shows what was recorded alone.
+  var PR = typeof claudeHtmlPrices === "function" && typeof data.prices === "string"
+    ? claudeHtmlPrices(data.prices) : null;
+  var priceAt = "then";
+  try { priceAt = localStorage.getItem("ch-usage-prices") || "then"; } catch (e) {}
+  if (!/^(then|now)$/.test(priceAt)) priceAt = "then";
   // Tokens only: the fifth column counts replies and must never be summed in.
   function total(t) { return t[0] + t[1] + t[2] + t[3]; }
 
@@ -46,7 +64,10 @@
       var at = new Date(hour + ":00:00Z");          // the key is UTC
       if (isNaN(at.getTime())) return;
       Object.keys(byProject[p][hour]).forEach(function (m) {
-        rows.push({ at: at, model: m, project: p, t: byProject[p][hour][m] });
+        var c = byProject[p][hour][m], t = zero();
+        for (var i = 0; i < COLS; i++) t[i] = Number(c[i]) || 0;
+        if (c.length > REC && c[REC] !== null) t[REC] = Number(c[REC]) || 0;
+        rows.push({ at: at, hour: hour, model: m, project: p, t: t });
       });
     });
   });
@@ -57,6 +78,15 @@
     document.getElementById("dash").hidden = true;
     return;
   }
+  // Each cell's calculated cost, at the price of its hour or at today's.
+  function reprice() {
+    rows.forEach(function (r) {
+      var c = PR ? PR.cellCost(r.model, r.hour, r.t, priceAt === "now") : null;
+      r.t[CALC] = c;
+      r.t[MISS] = c === null ? total(r.t) : 0;
+    });
+  }
+  reprice();
   var allDays = rows.map(function (r) { return ymd(r.at); }).sort();
   var firstDay = allDays[0], lastDay = allDays[allDays.length - 1];
   // The calendar from the first day to the last, not the days that had
@@ -242,7 +272,9 @@
         return '<i style="height:' + (100 * v / (sum || 1)) + "%;background:" + d.colour[m] + '"></i>';
       }).join("");
       var tip = [span.label(k), fmt(sum) + " tokens", b.t[4] + (b.t[4] === 1 ? " reply" : " replies")]
-        .concat(cost(b.t) === null ? [] : ["≈ " + money(cost(b.t))]).join(" · ");
+        .concat(cost(b.t) === null ? [] : ["≈ " + money(cost(b.t))])
+        .concat(calc(b.t) === null ? [] : [approx(b.t[MISS] ? "≥ " : "≈ ", calc(b.t)) + " calculated"])
+        .join(" · ");
       return '<button type="button" class="col" data-k="' + esc(k) + '" title="' + esc(tip) +
         '" aria-label="' + esc(tip) + '">' +
         '<span class="stack" style="height:' + Math.max(0.6, 100 * sum / (peak || 1)) + '%">' +
@@ -270,13 +302,30 @@
   }
 
   function cell(v) { return '<td class="num">' + fmt(v) + "</td>"; }
+  // Approximate wherever it is written: what Claude Code recorded is its
+  // own sum at list prices, as the cards and the index say. Where it
+  // recorded nothing, the calculated cost, marked as such: "≥" when some of
+  // the tokens have no price line.
+  function costCell(t) {
+    if (cost(t) !== null) return '<td class="num">≈ ' + money(cost(t)) + "</td>";
+    if (calc(t) === null) return '<td class="num d">—</td>';
+    return '<td class="num cc" title="' + esc(calcTitle(t)) + '">' + approx(t[MISS] ? "≥ " : "≈ ", calc(t)) +
+      ' <span class="cm">calc</span></td>';
+  }
+  // "<$0.01" already says how near it is.
+  function approx(sign, micro) {
+    var m = money(micro);
+    return m.charAt(0) === "<" ? m : sign + m;
+  }
+  function calcTitle(t) {
+    return "calculated from the price file, at " +
+      (priceAt === "now" ? "today's prices" : "the price of the time") +
+      (t[MISS] ? "; some of these tokens have no price line, so at least this" : "") +
+      " — Claude Code recorded no cost here";
+  }
   function numbers(t) {
     return cell(t[0]) + cell(t[1]) + cell(t[2]) + cell(t[3]) +
-           '<td class="num">' + t[4] + "</td>" + cell(total(t)) +
-           // Approximate wherever it is written: these are Claude Code's own
-           // sums at list prices, as the cards and the index say.
-           '<td class="num' + (cost(t) === null ? " d" : "") + '">' +
-           (cost(t) === null ? "—" : "≈ " + money(cost(t))) + "</td>";
+           '<td class="num">' + t[4] + "</td>" + cell(total(t)) + costCell(t);
   }
 
   function bucketTable(buckets, keys, span, current) {
@@ -331,15 +380,19 @@
     var idle = p && !total(p) && !p[4];
     if (idle) p = null;
     var per = t[4] ? t[1] / t[4] : 0;      // output per reply: the rest is mostly cache
-    // The cost compares only with a period whose cost is known too.
-    var c = cost(t), pc = p ? cost(p) : null;
+    // The cost compares only with a period whose cost is known too. The
+    // calculated one sits under it, apart.
+    var c = cost(t), pc = p ? cost(p) : null, k = calc(t);
     document.getElementById("cards").innerHTML =
       '<div class="card"><div class="n">' + fmt(total(t)) + '</div><div class="l">' +
         esc(label) + "</div>" + (p ? delta(total(t), total(p)) : "") +
         (idle ? '<div class="d">nothing the ' + period + " before</div>" : "") + "</div>" +
-      '<div class="card" title="as Claude Code recorded it, at API list prices">' +
-        '<div class="n">' + (c === null ? "—" : "≈ " + money(c)) + '</div>' +
-        '<div class="l">cost</div>' + (c !== null && pc ? delta(c, pc) : "") + "</div>" +
+      '<div class="card cost" title="as Claude Code recorded it, at API list prices">' +
+        '<div class="n">' + (c === null ? "—" : money(c)) + '</div>' +
+        '<div class="l">recorded by Claude Code</div>' + (c !== null && pc ? delta(c, pc) : "") +
+        (PR ? '<div class="c2" title="' + esc(calcTitle(t).replace(/ — .*/, "")) + '"><b>' +
+          (k === null ? "—" : (t[MISS] ? "≥ " : "") + money(k)) + "</b> calculated</div>" : "") +
+        "</div>" +
       '<div class="card"><div class="n">' + fmt(t[1]) + '</div><div class="l">output</div>' +
         (p ? delta(t[1], p[1]) : "") + "</div>" +
       '<div class="card"><div class="n">' + fmt(t[2] + t[3]) + '</div><div class="l">cache</div>' +
@@ -368,12 +421,16 @@
       " — Claude Code only records it in recent versions, as a running total each time a" +
       " session exits, so it lands on that hour rather than spread over the work. Figures" +
       " are its own sums at API list prices: on a subscription they are an equivalent, not a bill." +
-      " Where nothing was recorded the page says —.";
+      (PR ? " Where nothing was recorded the tables show the calculated cost, marked calc."
+          : " Where nothing was recorded the page says —.");
   }
 
   function draw() {
     ["week", "month", "all"].forEach(function (p) {
       document.getElementById("p" + p).classList.toggle("on", p === period);
+    });
+    ["then", "now"].forEach(function (w) {
+      document.getElementById("c" + w).classList.toggle("on", w === priceAt);
     });
     try { localStorage.setItem("ch-usage-period", period); } catch (e) {}
 
@@ -411,6 +468,99 @@
       document.getElementById("bh").textContent = "By " + period;
       projectTable(function (r) { return span.key(r.at) === last; }, span.label(last));
     }
+    history();
+  }
+
+  // ── price history ──────────────────────────────────────────────────
+  // Per model in use, its price lines newest first: the five prices, what
+  // changed from the line before, and how much of the use shown fell in
+  // each, priced by the line of its hour whatever the toggle says.
+  var priceUse = data.priceUse || {};
+  var FIG = [["input", "input"], ["output", "output"], ["cache_read", "cache read"],
+             ["cache_write_5m", "write 5 min"], ["cache_write_1h", "write 1 h"]];
+  function price(m) { return (m / 1000).toFixed(m % 10 ? 3 : 2); }
+  function change(line, before) {
+    if (!before) return "";
+    for (var i = 0; i < FIG.length; i++) {
+      var a = before[FIG[i][0]], b = line[FIG[i][0]];
+      if (a === b) continue;
+      var pct = a ? Math.round(100 * (b - a) / a) : 0;
+      var rest = FIG.filter(function (f, j) { return j > i && before[f[0]] !== line[f[0]]; })
+        .map(function (f) { return f[1] + " " + price(before[f[0]]) + " → " + price(line[f[0]]); });
+      var said = FIG[i][1] + " " + price(a) + " → " + price(b) + " " + (pct > 0 ? "+" : "−") + Math.abs(pct) + " %";
+      return '<span class="' + (b < a ? "dn" : "up") + '" title="' +
+        esc(said + (rest.length ? "; also " + rest.join(", ") : "")) + '">' +
+        (i ? said : said.slice(FIG[i][1].length + 1)) + (rest.length ? " …" : "") + "</span>";
+    }
+    return "no change";
+  }
+  function history() {
+    var sec = document.getElementById("prices");
+    if (!PR) { sec.hidden = true; return; }
+    sec.hidden = false;
+    var use = {}, ids = {}, miss = {}, unsplit = 0, shownSources = {};
+    rows.forEach(function (r) {
+      if (!keep(r)) return;
+      unsplit += r.t[6] || 0;
+      var line = PR.lineAt(r.model, r.hour);
+      var id = PR.idOf(r.model);
+      if (id === null) {
+        if (total(r.t)) miss[r.model] = (miss[r.model] || 0) + total(r.t);
+        return;
+      }
+      if (!(id in ids)) ids[id] = r.model;
+      if (line) use[line.id] = (use[line.id] || 0) + total(r.t);
+      else if (total(r.t)) miss[r.model + " (before its first price line)"] =
+        (miss[r.model + " (before its first price line)"] || 0) + total(r.t);
+    });
+    var sessions = {};
+    Object.keys(priceUse).forEach(function (p) {
+      if (filter.project && p !== filter.project) return;
+      Object.keys(priceUse[p]).forEach(function (k) { sessions[k] = (sessions[k] || 0) + priceUse[p][k]; });
+    });
+    var order = Object.keys(ids).sort(function (a, b) {
+      return (modelTotals[ids[b]] || 0) - (modelTotals[ids[a]] || 0);
+    });
+    document.getElementById("pcheck").textContent = PR.checked ? " · price file checked " + PR.checked : "";
+    document.getElementById("ptable").innerHTML = order.map(function (id) {
+      var ls = PR.history(id).reverse();
+      var html = '<tr class="bucket"><th colspan="9"><span class="pm"><i style="background:' +
+        (colour[ids[id]] || "var(--dim)") + '"></i>' + esc(shortModel(id)) + "</span></th></tr>";
+      return html + ls.map(function (l, i) {
+        var before = ls[i + 1];
+        l.source.split(/\s+/).forEach(function (u) { if (/^https:\/\//.test(u)) shownSources[u] = 1; });
+        return '<tr' + (l.to ? ' class="old"' : "") + "><td>" +
+          (l.to ? esc(l.from + " to " + l.to) : "since " + esc(l.from) + ' <span class="gc">current</span>') +
+          "</td>" + FIG.map(function (f) { return '<td class="num">' + price(l[f[0]]) + "</td>"; }).join("") +
+          "<td>" + (before ? change(l, before) : ls.length > 1 ? "—" : "no change") + "</td>" +
+          '<td class="num">' + (use[l.id] ? fmt(use[l.id]) : "—") + "</td>" +
+          '<td class="num">' + (sessions[l.id] || "—") + "</td></tr>";
+      }).join("");
+    }).join("") || '<tr><td colspan="9" class="d">no priced model in what is shown</td></tr>';
+    var notes = [];
+    var missed = Object.keys(miss);
+    if (missed.length) {
+      notes.push("Not priced, so left out of the calculated cost (no line in the price file covers them): " +
+        missed.map(function (m) { return esc(shortModel(m)) + " " + fmt(miss[m]) + " tokens"; }).join(", ") +
+        ". Nothing is guessed: add a line to prices.tsv to price them.");
+    }
+    if (unsplit) {
+      notes.push(fmt(unsplit) + " tokens of cache writes are of unknown duration (split unknown): from " +
+        "archives written before claude-html kept 5-minute and 1-hour writes apart, or from records " +
+        "that do not say. They are priced as 5-minute writes.");
+    }
+    if (PR.errors.length) {
+      notes.push("Lines of the price file that could not be read, and were skipped: " + esc(PR.errors.join("; ")) + ".");
+    }
+    var src = Object.keys(shownSources).sort();
+    if (src.length) {
+      notes.push("Sources: " + src.map(function (u) {
+        return '<a href="' + esc(u) + '">' + esc(u.replace(/^https:\/\/(www\.)?/, "")) + "</a>";
+      }).join(" · "));
+    }
+    document.getElementById("pnotes").innerHTML = notes.map(function (n) {
+      return '<p class="hint">' + n + "</p>";
+    }).join("");
   }
 
   // A bar points at its own row in the table below.
@@ -445,6 +595,17 @@
       draw();
     });
   });
+  ["then", "now"].forEach(function (w) {
+    document.getElementById("c" + w).addEventListener("click", function () {
+      if (priceAt === w) return;
+      priceAt = w;
+      try { localStorage.setItem("ch-usage-prices", w); } catch (e) {}
+      reprice();
+      draw();
+    });
+  });
+  // Without a price file there is nothing to toggle.
+  if (!PR) document.getElementById("cgroup").hidden = true;
   ["model", "project"].forEach(function (d) {
     document.getElementById("b" + d).addEventListener("click", function () {
       if (dimName === d) return;
@@ -466,7 +627,7 @@
   }
   document.getElementById("sub").textContent =
     "input, output and cache tokens from your own transcripts, and their cost where Claude Code" +
-    " recorded it, by model and project — " +
+    " recorded it" + (PR ? " and as calculated from the price file" : "") + ", by model and project — " +
     firstDay + " to " + lastDay + ", local time. A week runs " + at + " to " + at + note +
     (data.weekResetSet ? ", matching your plan's reset." : ".");
   draw();

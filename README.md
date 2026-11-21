@@ -36,8 +36,9 @@ no dependencies, and not one byte of your conversations leaves your machine.
   with thinking and token counts
 - **Token dashboard** — by week, month or all time, by model or by project;
   weeks can start when your plan's allowance resets
-- **Cost** — where Claude Code records it, shown on the index, the session and
-  the dashboard; never estimated
+- **Cost** — what Claude Code recorded, and beside it, never mixed in, what the
+  tokens cost at the list price of the time, from a dated price file with its
+  sources and a price history
 - **Private** — static files; the pages make no requests and nothing about your
   conversations leaves your machine. Once a day the tool asks GitHub for the list
   of releases (`claude-html --update off` stops it). Light and dark, with a ◐ toggle
@@ -45,6 +46,9 @@ no dependencies, and not one byte of your conversations leaves your machine.
   search and the archives; Claude Code's own transcript is left as it is
 - **Guard** — a prompt or a command holding a secret is stopped before Claude
   sees it, and you choose: cancel, allow once, safe, or stop
+- **Plan limits** — your 5-hour and weekly usage on Claude Code's status line
+  and the pages; your own stop rules ("from Fri 20:00, stop at 80 %") ask
+  before a new prompt, and an API budget warns at 80 and 95 %
 
 ## Install
 
@@ -53,7 +57,7 @@ git clone https://github.com/pier0074/claude-html ~/claude-html
 cd ~/claude-html && ./install.sh
 ```
 
-For a given release, add `--branch v3.2.1` to the clone;
+For a given release, add `--branch v3.3.0` to the clone;
 [CHANGELOG.md](CHANGELOG.md) says what each one brought.
 
 Nothing else to install. macOS uses its own `osascript`; Linux uses `node`,

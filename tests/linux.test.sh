@@ -515,6 +515,25 @@ clearlog ubuntu
 check "refused: two arguments" "$(handle ubuntu "claude-html://open/$A" extra >/dev/null 2>&1; echo $?):$(log ubuntu | grep -c cli)" "2:0"
 check "nothing anywhere was run from a link" "$(pwned)" ""
 
+# A limits link from the Token usage page: its fixed grammar, and nothing
+# else, no variant of it.
+LG="v1/fri-2000-80.sat-0000-90/50-week/80-95/off"
+for bad in "claude-html://limits/$LG/" "claude-html://limits/$LG?x=1" "claude-html://limits/$LG#f" \
+           "claude-html://limits/$LG%0a" "claude-html://limits/$LG " "claude-html://limits/$LG;id" \
+           "claude-html://limits/$LG${NL}claude-html://delete/$A" "claude-html://limits/" "claude-html://limits" \
+           "claude-html://Limits/$LG" "CLAUDE-HTML://limits/$LG" "claude-html://limits//$LG" "claude-html:limits/$LG" \
+           "claude-html://limits/V1/fri-2000-80/none/80-95/on" "claude-html://limits/v1/fri-2400-80/none/80-95/on" \
+           "claude-html://limits/v1/fri-2000-80/none/80-95/on/\$(touch $T/pwned)" "claude-html://limits/v1/none/none/80-95/\`id\`" \
+           "claude-html://limits/v1/none/0.5-week/80-95/on" "claude-html://limits/v1/none/none/80-100/on" \
+           "claude-html://limits/v1/none/none/80-95/on/../../x" "claude-html://limits/$(printf 'v1/none/none/80-95/on%0200d' 0)"; do
+  clearlog ubuntu
+  code="$(handle ubuntu "$bad" >/dev/null 2>&1; echo $?)"
+  check "refused: $(printf '%s' "$bad" | tr '\n' '|' | cut -c1-90)" "$code:$(log ubuntu | grep -c '^cli')" "2:0"
+done
+check "nothing anywhere was run from a limits link" "$(pwned)" ""
+clearlog ubuntu; handle ubuntu "claude-html://limits/$LG" >/dev/null 2>&1
+check "a limits link asks the command for exactly that" "$(log ubuntu)" "cli [--limits-apply] [$LG]"
+
 clearlog ubuntu; handle ubuntu "claude-html://update" >/dev/null 2>&1
 check "an update link asks for exactly that, and names nothing" "$(log ubuntu)" "cli [--update-terminal]"
 clearlog ubuntu; handle ubuntu "claude-html://resume/$A" >/dev/null 2>&1
@@ -556,6 +575,28 @@ clearlog headless
 check "headless: a delete link is refused" \
   "$(inenv headless PLAN_TITLE=t sh "$HD/handler.sh" "claude-html://delete/$A" >/dev/null 2>&1; echo $?)" 1
 check "  and nothing is deleted" "$(log headless | grep -c '^cli \[--delete\]')" 0
+
+# The command behind it, on each desktop: it always asks first, in the
+# desktop's own question, Cancel the default; no yes, nothing written.
+echo "limits"
+LCONF="$H/.claude/claude-html.conf"; cp "$LCONF" "$T/lconf.before"
+lapply() { clearlog "$1"; inenv "$1" STUB_ANSWER="${2:-1}" bash "$HERE/claude-html" --limits-apply "$LG" 2>&1; }
+check "ubuntu: zenity asks, a question, Cancel the default, Apply" \
+  "$(lapply ubuntu 1 >/dev/null; log ubuntu | grep -c '^zenity \[--question\] \[--no-markup\] \[--default-cancel\] \[--title=claude-html\] \[--ok-label=Apply\] \[--cancel-label=Cancel\]')" 1
+check "  Cancel: the conf as it was" "$(cmp -s "$LCONF" "$T/lconf.before" && echo same)" same
+check "kde: kdialog asks" "$(lapply kde 1 >/dev/null; log kde | grep -c '^kdialog \[--title\] \[claude-html\] \[--continue-label\] \[Apply\] \[--warningcontinuecancel\]')" 1
+check "bare wm: xmessage, Cancel the default" "$(lapply bare 1 >/dev/null; log bare | grep -c '\[-buttons\] \[Cancel:1,Apply:0\] \[-default\] \[Cancel\]')" 1
+check "xfce, no dialog tool: refused, the commands said, nothing written" \
+  "$(lapply xfce 0 | grep -c '^no way to ask you first here') $(cmp -s "$LCONF" "$T/lconf.before" && echo same)" "1 same"
+check "headless: the same" "$(lapply headless 0 | grep -c '^no way to ask you first here')" 1
+check "ubuntu, Apply: written" "$(lapply ubuntu 0 | tail -1) $(grep -c '^CLAUDE_HTML_LIMIT_RULES="fri 20:00 80% · sat 00:00 90%"$' "$LCONF")" "Applied. 1"
+cp "$T/lconf.before" "$LCONF"
+# The banner, where the desktop has notify-send; none headless.
+stub "$T/env/ubuntu/bin" notify-send
+check "notify-send: the banner on a Linux desktop" \
+  "$(clearlog ubuntu; inenv ubuntu bash -c '. "$0/limits.sh"; CH_LIM_NOTIFY=1; ch_lim_banner "your stop rule starts Fri 20:00 at 80 %"; wait' "$HERE"; log ubuntu)" \
+  "notify-send [-a] [claude-html] [claude-html] [your stop rule starts Fri 20:00 at 80 %]"
+check "  none headless" "$(clearlog headless; inenv headless bash -c '. "$0/limits.sh"; CH_LIM_NOTIFY=1; ch_lim_banner x; wait' "$HERE"; log headless)" ""
 
 # ── 7. moving things to the trash ────────────────────────────────────
 echo "trash"

@@ -31,7 +31,7 @@ check "  and handles the delete links" "$([ "$(handles delete)" -gt 0 ] && echo 
 check "  and the open-a-project links" "$([ "$(handles open)" -gt 0 ] && echo yes || echo no)" yes
 check "  and the resume links" "$([ "$(handles resume)" -gt 0 ] && echo yes || echo no)" yes
 check "  and the update link, exactly and in this case only" \
-  "$(osadecompile "$SCPT" 2>/dev/null | grep -c 'considering case\|theURL is "claude-html://update"\|" --update-terminal"')" 3
+  "$(osadecompile "$SCPT" 2>/dev/null | grep -c 'theURL is "claude-html://update"\|" --update-terminal"') $(osadecompile "$SCPT" 2>/dev/null | grep -B1 'set isUpdate to' | grep -c 'considering case')" "2 1"
 check "  open, delete and resume unaffected beside it" \
   "$(osadecompile "$SCPT" 2>/dev/null | grep -c '" --open "\|" --resume-session "\|" --delete-plan "')" 3
 check "  and declares the scheme to macOS" \
@@ -52,6 +52,34 @@ check "an app older than its source is rebuilt" \
   rebuilt
 check "  and handles both kinds of link again" \
   "$([ "$(handles open)" -gt 0 ] && [ "$(handles delete)" -gt 0 ] && echo yes || echo no)" yes
+
+# The limits link: the helper takes the payload's whole grammar and
+# nothing else, as limits-cli.sh and handler.sh do. Its handler is loaded
+# from the script alone, compiled here, no app: nothing is registered.
+check "  and the limits link, through --limits-apply only" \
+  "$(osadecompile "$SCPT" 2>/dev/null | grep -c '" --limits-apply " & quoted form of payload\|if not my isLimitsPayload(payload) then return')" 2
+osacompile -o "$T/h.scpt" "$HERE/helper.applescript"
+isl() { osascript -e "on run argv" -e "set s to load script POSIX file \"$T/h.scpt\"" -e "tell s to return isLimitsPayload(item 1 of argv)" -e "end run" -- "$1" 2>/dev/null; }
+n=0; m=0
+for p in "v1/fri-2000-80.sat-0000-90/50-week/80-95/off" "v1/none/none/80-95/on" "v1/mon-0000-1/12.50-month/1-99/off" \
+         "v1/sun-2359-100.mon-0100-5.tue-0200-10.wed-0300-20.thu-0400-30.fri-0500-40.sat-0600-50.sun-0700-60/999999.99-day/50-51/on"; do
+  m=$((m + 1)); [ "$(isl "$p")" = true ] && n=$((n + 1))
+done
+check "the helper takes the good payloads ($m)" "$n" "$m"
+n=0; m=0
+for p in "v1/fri-2400-80/none/80-95/on" "v1/fri-2060-80/none/80-95/on" "v1/fri-2000-0/none/80-95/on" "v1/fri-2000-101/none/80-95/on" \
+         "v1/fri-2000-080/none/80-95/on" "v1/Fri-2000-80/none/80-95/on" "V1/fri-2000-80/none/80-95/on" "v2/none/none/80-95/on" \
+         "v1/none/none/80-95/on/" "/v1/none/none/80-95/on" "v1//none/80-95/on" "v1/fri-2000-80..sat-0000-90/none/80-95/on" \
+         "v1/fri-2000-80./none/80-95/on" "v1/none/0.5-week/80-95/on" "v1/none/050-week/80-95/on" "v1/none/50-year/80-95/on" \
+         "v1/none/50.123-week/80-95/on" "v1/none/1000000-week/80-95/on" "v1/none/none/80-100/on" "v1/none/none/80/on" \
+         "v1/none/none/80-95/yes" "v1/none/none/80-95/on?x=1" "v1/none/none/80-95/on#f" "v1/none/none/80-95/on%0a" \
+         "v1/none/none/80-95/on;id" "v1/none/none/80-95/on \$(id)" "v1/friday-2000-80/none/80-95/on" "v1/none/none/80-95/ON" \
+         "v1/sun-2359-100.mon-0100-5.tue-0200-10.wed-0300-20.thu-0400-30.fri-0500-40.sat-0600-50.sun-0700-60.mon-0800-70/none/80-95/on" \
+         "v1/none/none/80-95/on
+x" "" "$(printf 'v1/none/none/80-95/on%0200d' 0)"; do
+  m=$((m + 1)); [ "$(isl "$p")" = false ] && n=$((n + 1))
+done
+check "  and refuses every variant ($m)" "$n" "$m"
 
 # What the update link makes the command do, dry: Terminal opens a
 # launcher that runs this clone's own command, then the login shell.

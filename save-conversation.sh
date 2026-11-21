@@ -55,17 +55,42 @@ if [ "${1:-}" = "--background" ]; then
   # additionalContext, is not handed to Claude. Only from what the daily
   # check left in the state file, with builtins and no network: this is the
   # part of the save Claude Code waits on.
+  _msg=""
+  _here="${BASH_SOURCE[0]%/*}"; [ "$_here" = "${BASH_SOURCE[0]}" ] && _here=.
   if [ -f "$HOME/.claude/.claude-html.update" ]; then
-    _here="${BASH_SOURCE[0]%/*}"; [ "$_here" = "${BASH_SOURCE[0]}" ] && _here=.
     _pwd="$PWD"; cd -P "$_here" 2>/dev/null && _here="$PWD"; cd "$_pwd" 2>/dev/null
     _ver=""; [ -f "$_here/VERSION" ] && read -r _ver < "$_here/VERSION"
     # shellcheck source=release.sh
     if [ -f "$_here/release.sh" ] && . "$_here/release.sh" &&
        ch_update_notice "$_here" "$_ver" && [ "$CH_UP_TOLD" != "$CH_UP_NOTICE" ]; then
-      printf '{"systemMessage":"claude-html %s is out · update with: claude-html --update"}\n' "$CH_UP_NOTICE"
+      _msg="claude-html $CH_UP_NOTICE is out · update with: claude-html --update"
       CH_UP_TOLD="$CH_UP_NOTICE"; ch_update_write
     fi
   fi
+  # The owner's stop rules and API budget, told once each in the same
+  # way: a rule about to apply or just started, a budget level reached.
+  # Never the plan's own percentages, which Claude Code warns about itself.
+  # Builtins only, unless there is something to tell.
+  # shellcheck source=limits.sh
+  if [ -f "$_here/limits.sh" ]; then
+    # Its own rules for errors: what it cannot work out, it does not say.
+    set +eu
+    if . "$_here/limits.sh" 2>/dev/null; then
+      ch_lim_settings
+      if [ -n "$CH_LIM_ON" ] && { [ "$CH_LIM_N" -gt 0 ] || [ "$CH_LIM_BC" -gt 0 ]; }; then
+        _sid=""; _re='"session_id"[[:space:]]*:[[:space:]]*"([A-Za-z0-9._-]{1,128})"'
+        [[ "$PAYLOAD" =~ $_re ]] && _sid="${BASH_REMATCH[1]}"
+        ch_lim_announce "$_sid" 2>/dev/null
+        [ -n "${CH_ANN:-}" ] && while IFS= read -r _l; do
+          [ -n "$_l" ] || continue
+          _msg="${_msg:+$_msg\\n}⚠ claude-html · $_l"
+          case "$_l" in your*) ch_lim_banner "Y${_l#y}" ;; *) ch_lim_banner "$_l" ;; esac
+        done <<< "$CH_ANN"
+      fi
+    fi
+    set -eu
+  fi
+  [ -n "$_msg" ] && printf '{"systemMessage":"%s"}\n' "$_msg"
   CLAUDE_HTML_TRANSCRIPT="$TRANSCRIPT" nohup "${BASH:-bash}" "$0" --try </dev/null >/dev/null 2>&1 &
   exit 0
 fi
@@ -489,14 +514,18 @@ function run(argv) {
   // the build can still recognise one a resumed session copied. The session's
   // own replies come first and its sub-agents' after, from agentFrom on. A
   // reply without an id keeps the key it was counted under.
+  // A cell has parse.js's seven figures (the cache write's 1-hour part and
+  // its part of unknown duration among them); a reply row its tokens and
+  // those two parts: [id, hour, model, input, output, cache read, cache
+  // write, 1-hour, unknown].
   var usage = {}, replies = [];
   function emit(by, k) {
     var r = by[k];
     if (r.hour.length !== 13) return;
     var d = usage[r.hour] = usage[r.hour] || {};
-    var a = d[r.model] = d[r.model] || [0, 0, 0, 0, 0];
-    for (var i = 0; i < 5; i++) a[i] += r.t[i];
-    var row = [r.mid, r.hour, r.model].concat(r.t.slice(0, 4));
+    var a = d[r.model] = d[r.model] || [0, 0, 0, 0, 0, 0, 0];
+    for (var i = 0; i < 7; i++) a[i] += r.t[i] || 0;
+    var row = [r.mid, r.hour, r.model].concat(r.t.slice(0, 4), [r.t[5] || 0, r.t[6] || 0]);
     if (!r.mid) row.push(k);
     replies.push(row);
   }
@@ -504,15 +533,15 @@ function run(argv) {
   var agentFrom = replies.length;
   Object.keys(agentBy).forEach(function (k) { emit(agentBy, k); });
 
-  // As a sixth figure on the usage cell, after the tokens, as the build adds it.
+  // As an eighth figure on the usage cell, after the tokens, as the build adds it.
   var cost = st.cost.seen ? st.cost.cells : null;
   var costPart = !!cost && (st.cost.part || Object.keys(st.cost.pending).length > 0);
   if (cost) {
     Object.keys(cost).forEach(function (hour) {
       var d = usage[hour] = usage[hour] || {};
       Object.keys(cost[hour]).forEach(function (m) {
-        var a = d[m] = d[m] || [0, 0, 0, 0, 0];
-        a[5] = (a[5] || 0) + cost[hour][m];
+        var a = d[m] = d[m] || [0, 0, 0, 0, 0, 0, 0];
+        a[7] = (a[7] || 0) + cost[hour][m];
       });
     });
   }

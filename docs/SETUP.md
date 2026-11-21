@@ -7,9 +7,11 @@ works is in [DETAILS.md](DETAILS.md).
 - [Where things go](#where-things-go)
 - [Engine](#engine)
 - [Dashboard weeks](#dashboard-weeks)
+- [Prices](#prices)
 - [claude.ai exports](#claudeai-exports)
 - [Secrets](#secrets)
 - [Guard](#guard)
+- [Limits and budget](#limits-and-budget)
 - [Hooks](#hooks)
 - [Transcript cleanup](#transcript-cleanup)
 - [Commands](#commands)
@@ -108,6 +110,58 @@ time Claude Code shows ("resets Nov 24 at 8am") and convert it to UTC once.
 
 The installer offers this line commented out. One it cannot read falls back
 to Mondays.
+
+## Prices
+
+The calculated cost — shown beside what Claude Code recorded, and in its place
+where it recorded nothing, marked `calc` — comes from `prices.tsv` in the
+clone: Anthropic's API list prices, in USD per million tokens, one line per
+model and per price period. [DETAILS.md](DETAILS.md#what-you-get) says how a
+cost is worked out from it.
+
+```
+model             from        to          input  output  cache_read  cache_write_5m  cache_write_1h  source                                               checked
+claude-sonnet-5-5 2026-09-28  2026-10-06  2      10      0.20        2.50            4               https://platform.claude.com/docs/en/release-notes/…  2026-11-21
+claude-sonnet-5-5 2026-10-07              2      10      0.10        2.50            4               https://platform.claude.com/docs/en/about-claude/…   2026-11-21
+```
+
+Columns are separated by one tab; `#` starts a comment. A reply is priced by
+the line whose `from`..`to` holds its day (UTC, both days included); an empty
+`to` is today's price.
+
+- **A price changes:** set `to` on the model's current line to the day
+  before the change, and add a line with the new prices from the day of the
+  change, an empty `to`, the page that says so in `source` and today's date
+  in `checked`.
+- **A new model:** add a line with the id Claude Code records (the
+  `message.model` of its replies; `claude-html` shows it on the dashboard as
+  not priced until then) and `from` its launch day. A dated id
+  (`claude-haiku-4-5-20251001`) is priced by the line without the date, so
+  one line covers every snapshot. A reply in fast mode is priced by the
+  model's `/fast` line, a Haiku 5.5 prompt over 100,000 tokens by
+  `claude-haiku-5-5/over-100k`.
+- **A line you only re-checked:** update its `checked` date. The dashboard
+  shows the newest one in the heading of its price history.
+
+Copy prices from Anthropic's pages only, never from memory: the pricing page
+(<https://platform.claude.com/docs/en/about-claude/pricing>) for today's, the
+release notes (<https://platform.claude.com/docs/en/release-notes/overview>)
+for when a model came out or a price changed. A line that cannot be read is
+skipped and named on the dashboard. The next build prices everything again;
+no `--force` needed.
+
+| Setting | What it is | Default |
+| ------- | ---------- | ------- |
+| `CLAUDE_HTML_PRICES` | a price file of your own, in the same format, instead of the clone's | `prices.tsv` in the clone |
+
+Like `CLAUDE_HTML_EXPORT` it is read from the environment only, so in the
+conf it needs `export`. Your own file is not updated with the tool: copy the
+clone's new lines into it after an update.
+
+On the dashboard, **cost at · the price of the time / today's prices** prices
+every hour at the line in force then, or at today's line to show what the
+same work would cost now; the browser remembers the choice. On a
+subscription both are list-price equivalents, not a bill.
 
 ## claude.ai exports
 
@@ -288,17 +342,145 @@ installer sets 660 for the guard's two: past the dialog's ten minutes.
 On Linux the dialog is zenity's, kdialog's, yad's or xmessage's, so its
 look is the desktop's; their own Cancel button is the Cancel choice.
 
+## Limits and budget
+
+Your plan's usage, your own stop rules, and a budget for API use. Claude
+Code already warns at its plan levels ("You've used 80% of your weekly
+limit · resets …") and `/usage` shows the figures, so claude-html repeats
+none of that. It adds what Claude Code does not have: a **status line**, a
+**plan line** on the index and the Token usage page, **stop rules**, and a
+**budget** for an API key.
+
+**Where the figures come from.** Claude Code runs a status-line command
+after each reply and hands it JSON: for Pro, Max and Ultra subscribers,
+from a session's first reply on, `rate_limits.five_hour` and
+`rate_limits.seven_day`, each a `used_percentage` and a `resets_at`; for
+everyone, `cost.total_cost_usd`, the session's cost at list price.
+claude-html's status line shows them and records the latest in
+`~/.claude/.claude-html.limits`, which the pages, the rules and their
+announcements read. With an API key there are no percentages: the week's
+spend is counted at each save, session by session — the cost Claude Code
+recorded for a session, or, for one with none, its tokens at the
+[price table](#prices)'s prices, never both — plus the running session's
+own cost while no save has counted it.
+
+```text
+plan · 5 h ██████░░░░ 62 % ↻16:30 · week ████████▌░ 81 % ↻Tue 08:00 · stop at 80 % from Fri 20:00
+budget · week $38.20 of $50 ███████▌░░ 76 % ↻Tue 08:00 · this session $1.12
+```
+
+Normal below 80 %, amber from 80, red from 95. With neither figure there is
+a short line, never an error.
+
+**One status-line slot.** Claude Code has a single `statusLine`. The
+installer puts claude-html's there when it is empty. When you have one of
+your own, claude-html's **wraps** it: your command is kept whole inside
+claude-html's (`bash '<clone>/statusline.sh' --wrap '<your command>'`,
+your `padding` and other fields as they were), it is run first with the
+same JSON, its output shown first, then claude-html's part. A command of
+yours that fails or takes more than three seconds costs its own part only.
+`./install.sh --uninstall` gives yours back exactly; a re-run changes
+nothing.
+
+**Stop rules.** A rule says: from this weekday and time until the weekly
+reset, a new prompt is stopped once the week is past this percentage.
+
+```bash
+CLAUDE_HTML_LIMIT_RULES="fri 20:00 80% · sat 00:00 90%"   # or joined by commas
+```
+
+The stop is gentle: only a **new prompt** waits, in the guard's own window,
+Cancel picked already:
+
+![The stop window: the week, the rule, four choices](limits-stop.png)
+
+| Answer | What happens |
+| ------ | ------------ |
+| **Cancel** (picked already; Return, Escape) | nothing is sent |
+| **Allow once** | this prompt is sent; the next one asks again |
+| **Allow until the reset** | no more asking until the week's `resets_at` |
+| **Stop** | sent, and that rule taken out of the conf (`claude-html --limits add …` brings it back) |
+
+As the guard's: ten minutes, then Cancel; with nobody at the screen the
+answer is the next prompt, one word, `cancel`, `allow`, `until` or `stop`.
+Figures more than six hours old, or none yet, never stop anything: the
+window and `claude-html --limits` say "no recent usage values". A rule
+acts on new prompts only: a task already running, and its sub-agents,
+carry on. It works with the guard off, through the same hook.
+
+**The week.** Claude Code's own `seven_day.resets_at` when it has given
+one (exact); else `CLAUDE_HTML_WEEK_RESET` ([Dashboard weeks](#dashboard-weeks));
+else calendar weeks. A rule's time is local, on the clock, so across a
+change of the clocks it is still 20:00.
+
+**Announcements.** One line in Claude Code after a reply, through the Stop
+hook's `systemMessage`, once each: when a rule starts within twelve hours
+and the week is already within five points of it, and when it starts.
+
+```text
+⚠ claude-html · your stop rule starts Fri 20:00 at 80 % · week now 81 %
+```
+
+**Budget, for API use.** A dollar amount per day, week or month, warned
+about at 80 and 95 % (one line each, once per period) and stopped at 100 %
+in the same window. It does not apply while Claude Code has reported plan
+figures in the last eight days: a subscriber's list-price cost is not what
+they pay.
+
+**Desktop banner**, off by default: the same announcements and warnings,
+on macOS through `osascript` (the first may ask for permission, and shows
+"Script Editor" as its source), on Linux through `notify-send` where the
+desktop has it; none over ssh, without a display, or under WSL.
+
+| Setting | What it is | Default |
+| ------- | ---------- | ------- |
+| `CLAUDE_HTML_LIMITS` | `off`: no stop, no announcement, no budget warning, no banner (the status line and the pages still show the figures) | `on` |
+| `CLAUDE_HTML_LIMIT_RULES` | stop rules, `"<day> <HH:MM> <percent>%"` joined by ` · `, commas or semicolons; 8 at most | none |
+| `CLAUDE_HTML_BUDGET` | `"<dollars> day\|week\|month"`, or `off` | none |
+| `CLAUDE_HTML_BUDGET_WARN` | the budget's two warning levels | `"80 95"` |
+| `CLAUDE_HTML_LIMIT_NOTIFY` | `on`: the desktop banner | `off` |
+
+```bash
+claude-html --limits                         # what is set, the latest figures, their source and age
+claude-html --limits add "fri 20:00 80%"     # a rule; remove <n> takes one out
+claude-html --limits budget week 50          # or day, month; budget off; budget warn 80 95
+claude-html --limits notify on               # the banner
+claude-html --limits off                     # all of it, the rules kept in the conf
+```
+
+**From the page.** The Token usage page has a foldable **Limits & budget**
+section with the same settings. The page never writes a file: **copy
+command** gives the change as `claude-html --limits` lines, and **apply**
+(where the helper app or the Linux link handler is) opens a
+`claude-html://limits/…` link, which asks in a window of its own, listing
+every value it will write, Cancel the default. Only Apply writes the conf
+and rebuilds the pages. The link holds the values in a fixed form and
+nothing else, at most 160 characters; the helper, `handler.sh` and the
+command each refuse anything else. Without a window to ask in (no desktop),
+nothing is written and the command says what to run instead.
+
+**Not covered**: claude-html cannot see the figures while Claude Code is
+closed (every display says "as of"); Anthropic decides the `rate_limits`
+and `cost` fields, which older Claude Code versions do not send and which
+may change; a rule uses the week as last seen, so a prompt sent before the
+next refresh can pass a level by a few percent; other sessions running at
+the same time count toward the API budget once they end; nothing here
+stops work already running.
+
 ## Hooks
 
 `./install.sh` adds these hooks to `~/.claude/settings.json`:
 
 | Hook | When | What it does |
 | ---- | ---- | ------------ |
-| `Stop` | after every reply | saves in the background, so the reply is never held up; gives way to a save already running; once per release, says a newer one is out |
+| `Stop` | after every reply | saves in the background, so the reply is never held up; gives way to a save already running; once per release, says a newer one is out; announces a [stop rule or a budget level](#limits-and-budget) |
 | `SessionEnd` | when a session ends | saves, detached so quitting is instant, and waits its turn |
 | `PreCompact` (`auto`, `manual`) | before a compaction | saves, detached so the compaction is not held up; the transcript keeps what it summarises |
-| `UserPromptSubmit` | before a prompt is sent | the [guard](#guard) |
+| `UserPromptSubmit` | before a prompt is sent | the [guard](#guard), and the [stop rules and budget](#limits-and-budget) |
 | `PreToolUse` (`Bash`) | before a command runs | the [guard](#guard) |
+
+And `statusLine`, claude-html's [status line](#limits-and-budget), or
+claude-html's around yours.
 
 They are added beside the hooks you have; yours are read, never rewritten.
 `./install.sh --no-guard` leaves the guard's two out and turns it off; a
@@ -325,6 +507,11 @@ installer says so if it is under a year. Uninstalling leaves it as it is.
 | `claude-html --redact-check` | what would be masked, per session and archive; changes nothing |
 | `claude-html --redact-archives` | rewrite the archives that still hold something to mask |
 | `claude-html --guard on\|prompt\|off\|status` | turn the [guard](#guard) on, on for prompts only, off; or say how it stands |
+| `claude-html --limits` | the [stop rules, budget and banner](#limits-and-budget), and the latest figures with their source and age (`status` too) |
+| `claude-html --limits add "fri 20:00 80%"` / `remove <n>` / `rules "…"\|none` | a stop rule more, one fewer, or all of them at once |
+| `claude-html --limits budget day\|week\|month <dollars>` / `budget off` / `budget warn <a> <b>` | the API budget and its two warnings |
+| `claude-html --limits notify on\|off` / `on\|off` | the desktop banner; all of the limits |
+| `claude-html --limits-apply <payload>` | what the page's **apply** link reaches: asks in a window, then writes and rebuilds |
 | `claude-html --delete <full id>` | the index's bin: move a conversation to the Trash, after asking |
 | `claude-html --delete-plan <full id>` | say what `--delete` would move, and move nothing |
 | `claude-html --delete <full id> --yes` | the same without asking (`-y`) |
@@ -414,7 +601,7 @@ one reads only what was appended. It holds text, masked as the pages are.
 The same JavaScript runs under node, which Linux needs (14.14 or later).
 The terminal a resume or an update opens, the trash, the confirmation
 dialog and the `claude-html://` link handler (`delete`, `open`, `resume`
-with a session id, and `update` alone) are picked per machine from what is
+with a session id, `update` alone, and `limits` with its values) are picked per machine from what is
 installed (when the command ends, the window stays, as an ordinary shell
 in that folder); `$TERMINAL` wins over all terminals. See
 [On Linux](DETAILS.md#on-linux) for the table.
@@ -434,7 +621,9 @@ Knobs the tests set; nothing needs them day to day.
 | `CLAUDE_HTML_TRASH` | a folder `--delete` moves into instead of the Trash |
 | `CLAUDE_HTML_TRANSCRIPT` | the transcript a detached save was handed (set by the hook itself) |
 | `CLAUDE_HTML_DETACHED` | marks the detached copy of a session-end save (set by the hook itself) |
-| `CLAUDE_HTML_GUARD_TEST_LIMIT` | seconds the guard's dialog waits, instead of ten minutes |
+| `CLAUDE_HTML_GUARD_TEST_LIMIT` | seconds the guard's dialog (and the stop and confirmation windows) waits, instead of ten minutes |
+| `CLAUDE_HTML_TEST_NOW` | the time, in epoch seconds, that the limits take for now |
+| `CLAUDE_HTML_STATUSLINE_TEST_LIMIT` | seconds the status line waits for the one it wraps, instead of three |
 | `CLAUDE_HTML_UPDATE_REMOTE` | the release repository, a URL or a path, instead of GitHub's |
 | `CLAUDE_HTML_UPDATE_LOCK_WAIT` | seconds an update waits for a save's lock, instead of 60 |
 | `CLAUDE_HTML_LOCK_WAIT` | seconds a session-end save waits for the lock before saving without it, instead of 50 |

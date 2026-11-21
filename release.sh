@@ -22,7 +22,9 @@ CH_UPDATE_STATE="$HOME/.claude/.claude-html.update"
 #   4  redacted, by the rules and list its signature names
 #   5  read through parse.js, as the pages are: the messages a page shows,
 #      Claude Code's title, and the side remarks marked as such
-CH_ARCHIVE_FORMAT=5
+#   6  the cache write split into its 1-hour part and its part of unknown
+#      duration, so it can be priced; the cost moves to the eighth figure
+CH_ARCHIVE_FORMAT=6
 
 # Whether git can be run without anything popping up. On a Mac without
 # Apple's developer tools, /usr/bin/git is a stand-in that offers, in a

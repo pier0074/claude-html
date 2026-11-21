@@ -33,7 +33,8 @@ CONF="$H/.claude/claude-html.conf"
 # Whatever the machine running the suite has set must not leak in.
 clean_env() {
   env -u CLAUDE_HTML_OUT -u CLAUDE_HTML_ROOT -u CLAUDE_HTML_CONF -u CLAUDE_HTML_WEEK_RESET -u CLAUDE_HTML_ENGINE \
-    -u CLAUDE_HTML_GUARD -u CLAUDE_HTML_GUARD_DIALOG \
+    -u CLAUDE_HTML_GUARD -u CLAUDE_HTML_GUARD_DIALOG -u CLAUDE_HTML_LIMITS -u CLAUDE_HTML_LIMIT_RULES \
+    -u CLAUDE_HTML_BUDGET -u CLAUDE_HTML_BUDGET_WARN -u CLAUDE_HTML_LIMIT_NOTIFY \
     HOME="$H" CLAUDE_HTML_FORCE_NODE=1 "$@"
 }
 install() { clean_env bash "$C/install.sh" "$@" > "$T/install.out" 2>&1; }
@@ -148,7 +149,7 @@ node -e 'var fs=require("fs"),p=process.argv[1],s=JSON.parse(fs.readFileSync(p,"
   s.hooks.SessionEnd[0].hooks[0].command=process.argv[2];
   fs.writeFileSync(p,JSON.stringify(s,null,2))' "$H/.claude/settings.json" "$LEGACY"
 check "remove takes quoted and unquoted alike" \
-  "$(CLAUDE_HTML_FORCE_NODE=1 run_js "$C/settings-hooks.js" "$H/.claude/settings.json" "$C" remove)" "removed 6"
+  "$(CLAUDE_HTML_FORCE_NODE=1 run_js "$C/settings-hooks.js" "$H/.claude/settings.json" "$C" remove)" "removed 6; status line removed"
 install
 
 # ── which hooks are ours: the whole command, never a script's name ──
@@ -182,14 +183,14 @@ check "install adds its guard though the user has a prompt-guard.sh and a guard.
   "$(grep -cF "$C/guard.sh' prompt" "$S2") $(grep -cF "$C/guard.sh' bash" "$S2")" "1 1"
 check "  the user's three hooks are left exactly as they were" "$(theirs3)" "1 1 1"
 check "  another clone's hooks, and a gone one's, are replaced as a set by this clone's" \
-  "$(grep -cF "$OLD/" "$S2") $(grep -cF "$GONE/" "$S2") $(grep -cF "$C/" "$S2")" "0 0 6"
+  "$(grep -cF "$OLD/" "$S2") $(grep -cF "$GONE/" "$S2") $(grep -cF "$C/" "$S2")" "0 0 7"
 check "  and the installer says so" "$(printf '%s' "$R" | grep -c 'replaced 5 hook(s) of')" 1
 check "  counting the user's as theirs" "$(printf '%s' "$R" | sed -n 's/.*"theirs":\([0-9]*\).*/\1/p')" 3
 sh_js add no-guard >/dev/null
 check "--no-guard takes out this clone's guard only" \
   "$(grep -cF "$C/guard.sh" "$S2") $(theirs3)" "0 1 1 1"
 sh_js add >/dev/null
-check "remove takes out this clone's hooks only" "$(sh_js remove) $(grep -cF "$C/" "$S2") $(theirs3)" "removed 6 0 1 1 1"
+check "remove takes out this clone's hooks only" "$(sh_js remove) $(grep -cF "$C/" "$S2") $(theirs3)" "removed 6; status line removed 0 1 1 1"
 mk_settings
 sh_js remove >/dev/null
 check "  and never another clone's" "$(grep -cF "$OLD/" "$S2") $(theirs3)" "4 1 1 1"
@@ -197,7 +198,7 @@ check "  and never another clone's" "$(grep -cF "$OLD/" "$S2") $(theirs3)" "4 1 
 mkdir -p "$T/dots2"; mv "$S2" "$T/dots2/settings.json"; ln -s "$T/dots2/settings.json" "$S2"
 sh_js add >/dev/null
 check "a symlinked settings.json stays a symlink, its file takes the hooks" \
-  "$([ -L "$S2" ] && echo link) $(grep -cF "$C/" "$T/dots2/settings.json")" "link 6"
+  "$([ -L "$S2" ] && echo link) $(grep -cF "$C/" "$T/dots2/settings.json")" "link 7"
 
 # ── one rule for where things go: environment, then conf, then default ──
 rm -rf "$PAGES"
@@ -268,6 +269,59 @@ clean_env bash "$C/install.sh" --uninstall > "$T/install.out" 2>&1
 check "  and uninstalling takes its own away" "$([ -L "$H/.local/bin/claude-html" ] && echo there || echo gone)" gone
 check "  and its own state in ~/.claude, leaving the conf and the archive list" \
   "$(ls -A "$H/.claude" | grep -c "^\.claude-html") $(exists "$CONF") $(exists "$H/.claude/claude-html.archives")" "0 yes yes"
+
+# ── the status line: one slot, ours, or ours around yours ─────────────
+# An install from before it (3.2.1) has hooks and no statusLine: the
+# update's install puts ours in the empty slot. Someone else's is wrapped,
+# and given back exactly as it was on uninstall.
+SJ="$H/.claude/settings.json"
+sl() { node -e 'var s=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); process.stdout.write(JSON.stringify(s.statusLine === undefined ? "none" : s.statusLine))' "$SJ"; }
+node -e 'var fs=require("fs"),p=process.argv[1],s=JSON.parse(fs.readFileSync(p,"utf8")); delete s.statusLine; fs.writeFileSync(p,JSON.stringify(s,null,2))' "$SJ"
+install
+check "an install with the slot empty puts claude-html's status line in it" "$(sl)" "{\"type\":\"command\",\"command\":\"bash '$C/statusline.sh'\"}"
+check "  and says so" "$(grep -c "status:   Claude Code's status line shows the plan's usage" "$T/install.out")" 1
+B="$(cat "$SJ")"; install
+check "  once" "$(cat "$SJ")" "$B"
+clean_env bash "$C/install.sh" --uninstall > "$T/install.out" 2>&1
+check "  uninstall empties the slot again" "$(sl) $(grep -c 'status line removed' "$T/install.out")" "\"none\" 1"
+mkdir -p "$T/bin dir"; printf '#!/bin/sh
+cat > /dev/null
+echo "mine $1"
+' > "$T/bin dir/my line.sh"; chmod +x "$T/bin dir/my line.sh"
+node -e 'var fs=require("fs"),p=process.argv[1],s=JSON.parse(fs.readFileSync(p,"utf8"));
+  s.statusLine={type:"command",command:"\x27"+process.argv[2]+"\x27 \x27a b\x27 # it\x27s \"mine\"",padding:1,refreshInterval:30};
+  fs.writeFileSync(p,JSON.stringify(s,null,2))' "$SJ" "$T/bin dir/my line.sh"
+ORIG="$(sl)"
+install
+check "a status line of yours is wrapped: ours around it" \
+  "$(node -e 'var s=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).statusLine; console.log(s.command.indexOf("bash \x27"+process.argv[2]+"/statusline.sh\x27 --wrap \x27") === 0, s.padding, s.refreshInterval, s.type)' "$SJ" "$C")" "true 1 30 command"
+check "  and the installer says so" "$(grep -c 'status:   yours first, then the plan' "$T/install.out")" 1
+B="$(cat "$SJ")"; install
+check "  once" "$(cat "$SJ")" "$B"
+CMD="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).statusLine.command)' "$SJ")"
+check "  run as Claude Code runs it: yours first, then ours" \
+  "$(printf '{"session_id":"x"}' | clean_env CLAUDE_HTML_CONF="$T/none.conf" /bin/sh -c "$CMD" | sed "s/$(printf '\033')\[[0-9;]*m//g" | tr '\n' '|')" "mine a b|claude-html|"
+check "  --doctor says whose it is" "$(clean_env bash "$C/claude-html" --doctor 2>/dev/null | grep -c "^  limits    status line claude-html's, around yours")" 1
+clean_env bash "$C/install.sh" --uninstall > "$T/install.out" 2>&1
+check "  uninstall gives yours back exactly" "$(sl)" "$ORIG"
+check "  and says so" "$(grep -c 'status line restored to yours' "$T/install.out")" 1
+# Another copy of claude-html had wrapped it: this one takes over, theirs kept.
+OLDC="$T/older clone"; mkdir -p "$OLDC"; : > "$OLDC/convert.js"; : > "$OLDC/statusline.sh"
+node -e 'var fs=require("fs"),p=process.argv[1],s=JSON.parse(fs.readFileSync(p,"utf8"));
+  function q(t){return "\x27"+t.replace(/\x27/g,"\x27\\\x27\x27")+"\x27";}
+  s.statusLine.command="bash "+q(process.argv[2]+"/statusline.sh")+" --wrap "+q(s.statusLine.command);
+  fs.writeFileSync(p,JSON.stringify(s,null,2))' "$SJ" "$OLDC"
+install
+check "another clone's status line is moved to this one, what it wraps kept" \
+  "$(grep -cF "$OLDC/" "$SJ") $(grep -cF "$C/statusline.sh" "$SJ")" "0 1"
+clean_env bash "$C/install.sh" --uninstall > "$T/install.out" 2>&1
+check "  and given back exactly on uninstall" "$(sl)" "$ORIG"
+node -e 'var fs=require("fs"),p=process.argv[1],s=JSON.parse(fs.readFileSync(p,"utf8")); s.statusLine={type:"command"}; fs.writeFileSync(p,JSON.stringify(s,null,2))' "$SJ"
+install
+check "a statusLine that is not a command is left as it is" "$(sl) $(grep -c 'is not a command, so it was left' "$T/install.out")" "{\"type\":\"command\"} 1"
+for f in .claude-html.limits .claude-html.limits-marks .claude-html.spend; do : > "$H/.claude/$f"; done
+clean_env bash "$C/install.sh" --uninstall > "$T/install.out" 2>&1
+check "uninstall takes the limits' own state away too" "$(ls -A "$H/.claude" | grep -c '^\.claude-html')" 0
 
 echo
 echo "  $pass passed, $fail failed"

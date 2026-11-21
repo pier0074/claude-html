@@ -421,6 +421,14 @@
         ? "what Claude Code recorded at API list prices; some replies fall outside its record, so it cost at least this"
         : "what Claude Code recorded at API list prices; on a subscription an equivalent, not a bill") + '">' +
         (meta.costPart ? "≥ " : "≈ ") + CH.fmtMoney(t[5]) + "</span>");
+    } else if (meta.calc !== undefined && meta.calc !== null) {
+      // Nothing recorded: the cost calculated from the price file, marked
+      // as such, and never taken for Claude Code's own.
+      parts.splice(1, 0, '<span class="cost calc" title="' + CH.esc(
+        "calculated from claude-html's price file at the price of the time; Claude Code recorded no cost" +
+        (meta.calcPart ? ". Some models have no price line, so at least this" : "") +
+        ". On a subscription an equivalent, not a bill") + '">' +
+        (meta.calcPart ? "≥ " : "≈ ") + CH.fmtMoney(meta.calc) + ' <span class="cm">calc</span></span>');
     }
     if (meta.models && meta.models.length) {
       // The three that did most of the work; naming six wraps the line.

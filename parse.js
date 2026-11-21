@@ -173,6 +173,22 @@ function claudeHtmlParse(redactor) {
   // written as several records sharing one message id, each carrying the
   // usage so far, so the last record per id wins. One accumulator serves a
   // session and all its sub-agents, so a reply in both is still one reply.
+  //
+  // A reply's figures, and so every usage cell's (USAGE_VERSION 5):
+  //   0 input  1 output  2 cache read  3 cache write (5-minute and 1-hour
+  //   together)  4 replies  5 of the cache write, 1-hour  6 of the cache
+  //   write, split unknown (a record that does not say which; priced as
+  //   5-minute)  [7 the cost Claude Code recorded, micro-dollars, on a cell
+  //   that has one]
+  // prices.js names them (T) and prices them.
+  //
+  // A reply priced by a rule of its own is filed under its model with a
+  // suffix, as the price list files it: "/fast" when the reply says it ran
+  // in fast mode (usage.speed), and "/over-100k" for a Haiku 5.5 prompt
+  // over 100,000 tokens, cache reads and writes included, which the
+  // pricing page prices higher per request. Per request is why it is
+  // decided here: an hour's sums can no longer tell.
+  var LONG_PROMPT = [[/^claude-haiku-5-5(-\d{8})?$/, 100000, "/over-100k"]];
   function newReplies() { return { by: {}, n: 0 }; }
   function usageLine(acc, e) {
     if (e.type !== "assistant" || !e.message || !e.message.usage) return;
@@ -182,14 +198,32 @@ function claudeHtmlParse(redactor) {
     if (!(u.input_tokens || u.output_tokens ||
           u.cache_read_input_tokens || u.cache_creation_input_tokens)) return;
     var mid = e.message.id ? String(e.message.id) : "";
+    var inp = Number(u.input_tokens) || 0, read = Number(u.cache_read_input_tokens) || 0;
+    var write = Number(u.cache_creation_input_tokens) || 0, hour1 = 0, unsplit = write;
+    // The split, where the record gives one; without it, the whole write is
+    // of unknown duration.
+    var cc = u.cache_creation;
+    if (cc && typeof cc === "object" &&
+        (cc.ephemeral_5m_input_tokens != null || cc.ephemeral_1h_input_tokens != null)) {
+      hour1 = Math.min(write, Number(cc.ephemeral_1h_input_tokens) || 0);
+      unsplit = Math.max(0, write - hour1 - (Number(cc.ephemeral_5m_input_tokens) || 0));
+    }
+    var model = e.message.model ? String(e.message.model) : "unknown";
+    if (u.speed === "fast") model += "/fast";
+    else {
+      for (var i = 0; i < LONG_PROMPT.length; i++) {
+        if (LONG_PROMPT[i][0].test(model) && inp + read + write > LONG_PROMPT[i][1]) {
+          model += LONG_PROMPT[i][2];
+          break;
+        }
+      }
+    }
     acc.by[mid ? "m:" + mid : e.uuid ? "u:" + e.uuid : "r:" + (acc.n++)] = {
       mid: mid,
       hour: String(e.timestamp || "").slice(0, 13),   // 2026-10-21T14, UTC
-      model: e.message.model || "unknown",
-      // input, output, cache read, cache write, and the reply itself — one
-      // per message id, so "tokens per reply" means what it says.
-      t: [u.input_tokens || 0, u.output_tokens || 0,
-          u.cache_read_input_tokens || 0, u.cache_creation_input_tokens || 0, 1]
+      model: model,
+      // One per message id, so "tokens per reply" means what it says.
+      t: [inp, Number(u.output_tokens) || 0, read, write, 1, hour1, unsplit]
     };
   }
 

@@ -70,8 +70,16 @@ ch_json_obj() {
 # The options every run of convert.js starts from - where the projects
 # are, where the pages go, which clone - and its own after them.
 #   ch_js_opts <clone> [key value]…
+# With them, what the plan line and the Limits & budget section show, as
+# limits.sh works it out (bash's, in a shell of its own: what it cannot
+# work out, it leaves out, and the build goes on).
 ch_js_opts() {
   _h="$1"; shift
+  _lj=""
+  if [ -f "$_h/limits.sh" ]; then
+    _lj="$(bash -c 'set +eu; . "$1/platform.sh" && . "$1/limits.sh" && ch_lim_json' _ "$_h" 2>/dev/null)" || _lj=""
+    case "$_lj" in '{'*'}') set -- "$@" :limits "$_lj" ;; esac
+  fi
   ch_json_obj root "$ROOT" out "$OUT" here "$_h" "$@"
 }
 
@@ -489,8 +497,26 @@ Command:  $_cmd"
     *) return 1 ;;
   esac
   if [ -n "${CH_DRY:-}" ]; then ch_quote_args "$@"; echo; return 0; fi
-  # Both files made by mktemp, in a folder of their own: a name another
-  # user of a shared /tmp could guess is one they could make first.
+  ch_dialog_wait "$@" || return 1
+  if [ "$_ans" = timeout ]; then echo timeout; return 0; fi
+  if [ "$CH_DIALOG" = xmessage ]; then
+    case "$_rc" in 1) _ans=cancel ;; 2) _ans=allow ;; 3) _ans=safe ;; 4) _ans=stop ;; *) _ans="" ;; esac
+  fi
+  # Their own Cancel button, or the window closed, is exit 1 and no output.
+  if [ -z "$_ans" ] && [ "$_rc" = 1 ] && [ "$CH_DIALOG" != osascript ]; then _ans=cancel; fi
+  # Nothing at all — the tool failed — prints nothing: the caller asks in
+  # words instead.
+  case "$_ans" in
+    cancel|Cancel*) echo cancel ;; allow|Allow*) echo allow ;; safe|Safe*) echo safe ;; stop|Stop*) echo stop ;;
+  esac
+  return 0
+}
+
+# A dialog run with the guard's time limit: its output into _ans (or
+# "timeout" when it was closed for want of an answer) and its status into
+# _rc. Both files made by mktemp, in a folder of their own: a name another
+# user of a shared /tmp could guess is one they could make first.
+ch_dialog_wait() {
   _dir="$(mktemp -d "${TMPDIR:-/tmp}/chguard.XXXXXX")" || return 1
   _out="$_dir/answer"; _late="$_dir/late"
   "$@" >"$_out" 2>/dev/null &
@@ -506,18 +532,79 @@ Command:  $_cmd"
   wait "$_pid"; _rc=$?
   wait "$_watch" 2>/dev/null
   _ans="$(tr -d '\n' < "$_out")"
-  if [ -f "$_late" ]; then rm -rf "$_dir"; echo timeout; return 0; fi
+  [ -f "$_late" ] && _ans=timeout
   rm -rf "$_dir"
-  if [ "$CH_DIALOG" = xmessage ]; then
-    case "$_rc" in 1) _ans=cancel ;; 2) _ans=allow ;; 3) _ans=safe ;; 4) _ans=stop ;; *) _ans="" ;; esac
-  fi
-  # Their own Cancel button, or the window closed, is exit 1 and no output.
-  if [ -z "$_ans" ] && [ "$_rc" = 1 ] && [ "$CH_DIALOG" != osascript ]; then _ans=cancel; fi
-  # Nothing at all — the tool failed — prints nothing: the caller asks in
-  # words instead.
-  case "$_ans" in
-    cancel|Cancel*) echo cancel ;; allow|Allow*) echo allow ;; safe|Safe*) echo safe ;; stop|Stop*) echo stop ;;
+  return 0
+}
+
+# The stop window of a limit rule or the API budget: the guard's window,
+# its four choices Cancel, Allow once, Allow until the reset and Stop, the
+# first picked already, one OK, the same time limit. Prints cancel, allow,
+# until, stop, timeout, or nothing when no dialog could be shown.
+#   ch_choose_limit <head> <key1> <value1> <key2> <value2> <choice3> <choice4>
+ch_choose_limit() {
+  _c1="Cancel — do not send"; _c2="Allow once — send this prompt only"; _c3="$6"; _c4="$7"
+  _text="Your prompt has been interrupted
+$1
+
+$2  $3
+$4  $5"
+  case "$CH_DIALOG" in
+    osascript) set -- osascript -l JavaScript "$CH_HERE/dialog.js" limits "$@" ;;
+    zenity) set -- zenity --list --radiolist --title=claude-html --no-markup --text="$_text" \
+              --ok-label=OK --column=" " --column=Choice \
+              TRUE "$_c1" FALSE "$_c2" FALSE "$_c3" FALSE "$_c4" ;;
+    yad) set -- yad --list --radiolist --title=claude-html --text="$(printf "%s" "$_text" | sed -e "s/&/\\&amp;/g" -e "s/</\\&lt;/g" -e "s/>/\\&gt;/g")" --print-column=2 --separator= \
+           --button=OK:0 --column=" " --column=Choice TRUE "$_c1" FALSE "$_c2" FALSE "$_c3" FALSE "$_c4" ;;
+    kdialog) set -- kdialog --title claude-html --ok-label OK --radiolist "$(printf "%s" "$_text" | sed -e "s/</‹/g" -e "s/>/›/g")" \
+               cancel "$_c1" on allow "$_c2" off until "$_c3" off stop "$_c4" off ;;
+    xmessage) set -- xmessage -center -title claude-html \
+                -buttons "Cancel:1,Allow once:2,Until the reset:3,Stop:4" -default Cancel "$_text" ;;
+    *) return 1 ;;
   esac
+  if [ -n "${CH_DRY:-}" ]; then ch_quote_args "$@"; echo; return 0; fi
+  ch_dialog_wait "$@" || return 1
+  if [ "$_ans" = timeout ]; then echo timeout; return 0; fi
+  if [ "$CH_DIALOG" = xmessage ]; then
+    case "$_rc" in 1) _ans=cancel ;; 2) _ans=allow ;; 3) _ans=until ;; 4) _ans=stop ;; *) _ans="" ;; esac
+  fi
+  if [ -z "$_ans" ] && [ "$_rc" = 1 ] && [ "$CH_DIALOG" != osascript ]; then _ans=cancel; fi
+  case "$_ans" in
+    cancel|Cancel*) echo cancel ;; allow|Allow\ once*) echo allow ;; until|Allow\ until*) echo until ;; stop|Stop*) echo stop ;;
+  esac
+  return 0
+}
+
+# Asks before something is changed, Cancel the default, in this desktop's
+# own way: a window of osascript's on a Mac, zenity, kdialog, yad or
+# xmessage elsewhere. Prints apply, cancel or timeout; returns 1 when no
+# dialog can be shown here at all.
+#   ch_confirm <title> <subtitle> <rows: key<TAB>value per line> <button>
+ch_confirm() {
+  _text="$1
+$2
+
+$(printf '%s\n' "$3" | awk -F'\t' '{ if ($1 != "") printf "%s  %s\n", $1, $2; else printf "      %s\n", $2 }')"
+  case "$CH_DIALOG" in
+    osascript) set -- osascript -l JavaScript "$CH_HERE/dialog.js" confirm "$1" "$2" "$3" ;;
+    zenity) set -- zenity --question --no-markup --default-cancel --title=claude-html \
+              --ok-label="$4" --cancel-label=Cancel --text="$_text" ;;
+    kdialog) set -- kdialog --title claude-html --continue-label "$4" \
+               --warningcontinuecancel "$(printf "%s" "$_text" | sed -e "s/</‹/g" -e "s/>/›/g")" ;;
+    yad) set -- yad --title=claude-html --text="$(printf "%s" "$_text" | sed -e "s/&/\\&amp;/g" -e "s/</\\&lt;/g" -e "s/>/\\&gt;/g")" \
+           --button="Cancel:1" --button="$4:0" ;;
+    xmessage) set -- xmessage -center -title claude-html -buttons "Cancel:1,$4:0" -default Cancel "$_text" ;;
+    *) return 1 ;;
+  esac
+  if [ -n "${CH_DRY:-}" ]; then ch_quote_args "$@"; echo; return 0; fi
+  ch_dialog_wait "$@" || { echo cancel; return 0; }
+  if [ "$_ans" = timeout ]; then echo timeout; return 0; fi
+  if [ "$CH_DIALOG" = osascript ]; then
+    [ "$_ans" = apply ] && echo apply || echo cancel
+  else
+    # Anything but a clear yes - a closed window, a tool that failed - is a no.
+    [ "$_rc" = 0 ] && echo apply || echo cancel
+  fi
   return 0
 }
 

@@ -63,7 +63,7 @@ js() {
 # the aggregated numbers, straight from the page's JSON
 usage_json() { js 'JSON.stringify(d.byProject)' "$OUT/usage.html" usage-data; }
 # the parent's two replies are at 10:00 and 10:00; the sub-agent's too
-opus6() { usage_json | js 'var t = [0, 0, 0, 0, 0]; Object.keys(d.app).forEach(function (h) {
+opus6() { usage_json | js 'var t = [0, 0, 0, 0, 0, 0, 0]; Object.keys(d.app).forEach(function (h) {
   var m = d.app[h]["claude-opus-5"]; if (h.indexOf("2026-10-06") === 0 && m) m.forEach(function (v, i) { t[i] += v; }); }); t'; }
 
 build >/dev/null
@@ -71,10 +71,10 @@ check "the dashboard is written" "$([ -s "$OUT/usage.html" ] && echo yes || echo
 check "  with every placeholder filled, so its script actually runs" \
   "$(grep -c '{{' "$OUT/usage.html")" 0
 check "one reply in two records counts once, and the final record wins" \
-  "$(opus6)" "[17, 999, 1000, 50, 2]"
+  "$(opus6)" "[17, 999, 1000, 50, 2, 0, 50]"
 check "  (222 from the parent + 777 from its sub-agent)" \
   "$(opus6 | grep -c 999)" 1
-check "the other model lands on its own hour" "$(usage_json | js '(d.app["2026-10-07T09"] || {})["claude-haiku-4-5-20251001"] || []')" "[5, 555, 0, 0, 1]"
+check "the other model lands on its own hour" "$(usage_json | js '(d.app["2026-10-07T09"] || {})["claude-haiku-4-5-20251001"] || []')" "[5, 555, 0, 0, 1, 0, 0]"
 check "  keyed by the UTC hour, so the page can place it in local time" \
   "$(usage_json | js 'Object.keys(d.app).every(function (k) { return k.length === 13 && k[10] === "T"; })')" True
 check "  and the tokens are filed under their project" \
@@ -105,7 +105,7 @@ R="$(build)"
 check "an unchanged session is still skipped" \
   "$(printf '%s' "$R" | sed -n 's/.*"built":\([0-9]*\).*/\1/p')" 0
 check "  and the dashboard returns from the manifest alone" \
-  "$(opus6)" "[17, 999, 1000, 50, 2]"
+  "$(opus6)" "[17, 999, 1000, 50, 2, 0, 50]"
 
 # ── after the transcript is gone ────────────────────────────────────
 # Tokens are recorded only in the transcript, and Claude Code deletes it
@@ -185,7 +185,7 @@ Q=11111111-2222-3333-4444-666666666666
 rm -rf "$OUT"
 build >/dev/null
 check "a copy of an archived reply is counted once, even from a clean build" \
-  "$(opus6)" "[17, 999, 1000, 50, 2]"
+  "$(opus6)" "[17, 999, 1000, 50, 2, 0, 50]"
 rm -f "$H/.claude/projects/$D/$Q.jsonl"
 
 # Archives written before they carried tokens. While the last build still
@@ -200,7 +200,9 @@ check "an old archive is rebuilt" "$(printf '%s' "$R" | sed -n 's/.*"built":\([0
 check "  and keeps the numbers the last build had" "$(usage_json)" "$BEFORE"
 check "  on the index too" "$(index_tok | sed 's/archive/KIND/')" "$TOK_BEFORE"
 node -e 'var fs=require("fs"),p=process.argv[1],m=JSON.parse(fs.readFileSync(p,"utf8"));
-  Object.keys(m).forEach(function (k) { m[k].uv = 3; }); fs.writeFileSync(p,JSON.stringify(m))' "$OUT/.manifest.json"
+  Object.keys(m).forEach(function (k) { m[k].uv = 3;
+    Object.keys(m[k].usage || {}).forEach(function (h) { Object.keys(m[k].usage[h]).forEach(function (x) {
+      m[k].usage[h][x].length = 5; }); }); }); fs.writeFileSync(p,JSON.stringify(m))' "$OUT/.manifest.json"
 build >/dev/null
 check "  and across the upgrade that added cost, from a version 3 manifest" "$(usage_json)" "$BEFORE"
 R="$(HOME="$H" run_js "$HERE/convert.js" \
@@ -267,8 +269,8 @@ cdata() {   # page, expression over d
     var d=JSON.parse(m[1]); console.log(JSON.stringify(eval(process.argv[2])));' "$1" "$2"
 }
 sess() { cdata "$CO/index.html" 'd.sessions.filter(function(s){return s.id==="'$1'"}).map(function(s){return [s.tok&&s.tok[5],!!s.costPart]})[0]'; }
-cells() { cdata "$CO/usage.html" '(function(){var o=[];var p=d.byProject.capp||{};Object.keys(p).sort().forEach(function(h){Object.keys(p[h]).sort().forEach(function(m){if(p[h][m].length>5)o.push(h+" "+m.replace("claude-","")+" "+p[h][m][5])})});return o.join(", ")})()'; }
-costsum() { cdata "$CO/usage.html" '(function(){var s=0;Object.keys(d.byProject).forEach(function(p){Object.keys(d.byProject[p]).forEach(function(h){Object.keys(d.byProject[p][h]).forEach(function(m){s+=d.byProject[p][h][m][5]||0})})});return s})()'; }
+cells() { cdata "$CO/usage.html" '(function(){var o=[];var p=d.byProject.capp||{};Object.keys(p).sort().forEach(function(h){Object.keys(p[h]).sort().forEach(function(m){if(p[h][m].length>7)o.push(h+" "+m.replace("claude-","")+" "+p[h][m][7])})});return o.join(", ")})()'; }
+costsum() { cdata "$CO/usage.html" '(function(){var s=0;Object.keys(d.byProject).forEach(function(p){Object.keys(d.byProject[p]).forEach(function(h){Object.keys(d.byProject[p][h]).forEach(function(m){s+=d.byProject[p][h][m][7]||0})})});return s})()'; }
 cbuild >/dev/null
 check "cost: each snapshot adds only what it added, on the hour before it, duplicates once" \
   "$(cells)" '"2026-10-06T10 haiku-4-5-20251001 250000, 2026-10-06T10 opus-5 3234567, 2026-10-07T09 opus-5 500000, 2026-10-08T12 opus-5 300000"'
@@ -298,7 +300,7 @@ cbuild >/dev/null
 check "a fork's copied cost-state is not counted again" "$(sess $SF)" "[750000,false]"
 check "  so the dashboard holds both sessions' cost exactly once" "$(costsum)" 5034567
 check "  the copied reply is taken back out, and the cell kept for the fork's cost" \
-  "$(cdata "$CO/usage.html" 'd.byProject.capp2["2026-10-06T10"]["claude-opus-5"]')" "[0,0,0,0,0,500000]"
+  "$(cdata "$CO/usage.html" 'd.byProject.capp2["2026-10-06T10"]["claude-opus-5"]')" "[0,0,0,0,0,0,0,500000]"
 rm -rf "$CO"; cbuild >/dev/null
 check "  the same from a clean build" "$(costsum)" 5034567
 
@@ -309,7 +311,7 @@ for s in $S1 $S3; do
 done
 check "the archive records the cost as the build does" \
   "$(js 'var n = 0; Object.keys(d.usage).forEach(function (h) { Object.keys(d.usage[h]).forEach(function (m) {
-    var r = d.usage[h][m]; if (r.length > 5) n += r[5]; }); }); n + " " + (d.costPart === undefined ? "None" : d.costPart)' < "$CCONV/$S1.json")" "2284567 None"
+    var r = d.usage[h][m]; if (r.length > 7) n += r[7]; }); }); n + " " + (d.costPart === undefined ? "None" : d.costPart)' < "$CCONV/$S1.json")" "2284567 None"
 check "  and that it is a floor, when it is" \
   "$(js 'd.costPart' < "$CCONV/$S3.json")" True
 if command -v osascript >/dev/null 2>&1 && command -v node >/dev/null 2>&1; then
@@ -347,8 +349,8 @@ cat > "$T/page.js" <<'EOF'
 var fs = require("fs"), vm = require("vm");
 var here = process.argv[2], stored = process.argv[3];
 var data = { weekReset: "mon 00:00", weekResetSet: !!process.env.SET, byProject: {
-  a: { "2026-10-06T10": { "claude-opus-5": [10, 100, 1000, 50, 2], "claude-haiku-4-5": [1, 10, 0, 0, 1] } },
-  b: { "2026-10-13T10": { "claude-opus-5": [5, 50, 500, 0, 1] } } } };
+  a: { "2026-10-06T10": { "claude-opus-5": [10, 100, 1000, 50, 2, 0, 0], "claude-haiku-4-5": [1, 10, 0, 0, 1, 0, 0] } },
+  b: { "2026-10-13T10": { "claude-opus-5": [5, 50, 500, 0, 1, 0, 0] } } } };
 var els = {}, onClick = null, store = {};
 if (stored) store["ch-usage-filter"] = stored;
 function el(id) {
@@ -425,7 +427,7 @@ check "every model in the legend and project below is a filter" \
   "$(printf '%s' "$P0" | field legend) / $(printf '%s' "$P0" | field lower)" \
   "model=claude-opus-5,model=claude-haiku-4-5 / project=a,project=b"
 check "clicking a model narrows the cards to it" \
-  "$(printf '%s' "$P0" | field opus | cut -d' ' -f1-8)" "1.7 k all time — cost 150 output"
+  "$(printf '%s' "$P0" | field opus | cut -d' ' -f1-10)" "1.7 k all time — recorded by Claude Code 150"
 check "  the legend shrinks to what is left" "$(printf '%s' "$P0" | field opusLegend)" "model=claude-opus-5"
 check "  the filter says so, with a way out" "$(printf '%s' "$P0" | field chip)" "filtered · model opus-5 ×"
 check "  and is remembered" "$(printf '%s' "$P0" | field stored)" '{"model":"claude-opus-5"}'
@@ -443,7 +445,7 @@ check "undoing everything leaves the page as it began" "$(printf '%s' "$P0" | fi
 check "the week compares with the week before it" \
   "$(printf '%s' "$P0" | field weekAll | cut -d' ' -f1-9)" "555 week of 2026-10-12 00:00 ▼ 53% vs previous"
 check "  and with a filter, with the same filtered week — empty here" \
-  "$(printf '%s' "$P0" | field weekB | cut -d' ' -f1-13)" "555 week of 2026-10-12 00:00 nothing the week before — cost 50 output"
+  "$(printf '%s' "$P0" | field weekB | cut -d' ' -f1-14)" "555 week of 2026-10-12 00:00 nothing the week before — recorded by Claude Code"
 # A fixed table gives a column without a width of its own whatever is left,
 # which under 900px was nothing: the names vanished. Both tables scroll in
 # their own box below that instead of the page.
@@ -483,22 +485,22 @@ c.week = text("cards");
 console.log(JSON.stringify(c));
 JS
 CDATA='{"weekReset":"mon 00:00","coverage":{"a":[2,1,0],"b":[1,0,0]},"byProject":{
- "a":{"2026-10-06T10":{"claude-opus-5":[10,100,1000,50,2,1234567],"claude-haiku-4-5":[1,10,0,0,1]}},
- "b":{"2026-10-13T10":{"claude-opus-5":[5,50,500,0,1]}}}}'
+ "a":{"2026-10-06T10":{"claude-opus-5":[10,100,1000,50,2,0,50,1234567],"claude-haiku-4-5":[1,10,0,0,1,0,0]}},
+ "b":{"2026-10-13T10":{"claude-opus-5":[5,50,500,0,1,0,0]}}}}'
 PC="$(TZ=UTC node "$T/pagecost.js" "$HERE" "" "$CDATA")"
 cf() { printf '%s' "$PC" | js 'd[process.argv[4]]' "" "" "$1"; }
-check "cost: the all-time card says what is known" "$(cf all | cut -d' ' -f5-7)" "≈ \$1.23 cost"
+check "cost: the all-time card says what is known" "$(cf all | cut -d' ' -f5-9)" "\$1.23 recorded by Claude Code"
 check "  the bar's tooltip carries it" "$(cf tip)" True
 check "  the lower table has it per project, and — where none is known" \
   "$(cf lower)" "a 11 110 1.0 k 50 3 1.2 k ≈ \$1.23 b 5 50 500 0 1 555 —"
 check "  nowhere does an unknown cost read \$0.00" "$(cf zero)" False
 check "  the coverage line counts sessions" "$(cf cover | cut -d' ' -f1-8)" "Cost is known for 1 of 3 sessions"
-check "filtered to a project with no cost, the card says —" "$(cf b | cut -d' ' -f1-6)" "555 all time — cost 50"
+check "filtered to a project with no cost, the card says —" "$(cf b | cut -d' ' -f1-9)" "555 all time — recorded by Claude Code 50"
 check "  and its coverage line follows the filter" "$(cf bCover | cut -d' ' -f1-10)" "Cost is known for 0 of 1 session in b"
 check "  as do its rows" "$(cf bRows)" "2026-10-13 opus-5 5 50 500 0 1 555 —"
-check "filtered to a model, the cost is that model's" "$(cf opus | cut -d' ' -f1-7)" "1.7 k all time ≈ \$1.23 cost"
-check "  and to one whose cost is unknown, —" "$(cf haiku | cut -d' ' -f1-5)" "11 all time — cost"
-check "a week with no cost against one with: — and no delta" "$(cf week | cut -d' ' -f1-12)" "555 week of 2026-10-12 00:00 ▼ 53% vs previous — cost 50"
+check "filtered to a model, the cost is that model's" "$(cf opus | cut -d' ' -f1-9)" "1.7 k all time \$1.23 recorded by Claude Code"
+check "  and to one whose cost is unknown, —" "$(cf haiku | cut -d' ' -f1-8)" "11 all time — recorded by Claude Code"
+check "a week with no cost against one with: — and no delta" "$(cf week | cut -d' ' -f1-15)" "555 week of 2026-10-12 00:00 ▼ 53% vs previous — recorded by Claude Code 50"
 
 echo
 echo "  $pass passed, $fail failed"

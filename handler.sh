@@ -11,6 +11,9 @@
 # must be one of three actions and a session id, with nothing before, after
 # or between them - or exactly claude-html://update, which names nothing. Which conversation that is, and every path involved, is
 # looked up in the index's own manifest by the command, never taken from here.
+# Or claude-html://limits/<payload>, from the Token usage page's "apply":
+# new limits in a fixed grammar (limits-cli.sh says it), which the command
+# checks again and asks about in a window before anything is written.
 #
 # Deleting asks first, in a dialog of the desktop's own, or in a terminal
 # window when there is no dialog tool; with neither, it refuses.
@@ -29,8 +32,18 @@ ID_GLOB="$H$H$H$H$H$H$H$H-$H$H$H$H-$H$H$H$H-$H$H$H$H-$H$H$H$H$H$H$H$H$H$H$H$H"
 # else - a space, a quote, a newline, a slash - can be inside it.
 # The update takes nothing from the link: it is exactly this string, or
 # not the update at all.
+# The limits: lower case letters, digits, dots, slashes and hyphens only,
+# at most 160 of them, in exactly this order of fields.
+LIM_DAY='(mon|tue|wed|thu|fri|sat|sun)'
+LIM_RULE="$LIM_DAY-([01][0-9]|2[0-3])[0-5][0-9]-([1-9][0-9]?|100)"
+LIM_RE="v1/(none|$LIM_RULE([.]$LIM_RULE){0,7})/(none|[1-9][0-9]{0,5}([.][0-9]{1,2})?-(day|week|month))/[1-9][0-9]?-[1-9][0-9]?/(on|off)"
 if [ "$URL" = "claude-html://update" ]; then
   ACTION=update; SID=""
+elif [ "${URL#claude-html://limits/}" != "$URL" ]; then
+  ACTION=limits; SID="${URL#claude-html://limits/}"
+  case "$SID" in ''|*[!a-z0-9./-]*) echo "handler.sh: not a limits link" >&2; exit 2 ;; esac
+  [ "${#SID}" -le 160 ] && printf '%s\n' "$SID" | grep -Eqx "$LIM_RE" ||
+    { echo "handler.sh: not a limits link" >&2; exit 2; }
 else
   REST="${URL#claude-html://}"
   [ "$REST" != "$URL" ] || { echo "handler.sh: not a claude-html link" >&2; exit 2; }
@@ -70,6 +83,16 @@ markup() { printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&g
 plain() { printf '%s' "$1" | sed -e 's/</‹/g' -e 's/>/›/g'; }
 
 case "$ACTION" in
+  limits)
+    # The command asks in a window of the desktop's own, Cancel the
+    # default, and writes nothing without a yes; with no window to ask in,
+    # it refuses and says what to run instead.
+    OUTPUT="$("$CLI" --limits-apply "$SID" 2>&1)"; RC=$?
+    # 3: a window asking is already up, which said all there is to say.
+    [ "$RC" = 0 ] || [ "$RC" = 3 ] || tell "The limits were not changed.
+
+$OUTPUT"
+    exit 0 ;;
   update)
     # This clone's own command, in a terminal that stays open to be read.
     OUTPUT="$("$CLI" --update-terminal 2>&1)" || { tell "Could not open a terminal for the update.

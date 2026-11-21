@@ -273,6 +273,23 @@ test("the cost column: known, a floor, and unknown", () => {
   assert.strictEqual((html.match(/<td/g) || []).length, 3 * 10);
 });
 
+// Where Claude Code recorded nothing, the cost calculated from the price
+// file takes the place of "—", marked calc; a recorded one is never
+// replaced by it, and a floor says so.
+test("the cost column: calculated where nothing was recorded, marked as such", () => {
+  const C = [
+    { id: "dddddddd-7", kind: "transcript", project: "app", title: "recorded", mtime: 1700002000, prompts: 1, tok: [1, 2, 3, 4, 1, 498942735], calc: 1000000 },
+    { id: "eeeeeeee-8", kind: "transcript", project: "app", title: "calc", mtime: 1700003000, prompts: 1, tok: [1, 2, 3, 4, 1], calc: 12400000 },
+    { id: "ffffffff-9", kind: "transcript", project: "app", title: "calc part", mtime: 1700004000, prompts: 1, tok: [1, 2, 3, 4, 1], calc: 2500000, calcPart: true },
+    { id: "aaaaaaaa-0", kind: "transcript", project: "app", title: "unpriced", mtime: 1700005000, prompts: 1, tok: [1, 2, 3, 4, 1] }
+  ];
+  const html = load({ sessions: C, home: "/x" }).get("rows").innerHTML;
+  const cells = html.match(/<td class="num cost[^"]*"[^>]*>.*?<\/td>/g).map((c) => c.replace(/<[^>]*>/g, ""));
+  assert.deepStrictEqual(cells, ["≈ $499", "$12 calc", "≥ $2.50 calc", "—"]);
+  assert.strictEqual((html.match(/class="num cost calc"/g) || []).length, 2);
+  assert.strictEqual((html.match(/<td/g) || []).length, 4 * 10);
+});
+
 test("the header has a column for every cell", () => {
   const src = fs.readFileSync(path.join(__dirname, "..", "viewer", "index.html"), "utf8");
   const head = /<thead><tr>([\s\S]*?)<\/tr><\/thead>/.exec(src)[1];
