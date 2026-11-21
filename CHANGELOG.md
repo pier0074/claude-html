@@ -5,6 +5,14 @@ fixes, a minor adds without breaking, a major needs something from you
 (usually `./install.sh` again). To update: `claude-html --update`; before
 3.1.0, `git checkout main && git pull && ./install.sh`.
 
+## 3.2.1 — 2026-11-21
+
+- **The weekly reset can be given in UTC**: `CLAUDE_HTML_WEEK_RESET="tue 07:00 UTC"`.
+  Anthropic's reset is a fixed moment, so written in local time it drifted
+  an hour when the clocks changed and the dashboard's weeks started an hour
+  late all winter. The dashboard says both: "Tuesday 07:00 UTC (Tuesday 08:00
+  your time)". A local setting keeps working as before.
+
 ## 3.2.0 — 2026-11-20
 
 - **What a call returned, and thinking, start folded**, as the docs always

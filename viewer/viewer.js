@@ -226,21 +226,31 @@ var CH = (function () {
   // "tue 09:00" means a week runs Tuesday 9am to Tuesday 9am, local time.
   var DOW = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
 
+  // "tue 09:00" is local time; "tue 07:00 UTC" is a moment fixed in UTC,
+  // which is how Anthropic resets a plan: in local time it moves by an hour
+  // when the clocks change.
   function parseReset(spec) {
-    var m = /^\s*(sun|mon|tue|wed|thu|fri|sat)[a-z]*[\s,]+(\d{1,2})(?::(\d{2}))?\s*$/i
+    var m = /^\s*(sun|mon|tue|wed|thu|fri|sat)[a-z]*[\s,]+(\d{1,2})(?::(\d{2}))?(?:\s*(utc|gmt|z))?\s*$/i
       .exec(String(spec || ""));
-    if (!m) return { dow: 1, hour: 0, minute: 0, spec: "mon 00:00" };
-    var r = { dow: DOW[m[1].toLowerCase()], hour: +m[2], minute: +(m[3] || 0) };
+    if (!m) return { dow: 1, hour: 0, minute: 0, utc: false, spec: "mon 00:00" };
+    var r = { dow: DOW[m[1].toLowerCase()], hour: +m[2], minute: +(m[3] || 0), utc: !!m[4] };
     r.spec = m[1].toLowerCase() + " " + ("0" + r.hour).slice(-2) + ":" +
-             ("0" + r.minute).slice(-2);
+             ("0" + r.minute).slice(-2) + (r.utc ? " UTC" : "");
     return r;
   }
 
-  // The start of the reset-week containing `date`. Everything is local time,
-  // and stepping by whole days keeps the wall-clock hour across a daylight
-  // saving change — 9am stays 9am, which is what a reset means.
+  // The start of the reset-week containing `date`. A local reset steps by
+  // whole local days, so 9am stays 9am across a daylight-saving change; a
+  // UTC reset steps in UTC, so it stays the same moment and its local hour
+  // moves with the clocks.
   function weekStart(date, reset) {
     var s = new Date(date.getTime());
+    if (reset.utc) {
+      s.setUTCHours(reset.hour, reset.minute, 0, 0);
+      s.setUTCDate(s.getUTCDate() - ((s.getUTCDay() - reset.dow + 7) % 7));
+      if (s.getTime() > date.getTime()) s.setUTCDate(s.getUTCDate() - 7);
+      return s;
+    }
     s.setHours(reset.hour, reset.minute, 0, 0);
     s.setDate(s.getDate() - ((s.getDay() - reset.dow + 7) % 7));
     if (s.getTime() > date.getTime()) s.setDate(s.getDate() - 7);

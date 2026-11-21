@@ -145,8 +145,10 @@ WEEK_NOTE='
 # When your plan'"'"'s weekly allowance resets, so the token dashboard'"'"'s weeks
 # line up with the ones you are actually billed for. Your reset day and hour
 # are fixed per account — Claude Code shows them when you near a limit.
-# Local time, e.g. "tue 09:00". Left out, weeks are calendar Mondays.
-#CLAUDE_HTML_WEEK_RESET="tue 09:00"'
+# Best in UTC, since that is how it is fixed: "tue 07:00 UTC" is 09:00 in
+# summer and 08:00 in winter in Zurich. Local time works too ("tue 09:00")
+# but drifts an hour when the clocks change. Left out, weeks are calendar Mondays.
+#CLAUDE_HTML_WEEK_RESET="tue 07:00 UTC"'
 
 # Whole paths in the conf: a relative one would be read from wherever the
 # hook or the command happens to run, and every project would get pages of

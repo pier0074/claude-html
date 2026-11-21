@@ -526,6 +526,31 @@ test("the reset hour survives a daylight-saving change", () => {
   assert.strictEqual(wk(2026, 10, 26, 10), "2026-10-20 09:00");
 });
 
+// Anthropic's reset is fixed in UTC: Tue 07:00 UTC is 09:00 in Zurich in
+// summer and 08:00 in winter. Built and read in UTC, so these hold in any
+// timezone the tests run in.
+const TUE7Z = CH.parseReset("tue 07:00 UTC");
+const wkz = (ms) => new Date(CH.weekStart(new Date(ms), TUE7Z).getTime()).toISOString().slice(0, 16);
+
+test("a UTC reset is read as UTC, in any spelling", () => {
+  assert.strictEqual(TUE7Z.utc, true);
+  assert.strictEqual(TUE7Z.spec, "tue 07:00 UTC");
+  assert.strictEqual(CH.parseReset("Tuesday 7 utc").spec, "tue 07:00 UTC");
+  assert.strictEqual(CH.parseReset("tue 7:00Z").utc, true);
+  assert.strictEqual(TUE9.utc, false);
+});
+
+test("a UTC reset is the same moment every week, whatever the clocks did", () => {
+  // Europe moved its clocks on 2026-10-25, between these two Tuesdays.
+  assert.strictEqual(wkz(Date.UTC(2026, 9, 21, 12)), "2026-10-20T07:00");
+  assert.strictEqual(wkz(Date.UTC(2026, 9, 28, 12)), "2026-10-27T07:00");
+});
+
+test("a minute before the UTC reset is still the week before; the reset starts the new one", () => {
+  assert.strictEqual(wkz(Date.UTC(2026, 10, 24, 6, 59)), "2026-11-17T07:00");
+  assert.strictEqual(wkz(Date.UTC(2026, 10, 24, 7, 0)), "2026-11-24T07:00");
+});
+
 test("a calendar-week spec still gives Mondays at midnight", () => {
   const s = CH.weekStart(new Date(2026, 9, 21, 14), CH.parseReset("mon 00:00"));
   assert.strictEqual(s.getDate(), 19);

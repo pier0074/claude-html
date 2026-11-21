@@ -456,10 +456,18 @@
 
   var DAYNAME = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   var at = DAYNAME[reset.dow] + " " + pad(reset.hour) + ":" + pad(reset.minute);
+  // A UTC reset also says what that is on this clock today, once.
+  var note = "";
+  if (reset.utc) {
+    var here = CH.weekStart(new Date(), reset);
+    at += " UTC";
+    note = " (" + DAYNAME[here.getDay()] + " " + pad(here.getHours()) + ":" +
+           pad(here.getMinutes()) + " your time)";
+  }
   document.getElementById("sub").textContent =
     "input, output and cache tokens from your own transcripts, and their cost where Claude Code" +
     " recorded it, by model and project — " +
-    firstDay + " to " + lastDay + ", local time. A week runs " + at + " to " + at +
+    firstDay + " to " + lastDay + ", local time. A week runs " + at + " to " + at + note +
     (data.weekResetSet ? ", matching your plan's reset." : ".");
   draw();
 })();

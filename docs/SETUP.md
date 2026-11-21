@@ -94,11 +94,17 @@ git would commit, and the [redaction](#secrets).
 
 | Variable | What it is | Default |
 | -------- | ---------- | ------- |
-| `CLAUDE_HTML_WEEK_RESET` | when your plan's weekly allowance resets, so the dashboard's weeks match the ones you are billed for: a day and a local hour | calendar weeks, from Monday 00:00 |
+| `CLAUDE_HTML_WEEK_RESET` | when your plan's weekly allowance resets, so the dashboard's weeks match the ones you are billed for: a day and an hour, local or UTC | calendar weeks, from Monday 00:00 |
 
 ```bash
-CLAUDE_HTML_WEEK_RESET="tue 09:00"    # also "thu 17", "Friday 8:30"
+CLAUDE_HTML_WEEK_RESET="tue 07:00 UTC"   # a fixed moment: what Anthropic uses
+CLAUDE_HTML_WEEK_RESET="tue 09:00"       # local time; also "thu 17", "Friday 8:30"
 ```
+
+Anthropic's reset is a fixed moment in UTC, so in local time it moves by an
+hour when the clocks change (Tue 09:00 in Zurich in summer, 08:00 in
+winter). Write it in UTC to keep the weeks right all year: take the reset
+time Claude Code shows ("resets Nov 24 at 8am") and convert it to UTC once.
 
 The installer offers this line commented out. One it cannot read falls back
 to Mondays.
