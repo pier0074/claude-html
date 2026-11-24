@@ -192,6 +192,23 @@ test("grouped by project, the headings are plain text too", () => {
   assert.ok(!html.includes("claude-html://"));
 });
 
+// A resumed or forked session holds a copy of the replies it came from:
+// its row counts its whole transcript and says so, while the project's
+// heading counts each reply once, as the dashboard does.
+test("a heading counts a copied reply once; the row says it holds one", () => {
+  const C = [
+    { id: "aaaaaaaa-1", kind: "transcript", project: "app", cwd: "/x/app", title: "original", mtime: 1700000000, prompts: 1,
+      tok: [100, 200, 300, 400, 2], shares: [1, 500] },
+    { id: "bbbbbbbb-2", kind: "transcript", project: "app", cwd: "/x/app", title: "resumed", mtime: 1700000500, prompts: 1,
+      tok: [100, 200, 3000, 4000, 2], shares: [1, 500], dup: 500 }
+  ];
+  const p = load({ sessions: C, home: "/x", mac: false });
+  p.get("gproj").handlers.click();
+  const html = p.get("rows").innerHTML;
+  assert.ok(html.includes("7.8 k tokens"), /<span class="gc">[^<]*/.exec(html)[0]);
+  assert.strictEqual((html.match(/title="incl\. 500 tokens also in another session/g) || []).length, 2);
+});
+
 // ── when it was built ────────────────────────────────────────────────
 test("the build time is shown when the data carries it", () => {
   NOW = Date.UTC(2026, 10, 20, 12, 0, 0);

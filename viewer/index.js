@@ -157,7 +157,10 @@
       (s.agents ? '<span class="nag">' + s.agents + " agent" + (s.agents === 1 ? "" : "s") +
         "</span>" : "") + "</div></td>" +
       '<td class="num">' + (s.prompts || 0) + "</td>" +
-      '<td class="num tok">' + (s.tok ? CH.fmtTokens(s.tok[0] + s.tok[1] + s.tok[2] + s.tok[3]) : "") +
+      // The whole transcript's, a copy from a resume or a fork included.
+      '<td class="num tok"' + (s.shares && s.shares[0] ? ' title="incl. ' + CH.fmtTokens(s.shares[1]) +
+        ' tokens also in another session (a resume or a fork): all usage counts them once"' : "") +
+      ">" + (s.tok ? CH.fmtTokens(s.tok[0] + s.tok[1] + s.tok[2] + s.tok[3]) : "") +
       "</td>" + cost(s) +
       '<td class="d">' + esc(s.kind) + stale + "</td>" +
       '<td><a href="sessions/' + esc(s.id) + '.html">' + esc(s.id.slice(0, 8)) + "…</a></td>" +
@@ -200,8 +203,9 @@
     // The heading opens the project, like the name on a row does. It uses the
     // most recent session, since the link carries a session id.
     var openable = list.filter(function (s) { return s.cwd && s.kind !== "web"; })[0];
+    // A reply copied by a resume or a fork counts once, as on the dashboard.
     var tok = list.reduce(function (t, s) {
-      return t + (s.tok ? s.tok[0] + s.tok[1] + s.tok[2] + s.tok[3] : 0);
+      return t + (s.tok ? s.tok[0] + s.tok[1] + s.tok[2] + s.tok[3] - (s.dup || 0) : 0);
     }, 0);
     return '<tr class="grp"><th colspan="' + visibleCols() + '">' +
       (openable ? project(openable) : esc(name || "—")) +

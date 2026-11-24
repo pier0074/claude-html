@@ -467,7 +467,7 @@ function run(argv) {
   // outside every counter, so the figure is a floor.
   function costOf(c) {
     if (!c.seen) return null;
-    return { cells: c.cells, part: c.part || Object.keys(c.pending).length > 0 };
+    return { cells: c.cells, part: c.part || Object.keys(c.pending).length > 0, from: c.from || 0 };
   }
 
   // A usage cell: input, output, cache read, cache write, replies, of the
@@ -1737,6 +1737,9 @@ function run(argv) {
   // for the shared ones to be taken from below. null for carried numbers,
   // which brought none.
   var rowsOf = {};
+  // The shares each session's page is to show, where settling found them
+  // changed: the page is built again with them.
+  var sharesOf = {};
 
   // again: build it even though its page is current — to settle what it
   // shares with other sessions, below.
@@ -1859,6 +1862,12 @@ function run(argv) {
                    up: "../index.html", home: HOME };
       if (s.url) meta.url = s.url;
       if (s.source) { meta.source = s.source; meta.sourceSig = s.sourceSig; }
+      // The replies, and their tokens, this session holds that another one
+      // does too (a resume or a fork, either way round): its page counts
+      // its whole transcript and says how much of it that is. Settled once
+      // every session is known, below; until then, what the last build said.
+      var shares = s.id in sharesOf ? sharesOf[s.id] : cached && cached.shares;
+      if (shares) meta.shares = shares;
 
       var nowAgents = {};
       var agents = buildAgents(s, meta, replies, kept && kept.agents, nowAgents);
@@ -1881,6 +1890,9 @@ function run(argv) {
         });
         meta.tok = tok;
         if (tok.length > 5 && costPart) meta.costPart = true;
+        // When its own counter began: the budget's test of whether a reply
+        // it shares with another session is in its recorded cost.
+        if (tok.length > 5 && cost && cost.from) meta.costFrom = cost.from;
         // What the same tokens come to at the price file's lines of their
         // hours, apart from what was recorded: calcPart when some model had
         // no line, so the figure is a floor.
@@ -1969,6 +1981,34 @@ function run(argv) {
       });
     });
     sessions.forEach(function (s) { bySid[s.id] = s; });
+    // What a page says it shares: how many replies, and their tokens.
+    function figure(keys, rowOf) {
+      var n = [0, 0];
+      keys.forEach(function (k) {
+        var r = rowOf(k);
+        if (r) { n[0]++; n[1] += r[2] + r[3] + r[4] + r[5]; }
+      });
+      return n[0] ? n : null;
+    }
+    function differs(id, n) { return (fresh[id].shares || []).join() !== (n || []).join(); }
+    // Any copy of a reply, for a page about to be built again: its own,
+    // checked once it is built, almost always holds the same figures.
+    var anyRow = null;
+    function rowAnywhere(k) {
+      if (!anyRow) {
+        anyRow = {};
+        Object.keys(fresh).forEach(function (id) {
+          var sh = fresh[id].shared || {};
+          Object.keys(sh).forEach(function (x) { if (sh[x] && !anyRow[x]) anyRow[x] = sh[x]; });
+          var rows = rowsOf[id];
+          if (rows) rows.keys.forEach(function (x, i) {
+            var r = rows.recs[i];
+            if (!anyRow[x]) anyRow[x] = [r.hour, r.model].concat(r.t);
+          });
+        });
+      }
+      return anyRow[k];
+    }
     Object.keys(fresh).forEach(function (id) {
       if (rowsOf[id] === null) return;          // carried: kept as it came
       var want = [], seen = {};
@@ -1978,6 +2018,8 @@ function run(argv) {
       if (!rowsOf[id]) {
         if (Object.keys(fresh[id].shared || {}).join() === want.join()) return;
         if (!bySid[id]) return;
+        var was = fresh[id].shared || {};
+        sharesOf[id] = figure(want, function (k) { return was[k] || rowAnywhere(k); });
         buildOne(bySid[id], true);
         if (!rowsOf[id]) return;
       }
@@ -1986,11 +2028,17 @@ function run(argv) {
         var r = rows.recs[i];
         if (seen[rows.keys[i]]) shared[rows.keys[i]] = [r.hour, r.model].concat(r.t);
       }
-      delete e.shared;
-      if (want.length) {
-        e.shared = {};
-        want.forEach(function (k) { e.shared[k] = shared[k]; });
+      var put = want.length ? {} : null;
+      want.forEach(function (k) { put[k] = shared[k]; });
+      // The page says what it shares: built again when that has changed.
+      var n = figure(want, function (k) { return shared[k]; });
+      if (bySid[id] && differs(id, n)) {
+        sharesOf[id] = n;
+        buildOne(bySid[id], true);
+        e = fresh[id];
       }
+      delete e.shared;
+      if (put) e.shared = put;
     });
   })();
 
@@ -2119,16 +2167,47 @@ function run(argv) {
     Object.keys(seen).forEach(function (k) { p[k] = (p[k] || 0) + 1; });
   });
   // The index after the dashboard: both show what was spent in the budget's
-  // period, from the dashboard's de-duplicated figures, session by session.
-  var spend = LIMITS && LIMITS.budget ? limitsSpend(order.filter(function (id) { return fresh[id].usage; })
-    .map(function (id) {
-      // Each session's usage as the dashboard counts it: its shared replies
-      // taken out where another session counts them.
+  // period, session by session, each shared reply's money once. limits.js
+  // takes a session's recorded cost where it has one, else prices its
+  // tokens, so which copy the dashboard counts is not enough: a recorded
+  // cost holds the replies its own counter saw, and a copy made before that
+  // counter began is the other session's. So a shared reply inside some
+  // holder's counter is paid for there, and priced nowhere; one outside
+  // every counter is priced once, by the first holder, in the dashboard's
+  // order, that has no recorded cost. A holder whose counter's start is
+  // not known (an archive) leaves it as the dashboard counts it.
+  function recordedIn(id) { return !!(fresh[id].tok && fresh[id].tok.length > 5); }
+  var spend = null;
+  if (LIMITS && LIMITS.budget) (function () {
+    var holders = {}, takeOut = {};
+    order.slice().reverse().forEach(function (id) {
+      if (fresh[id].usage) eachKey(fresh[id].ids, function (k) { (holders[k] = holders[k] || []).push(id); });
+    });
+    Object.keys(holders).forEach(function (k) {
+      var hs = holders[k], row = sharedUsage[k];
+      if (hs.length < 2 || !row) return;
+      var end = Date.parse(row[0] + ":00:00Z") + 3600000, payer;
+      if (hs.some(function (id) { return recordedIn(id) && fresh[id].costFrom && fresh[id].costFrom < end; })) payer = null;
+      else if (hs.some(function (id) { return recordedIn(id) && !fresh[id].costFrom; })) payer = recordedIn(hs[0]) ? null : hs[0];
+      else payer = hs.filter(function (id) { return !recordedIn(id); })[0] || null;
+      hs.forEach(function (id) {
+        if (id !== payer && !recordedIn(id)) (takeOut[id] = takeOut[id] || []).push((fresh[id].shared || {})[k] || row);
+      });
+    });
+    spend = limitsSpend(order.filter(function (id) { return fresh[id].usage; }).map(function (id) {
       var u = {};
       addUsage(u, fresh[id].usage);
-      (repeats[id] || []).forEach(function (r) { subUsage(u, r); });
+      (takeOut[id] || []).forEach(function (r) { subUsage(u, r); });
       return [id, u];
-    })) : null;
+    }));
+  })();
+  // A project's heading on the index adds up its sessions' tokens, the
+  // copies the dashboard takes out taken out too.
+  entries.forEach(function (e) {
+    var n = 0;
+    (repeats[e.id] || []).forEach(function (r) { n += r[2] + r[3] + r[4] + r[5]; });
+    if (n) e.dup = n;
+  });
   write(OUT + "/usage.html", usagePage(byProject, coverage, priceUse, spend));
   write(OUT + "/index.html", indexPage(entries, shown, spend));
   if (errors.length) write(OUT + "/.build-errors.json", JSON.stringify(errors));

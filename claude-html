@@ -227,15 +227,15 @@ GUARD_LIST="$CLAUDE_HTML_REDACT_FILE"
 guard_hooks() { grep -cE "/guard\.sh' (prompt|bash)\"" "$SETTINGS" 2>/dev/null || true; }
 guard_safe() { grep -c '^[[:space:]]*safe:' "$GUARD_LIST" 2>/dev/null || true; }
 guard_line() {
-  local what asks n
+  local what asks n safe
   if ch_is_off "${CLAUDE_HTML_GUARD:-on}"; then what="off"
   elif [ "$(printf '%s' "${CLAUDE_HTML_GUARD:-on}" | tr '[:upper:]' '[:lower:]')" = prompt ]; then what="on for prompts only"
   else what="on"; fi
   if ch_is_off "${CLAUDE_HTML_GUARD_DIALOG:-on}"; then asks="in words, as the next prompt"
   else asks="in a dialog when someone is at the screen"; fi
-  n="$(guard_hooks)"
+  n="$(guard_hooks)"; safe="$(guard_safe)"
   printf 'guard %s · %s safe value(s) · hooks %s of 2 in settings.json · asks %s · waits %s · %s\n' \
-    "$what" "$(guard_safe)" "${n:-0}" "$asks" "$(guard_wait_words)" "$(ch_engine_line | cut -d' ' -f1)"
+    "$what" "${safe:-0}" "${n:-0}" "$asks" "$(guard_wait_words)" "$(ch_engine_line | cut -d' ' -f1)"
   guard_wait_bad
 }
 # How long the windows wait, as the setting says: platform.sh reads it

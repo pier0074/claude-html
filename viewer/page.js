@@ -430,6 +430,17 @@
         ". On a subscription an equivalent, not a bill") + '">' +
         (meta.calcPart ? "≥ " : "≈ ") + CH.fmtMoney(meta.calc) + ' <span class="cm">calc</span></span>');
     }
+    // A resumed or forked session starts with a copy of the one it came
+    // from, which keeps its own: the figures above are this transcript's,
+    // copy included, and the line says how much of it another session holds.
+    if (meta.shares && meta.shares[0]) {
+      parts.push('<span class="shr" title="' + CH.esc(
+        "A resumed or forked session starts with a copy of the conversation it came from. " +
+        "The figures here include these replies; all usage counts each of them once" +
+        (t.length > 5 ? ", and the cost Claude Code recorded is only what this session's own counter saw." : ".")) +
+        '">incl. ' + meta.shares[0] + (meta.shares[0] === 1 ? " reply" : " replies") + " (" + f(meta.shares[1]) +
+        " tokens) also in another session</span>");
+    }
     if (meta.models && meta.models.length) {
       // The three that did most of the work; naming six wraps the line.
       var names = meta.models.slice(0, 3).map(function (m) {

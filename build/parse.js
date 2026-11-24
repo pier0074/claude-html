@@ -237,9 +237,11 @@ function claudeHtmlParse(redactor) {
   // fork is the other session's — and only its own transcript has them:
   // sub-agents spend on its counter. Micro-dollars, so sums stay exact.
   // "part": some replies fall outside every counter, so the figure is a floor.
+  // "from": when the first counter began (ms), so the build can tell a
+  // copied reply, from before it, from one this session's money covers.
   // Plain data throughout, so it can be kept between saves and carried on.
   function newCost() {
-    return { cells: {}, last: "", prev: null, pending: {}, part: false, seen: false, n: 0 };
+    return { cells: {}, last: "", prev: null, pending: {}, part: false, seen: false, n: 0, from: 0 };
   }
   function costLine(c, e, sid) {
     if (e.timestamp) c.last = String(e.timestamp);
@@ -256,6 +258,7 @@ function claudeHtmlParse(redactor) {
         !e.modelUsage || typeof e.modelUsage !== "object") return;
     c.seen = true;
     var now = {}, start = Number(e.startTime) || 0, prev = c.prev;
+    if (start > 0 && (!c.from || start < c.from)) c.from = start;
     Object.keys(e.modelUsage).forEach(function (m) {
       var v = Math.round(Number((e.modelUsage[m] || {}).costUSD) * 1e6);
       if (v >= 0) now[m] = v;

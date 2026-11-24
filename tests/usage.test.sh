@@ -502,6 +502,295 @@ check "filtered to a model, the cost is that model's" "$(cf opus | cut -d' ' -f1
 check "  and to one whose cost is unknown, —" "$(cf haiku | cut -d' ' -f1-8)" "11 all time — recorded by Claude Code"
 check "a week with no cost against one with: — and no delta" "$(cf week | cut -d' ' -f1-15)" "555 week of 2026-10-12 00:00 ▼ 53% vs previous — recorded by Claude Code 50"
 
+# ── a resumed and a forked session ──────────────────────────────────
+# What Claude Code writes on a resume: a new transcript that starts with a
+# copy of the last part of the one it came from — the same uuids, message
+# ids and times, a reply still several records under one id, only the
+# session id rewritten — then replies of its own, and a cost counter of its
+# own, started afresh. A fork (--fork-session) is the same copy, of all of
+# it. Every total shown anywhere must count a copied reply once: the
+# dashboard's tokens, its recorded and calculated costs, the budget's
+# spend, a project's heading on the index. A session's own row and page
+# count its whole transcript, copy included, and say so.
+#
+# The fixture (resume-gen.js): O, the original, four replies on three
+# models over three weeks, its counter from the start (or, "nocost", no
+# counter at all: from before Claude Code wrote one); R, resumed from it,
+# with O's last two replies; F, forked from it, with all four, still
+# running, so no counter of its own yet. resume-want.js works out every
+# total from the transcripts by itself; resume-got.js reads them off the
+# built pages. Under each engine, built from nothing, and built a save at
+# a time (O, then R joining, then F); with O the oldest of the three, and
+# with O still in use after both (newest), which hands the dashboard's
+# count of the copies to them.
+RT="$T/resume"; mkdir -p "$RT"
+cat > "$RT/resume-gen.js" <<'GENEOF'
+// A resumed and a forked session, in the shape Claude Code writes them.
+//   node resume-gen.js <project dir> <cwd> [nocost]
+var fs = require("fs"), dir = process.argv[2], cwd = process.argv[3], nocost = process.argv[4] === "nocost";
+var O = "88888888-0000-0000-0000-000000000001";   // the original
+var R = "88888888-0000-0000-0000-000000000002";   // resumed from it: a copy of its last part
+var F = "88888888-0000-0000-0000-000000000003";   // forked from it: a copy of all of it
+var n = 0, recs = [];
+function uuid() { n++; return "00000000-0000-4000-8000-" + ("000000000000" + n).slice(-12); }
+function ask(at, text) {
+  return { type: "user", uuid: uuid(), timestamp: at, cwd: cwd, message: { role: "user", content: text } };
+}
+// One reply as several records under one message id, one per block, the
+// usage so far on each and the last one final; each record its own uuid.
+function reply(mid, model, at, u) {
+  var t0 = Date.parse(at), out = [];
+  ["thinking", "text", "tool_use"].forEach(function (b, i) {
+    var last = i === 2;
+    out.push({ type: "assistant", uuid: uuid(), timestamp: new Date(t0 + i * 1000).toISOString(), cwd: cwd,
+      message: { id: mid, model: model, role: "assistant",
+        usage: { input_tokens: u[0], output_tokens: last ? u[1] : 3 * (i + 1),
+                 cache_read_input_tokens: u[2], cache_creation_input_tokens: u[3],
+                 cache_creation: { ephemeral_5m_input_tokens: u[3] - u[4], ephemeral_1h_input_tokens: u[4] } },
+        content: [b === "text" ? { type: "text", text: "r" } : b === "thinking" ? { type: "thinking", thinking: "t" }
+                                : { type: "tool_use", id: "tu_" + mid, name: "Bash", input: {} }] } });
+  });
+  return out;
+}
+function cost(start, opus, haiku, sonnet) {
+  return { type: "cost-state", totalCostUSD: 0, startTime: start, hasUnknownModelCost: false,
+    modelUsage: { "claude-opus-5": { costUSD: opus }, "claude-haiku-4-5-20251001": { costUSD: haiku },
+                  "claude-sonnet-5-5": { costUSD: sonnet } } };
+}
+function as(sid, list) { return list.map(function (e) { var c = JSON.parse(JSON.stringify(e)); c.sessionId = sid; return c; }); }
+function write(sid, list) {
+  fs.writeFileSync(dir + "/" + sid + ".jsonl", as(sid, list).map(JSON.stringify).join("\n") + "\n");
+}
+var T0 = Date.parse("2026-10-05T09:00:00Z"), T1 = Date.parse("2026-11-02T09:30:00Z");
+// The original: four replies over three weeks, its counter from the start.
+var early = [].concat(
+  [ask("2026-10-05T10:00:00Z", "start")],
+  reply("msg_o1", "claude-sonnet-5-5", "2026-10-05T10:00:01Z", [100, 2000, 30000, 4000, 1000]),
+  [ask("2026-10-12T09:00:00Z", "more")],
+  reply("msg_o2", "claude-opus-5", "2026-10-12T09:00:01Z", [200, 3000, 50000, 6000, 0]),
+  nocost ? [] : [cost(T0, 0.4, 0, 0.3)]);
+var late = [].concat(
+  [ask("2026-10-13T11:00:00Z", "and more")],
+  reply("msg_o3", "claude-haiku-4-5-20251001", "2026-10-13T11:00:01Z", [300, 4000, 70000, 8000, 2000]),
+  [ask("2026-10-16T17:00:00Z", "last")],
+  reply("msg_o4", "claude-opus-5", "2026-10-16T17:00:01Z", [400, 5000, 90000, 10000, 5000]));
+write(O, early.concat(late, nocost ? [] : [cost(T0, 1.25, 0.2, 0.3)]));
+// Resumed: the original's last part again, the same uuids, message ids and
+// times, under the new session's id; then new replies and a counter of its
+// own, started afresh.
+write(R, late.concat(
+  [ask("2026-11-02T10:00:00Z", "resumed")],
+  reply("msg_r1", "claude-opus-5", "2026-11-02T10:00:01Z", [500, 6000, 110000, 12000, 0]),
+  [cost(T1, 0.5, 0, 0)],
+  [ask("2026-11-03T12:00:00Z", "again")],
+  reply("msg_r2", "claude-sonnet-5-5", "2026-11-03T12:00:01Z", [600, 7000, 130000, 14000, 7000]),
+  [cost(T1, 0.5, 0, 0.75)]));
+// Forked: all of the original, then a reply of its own; still running, so
+// no counter written yet.
+write(F, early.filter(function (e) { return e.type !== "cost-state"; }).concat(late,
+  [ask("2026-11-05T08:00:00Z", "forked")],
+  reply("msg_f1", "claude-haiku-4-5-20251001", "2026-11-05T08:00:01Z", [700, 8000, 150000, 16000, 0])));
+GENEOF
+cat > "$RT/resume-want.js" <<'WANTEOF'
+// node resume-want.js <here> <project dir> <budget start> <end>: every total, from the transcripts
+var fs = require("fs"), here = process.argv[2], dir = process.argv[3];
+var from = +process.argv[4] * 1000, until = +process.argv[5] * 1000;
+var PR = new Function(fs.readFileSync(here + "/build/prices.js", "utf8") + "\nreturn claudeHtmlPrices;")()(
+  fs.readFileSync(here + "/build/prices.tsv", "utf8"));
+function canon(v) {   // JSON with its keys in order, so two ways of adding up compare
+  if (v && typeof v === "object" && !Array.isArray(v))
+    return "{" + Object.keys(v).sort().map(function (k) { return JSON.stringify(k) + ":" + canon(v[k]); }).join(",") + "}";
+  return JSON.stringify(v);
+}
+var files = fs.readdirSync(dir).filter(function (f) { return /\.jsonl$/.test(f); }).sort();
+var replies = {}, held = {}, counters = {}, recorded = 0;
+files.forEach(function (f) {
+  var sid = f.replace(/\.jsonl$/, ""), mine = {}, last = {};
+  fs.readFileSync(dir + "/" + f, "utf8").split("\n").filter(Boolean).forEach(function (l) {
+    var e = JSON.parse(l);
+    if (e.type === "cost-state" && e.sessionId === sid) {
+      var t = 0; Object.keys(e.modelUsage).forEach(function (m) { t += Math.round(e.modelUsage[m].costUSD * 1e6); });
+      last[e.startTime] = t;
+      (counters[sid] = counters[sid] || []).push(e.startTime);
+    }
+    if (e.type !== "assistant") return;
+    var u = e.message.usage, w = u.cache_creation_input_tokens, h1 = u.cache_creation.ephemeral_1h_input_tokens;
+    mine[e.message.id] = { at: Date.parse(e.timestamp), hour: e.timestamp.slice(0, 13), model: e.message.model,
+      t: [u.input_tokens, u.output_tokens, u.cache_read_input_tokens, w, 1, h1, 0] };
+  });
+  Object.keys(last).forEach(function (s) { recorded += last[s]; });
+  Object.keys(mine).forEach(function (mid) {
+    if (!replies[mid]) replies[mid] = mine[mid];
+    (held[mid] = held[mid] || []).push(sid);
+  });
+  held[sid] = Object.keys(mine);
+});
+function tok(t) { return t[0] + t[1] + t[2] + t[3]; }
+var cells = {}, sum = { all: 0 }, spend = recorded;
+Object.keys(replies).sort().forEach(function (mid) {
+  var r = replies[mid], c = (cells[r.hour] = cells[r.hour] || {})[r.model] =
+    (cells[r.hour] || {})[r.model] || [0, 0, 0, 0, 0, 0, 0];
+  for (var i = 0; i < 7; i++) c[i] += r.t[i];
+  var d = new Date(r.hour + ":00:00Z"), mon = new Date(d - ((d.getUTCDay() + 6) % 7) * 864e5);
+  ["all", "month " + r.hour.slice(0, 7), "week " + mon.toISOString().slice(0, 10), "model " + r.model,
+   "project rapp"].forEach(function (k) { sum[k] = (sum[k] || 0) + tok(r.t); });
+  // Its money: in a counter of a session that holds it and had begun by
+  // then, or else the price table's, once.
+  var paid = held[mid].some(function (sid) { return (counters[sid] || []).some(function (s) { return s <= r.at; }); });
+  if (!paid && r.at >= from && r.at < until) spend += PR.cellCost(r.model, r.hour, r.t, false);
+});
+var calc = PR.total(cells), now = PR.total(cells, { today: true });
+var rows = files.map(function (f) {
+  var sid = f.replace(/\.jsonl$/, ""), n = 0, s = 0, shared = 0;
+  held[sid].forEach(function (mid) {
+    n += tok(replies[mid].t);
+    if (held[mid].length > 1) { shared++; s += tok(replies[mid].t); }
+  });
+  return sid.slice(-1) + " " + n + " " + (shared ? shared + "/" + s : "-");
+});
+console.log(JSON.stringify({ cells: canon({ rapp: cells }), sums: canon(sum), recorded: recorded,
+  calc: Math.round(calc.calc), now: Math.round(now.calc), spend: Math.round(spend), rows: rows.join(", "),
+  heading: sum.all, pages: rows.join(", ") }));
+WANTEOF
+cat > "$RT/resume-got.js" <<'GOTEOF'
+// node resume-got.js <here> <out> <spend file>: every total, as the pages show it
+var fs = require("fs"), here = process.argv[2], out = process.argv[3];
+function data(f, id) { return JSON.parse(new RegExp('id="' + id + '">([\\s\\S]*?)</script>').exec(fs.readFileSync(f, "utf8"))[1]); }
+var PR = new Function(fs.readFileSync(here + "/build/prices.js", "utf8") + "\nreturn claudeHtmlPrices;")()(
+  fs.readFileSync(here + "/build/prices.tsv", "utf8"));
+function canon(v) {   // JSON with its keys in order, so two ways of adding up compare
+  if (v && typeof v === "object" && !Array.isArray(v))
+    return "{" + Object.keys(v).sort().map(function (k) { return JSON.stringify(k) + ":" + canon(v[k]); }).join(",") + "}";
+  return JSON.stringify(v);
+}
+var bp = data(out + "/usage.html", "usage-data").byProject, cells = {}, sum = { all: 0 }, recorded = 0;
+function tok(t) { return t[0] + t[1] + t[2] + t[3]; }
+Object.keys(bp).forEach(function (p) {
+  Object.keys(bp[p]).sort().forEach(function (h) {
+    Object.keys(bp[p][h]).sort().forEach(function (m) {
+      var c = bp[p][h][m];
+      recorded += c[7] || 0;
+      if (!tok(c) && !c[4]) return;          // a cell kept for its cost alone
+      ((cells[p] = cells[p] || {})[h] = cells[p][h] || {})[m] = c.slice(0, 7);
+      var d = new Date(h + ":00:00Z"), mon = new Date(d - ((d.getUTCDay() + 6) % 7) * 864e5);
+      ["all", "month " + h.slice(0, 7), "week " + mon.toISOString().slice(0, 10), "model " + m,
+       "project " + p].forEach(function (k) { sum[k] = (sum[k] || 0) + tok(c); });
+    });
+  });
+});
+var spend = /micro=(\d+)/.exec(fs.readFileSync(process.argv[4], "utf8"))[1];
+var ix = data(out + "/index.html", "index-data").sessions.slice().sort(function (a, b) { return a.id < b.id ? -1 : 1; });
+var heading = 0;
+ix.forEach(function (s) { heading += tok(s.tok) - (s.dup || 0); });
+console.log(JSON.stringify({ cells: canon(cells), sums: canon(sum), recorded: recorded,
+  calc: Math.round(PR.total(bp.rapp || {}).calc), now: Math.round(PR.total(bp.rapp || {}, { today: true }).calc),
+  spend: +spend, rows: ix.map(function (s) { return s.id.slice(-1) + " " + tok(s.tok) + " " + (s.shares ? s.shares.join("/") : "-"); }).join(", "),
+  heading: heading,
+  pages: ix.map(function (s) {
+    var m = data(out + "/sessions/" + s.id + ".html", "session-data").meta;
+    return s.id.slice(-1) + " " + tok(m.tok) + " " + (m.shares ? m.shares.join("/") : "-");
+  }).join(", ") }));
+GOTEOF
+cat > "$RT/resume-page.js" <<'PAGEEOF'
+// node resume-page.js <here> <page.html>: the header's token line, as page.js draws it
+var fs = require("fs"), vm = require("vm"), here = process.argv[2];
+var html = fs.readFileSync(process.argv[3], "utf8");
+var json = /id="session-data">([\s\S]*?)<\/script>/.exec(html)[1];
+var els = {};
+function any(name) {
+  var f = function () { return any(name + "()"); };
+  return new Proxy(f, {
+    get: function (t, k) {
+      if (k === Symbol.toPrimitive) return function () { return ""; };
+      if (k === "length") return 0;
+      if (k in t && k !== "name") return t[k];
+      return t[k] = any(name + "." + String(k));
+    },
+    set: function (t, k, v) { t[k] = v; return true; },
+    apply: function () { return any(name + "()"); }
+  });
+}
+function el(id) {
+  if (els[id]) return els[id];
+  var e = any("#" + id); e.innerHTML = ""; e.textContent = id === "session-data" ? json : ""; e.hidden = true;
+  return els[id] = e;
+}
+var doc = any("document"); doc.getElementById = el; doc.querySelector = function () { return null; };
+doc.querySelectorAll = function () { return []; };
+var win = any("window");
+var ctx = { document: doc, window: win, localStorage: { getItem: function () { return null; }, setItem: function () {} },
+  location: { hash: "", href: "" }, history: any("history"), navigator: { platform: "", userAgent: "" },
+  setTimeout: function () {}, clearTimeout: function () {}, requestAnimationFrame: function () {}, console: console,
+  matchMedia: function () { return { matches: false, addEventListener: function () {}, addListener: function () {} }; },
+  getComputedStyle: function () { return {}; } };
+try {
+  vm.runInNewContext(fs.readFileSync(here + "/viewer/viewer.js", "utf8") + "\n" + fs.readFileSync(here + "/viewer/page.js", "utf8"), ctx);
+} catch (e) { if (!els.tok || !els.tok.innerHTML) { console.error(e.stack); process.exit(1); } }
+console.log(String(els.tok.innerHTML).replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim());
+PAGEEOF
+RAPP="$RT/root/rapp"; RH="$RT/home"; RD="$(printf '%s' "$RAPP" | tr '/' '-')"; RP="$RH/.claude/projects/$RD"
+RO=88888888-0000-0000-0000-000000000001; RR=88888888-0000-0000-0000-000000000002; RF=88888888-0000-0000-0000-000000000003
+RS0=$(( $(node -e 'console.log(Date.parse("2026-10-01T00:00:00Z") / 1000)') )); RS1=$((RS0 + 61 * 86400))
+rbuild() {   # engine, out
+  local o="{\"root\":\"$RT/root\",\"out\":\"$2\",\"here\":\"$HERE\",\"exportPath\":\"/nonexistent\",\"limits\":{\"budget\":{\"start\":$RS0,\"end\":$RS1},\"spendFile\":\"$RT/spend\"}}"
+  if [ "$1" = osascript ]; then HOME="$RH" osascript -l JavaScript "$HERE/build/convert.js" "$o" >/dev/null
+  else HOME="$RH" node "$HERE/build/convert.js" "$o" >/dev/null; fi
+  cp "$RT/spend" "$2.spend"
+}
+rtimes() {   # order: O oldest, or O newest — still in use after the resume and the fork
+  touch -t 202610161800 "$RP/$RO.jsonl" 2>/dev/null; touch -t 202611031300 "$RP/$RR.jsonl" 2>/dev/null
+  touch -t 202611050900 "$RP/$RF.jsonl" 2>/dev/null
+  [ "$1" = newest ] && touch -t 202611200000 "$RP/$RO.jsonl"; return 0
+}
+rlabel() {
+  case "$1" in
+    cells) echo "the dashboard's cells, each copied reply once" ;;
+    sums) echo "  its tokens by week, month and all, by model and by project" ;;
+    recorded) echo "  the recorded cost, each session's own counter once" ;;
+    calc) echo "  the calculated cost at the price of the time" ;;
+    now) echo "  and at today's prices" ;;
+    spend) echo "  the budget's spend, each reply's money once" ;;
+    heading) echo "  the project's heading on the index" ;;
+    rows) echo "  each row its whole transcript, and how much of it is shared" ;;
+    pages) echo "  each page's header the same" ;;
+  esac
+}
+rcheck() {   # label, out
+  local got want k
+  got="$(node "$RT/resume-got.js" "$HERE" "$2" "$2.spend")"
+  want="$(node "$RT/resume-want.js" "$HERE" "$RP" "$RS0" "$RS1")"
+  for k in cells sums recorded calc now spend heading rows pages; do
+    check "$1: $(rlabel $k)" "$(printf '%s' "$got" | js 'd[process.argv[4]]' "" "" "$k")" \
+      "$(printf '%s' "$want" | js 'd[process.argv[4]]' "" "" "$k")"
+  done
+}
+for ENG in $([ "$HAVE_OSASCRIPT" = true ] && echo osascript) node; do
+  for RM in cost nocost; do
+    for RORD in oldest newest; do
+      L="$ENG, $RM, O $RORD"
+      rm -rf "$RT/root" "$RH" "$RT"/out*; mkdir -p "$RAPP" "$RP"
+      node "$RT/resume-gen.js" "$RP" "$RAPP" "$RM"; rtimes "$RORD"
+      rbuild "$ENG" "$RT/out1"
+      rcheck "$L, from nothing" "$RT/out1"
+      # A save at a time: O alone, then R as it is resumed, then F.
+      mkdir -p "$RT/later"; mv "$RP/$RR.jsonl" "$RP/$RF.jsonl" "$RT/later/"
+      rbuild "$ENG" "$RT/out2"
+      check "$L: O alone has nothing shared" "$(node "$RT/resume-got.js" "$HERE" "$RT/out2" "$RT/out2.spend" | js 'd.rows')" "1 283000 -"
+      mv "$RT/later/$RR.jsonl" "$RP/"; rtimes "$RORD"; rbuild "$ENG" "$RT/out2"
+      mv "$RT/later/$RF.jsonl" "$RP/"; rtimes "$RORD"; rbuild "$ENG" "$RT/out2"
+      rcheck "$L, a save at a time" "$RT/out2"
+      check "  and every page and the dashboard the same bytes as from nothing" \
+        "$(for f in usage.html sessions/$RO.html sessions/$RR.html sessions/$RF.html; do cmp -s "$RT/out1/$f" "$RT/out2/$f" || echo "$f differs"; done
+           cmp -s "$RT/out1.spend" "$RT/out2.spend" || echo "spend differs")" ""
+    done
+  done
+done
+check "the page says how much of it is shared, and that all usage counts it once" \
+  "$(node "$RT/resume-page.js" "$HERE" "$RT/out1/sessions/$RR.html" | grep -o 'incl\. 2 replies (187\.7 k tokens) also in another session')" \
+  "incl. 2 replies (187.7 k tokens) also in another session"
+check "  and a session sharing nothing says nothing of it" \
+  "$(rm -f "$RP/$RR.jsonl" "$RP/$RF.jsonl"; rbuild node "$RT/out1"; node "$RT/resume-page.js" "$HERE" "$RT/out1/sessions/$RO.html" | grep -c 'another session')" 0
+
 echo
 echo "  $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

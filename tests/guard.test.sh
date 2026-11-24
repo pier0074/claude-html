@@ -539,6 +539,9 @@ cli() { env HOME="$H" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_REDACT_FILE="$LIST" 
 G="$(cli --guard status)"
 check "--guard status: the mode and the safe values, by rule and date only" \
   "$(printf '%s\n' "$G" | grep -c '^guard on · 1 safe value(s) · hooks 0 of 2') $(printf '%s\n' "$G" | grep -cx '  safe  github, 2026-11-19') $(printf '%s' "$G" | grep -c 0123456789abcdef)" "1 1 0"
+check "--guard status with no list file says 0, not a blank" \
+  "$(env HOME="$H" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_REDACT_FILE="$H/no-such-list" CLAUDE_HTML_NO_REGISTER=1 \
+       /bin/bash "$HERE/claude-html" --guard status 2>&1 | grep -c '^guard on · 0 safe value(s) · ')" 1
 cli --guard prompt >/dev/null
 check "--guard prompt: its one line in the conf" "$(grep -c '^CLAUDE_HTML_GUARD="prompt"$' "$CONFF") $(grep -c '^CLAUDE_HTML_ROOT=' "$CONFF")" "1 1"
 cli --guard off >/dev/null

@@ -5,6 +5,18 @@ fixes, a minor adds without breaking, a major needs something from you
 (usually `./install.sh` again). To update: `claude-html --update`; before
 3.1.0, `git checkout main && git pull && ./install.sh`.
 
+## 3.5.1 — 2026-11-24
+
+- Fixed: the API budget no longer counts a forked session's copied replies
+  twice when the original is still in use after the fork, nor drops them when
+  an original without a recorded cost is resumed.
+- Fixed: a project's heading on the index counts a reply copied by a resume
+  or a fork once, as the Token usage page does.
+- A session's page says how many of its replies, and tokens, another session
+  (a resume or a fork) also holds; the index row says it on hover.
+- Fixed: `claude-html --guard status` said " safe value(s)" with no number
+  when there is no list file; it says 0.
+
 ## 3.5.0 — 2026-11-24
 
 - **Tidier clone.** The files now live in folders: `lib/` (the shell
