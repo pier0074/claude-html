@@ -68,7 +68,7 @@ transcript "$A" "$PLAIN" "fix the build"
 transcript "$B" "$WEIRD" "a title with \"quotes\", \$(touch pwned), \`id\` and <b>markup</b>"
 printf 'CLAUDE_HTML_ROOT="%s"\nCLAUDE_HTML_OUT="%s"\n' "$ROOT" "$OUT" > "$H/.claude/claude-html.conf"
 build() {   # os, then more opts
-  HOME="$H" node "$HERE/convert.js" \
+  HOME="$H" node "$HERE/build/convert.js" \
     "{\"root\":$(jsq "$ROOT"),\"out\":$(jsq "$OUT"),\"here\":$(jsq "$HERE"),\"os\":\"$1\"${2:-}}" >/dev/null
 }
 
@@ -481,8 +481,8 @@ check "headless: says where, opens nothing" "$(inenv headless bash "$HERE/claude
 echo "handler"
 # A copy of the handler beside a stand-in command, so what it would ask the
 # command to do is written down instead of done.
-HD="$T/handler"; mkdir -p "$HD"
-cp "$HERE/handler.sh" "$HERE/platform.sh" "$HD/"
+HD="$T/handler"; mkdir -p "$HD/linux" "$HD/lib"
+cp "$HERE/linux/handler.sh" "$HD/linux/"; cp "$HERE/lib/platform.sh" "$HD/lib/"
 cat > "$HD/claude-html" <<'SH'
 #!/bin/sh
 { printf 'cli'; for a in "$@"; do printf ' [%s]' "$a"; done; echo; } >> "$STUB_LOG"
@@ -493,7 +493,7 @@ esac
 exit 0
 SH
 chmod +x "$HD/claude-html"
-handle() { inenv "$1" PLAN_TITLE='a <b>title</b> "q" $(touch '"$T"'/pwned) `id`' sh "$HD/handler.sh" "${@:2}"; }
+handle() { inenv "$1" PLAN_TITLE='a <b>title</b> "q" $(touch '"$T"'/pwned) `id`' sh "$HD/linux/handler.sh" "${@:2}"; }
 
 for bad in "claude-html://delete/$A/extra" "claude-html://open/$A;rm -rf ~" \
            "claude-html://open/\$(touch $T/pwned)" "claude-html://resume/../../etc/passwd" \
@@ -542,30 +542,30 @@ clearlog ubuntu; handle ubuntu "claude-html://open/$A/" >/dev/null 2>&1
 check "an open link, trailing slash and all" "$(log ubuntu)" "cli [--open] [$A]"
 
 clearlog ubuntu
-inenv ubuntu STUB_ANSWER=1 PLAN_TITLE='a <b>title</b> "q" $(touch '"$T"'/pwned) `id`' sh "$HD/handler.sh" "claude-html://delete/$A" >/dev/null 2>&1
+inenv ubuntu STUB_ANSWER=1 PLAN_TITLE='a <b>title</b> "q" $(touch '"$T"'/pwned) `id`' sh "$HD/linux/handler.sh" "claude-html://delete/$A" >/dev/null 2>&1
 check "delete, cancelled: looks it up, deletes nothing" "$(log ubuntu | grep -c '^cli \[--delete\]')" 0
 check "  zenity asked, without markup, Cancel the default" \
   "$(log ubuntu | grep '^zenity' | grep -c '\[--question\] \[--no-markup\] \[--default-cancel\]')" 1
 check "  and showed the title as plain text" \
   "$(log ubuntu | grep '^zenity' | grep -c 'a <b>title</b> "q" $(touch')" 1
 clearlog ubuntu
-inenv ubuntu STUB_ANSWER=0 PLAN_TITLE=t sh "$HD/handler.sh" "claude-html://delete/$A" >/dev/null 2>&1
+inenv ubuntu STUB_ANSWER=0 PLAN_TITLE=t sh "$HD/linux/handler.sh" "claude-html://delete/$A" >/dev/null 2>&1
 check "delete, confirmed: then and only then --yes" "$(log ubuntu | grep '^cli \[--delete\]')" "cli [--delete] [$A] [--yes]"
 
 clearlog kde
-inenv kde STUB_ANSWER=0 PLAN_TITLE='<b>bold</b>' sh "$HD/handler.sh" "claude-html://delete/$A" >/dev/null 2>&1
+inenv kde STUB_ANSWER=0 PLAN_TITLE='<b>bold</b>' sh "$HD/linux/handler.sh" "claude-html://delete/$A" >/dev/null 2>&1
 check "kde: kdialog asks, and gets no markup to render" \
   "$(log kde | grep '^kdialog' | grep -c '\[--warningcontinuecancel\] \[Delete "‹b›bold‹/b›"')" 1
 check "  then deletes" "$(log kde | grep -c '^cli \[--delete\]')" 1
 
 clearlog bare
-inenv bare STUB_ANSWER=1 PLAN_TITLE=t sh "$HD/handler.sh" "claude-html://delete/$A" >/dev/null 2>&1
+inenv bare STUB_ANSWER=1 PLAN_TITLE=t sh "$HD/linux/handler.sh" "claude-html://delete/$A" >/dev/null 2>&1
 check "bare wm: xmessage asks, Cancel the default" \
   "$(log bare | grep '^xmessage' | grep -c '\[-buttons\] \[Cancel:1,Move to Trash:0\] \[-default\] \[Cancel\]')" 1
 check "  and a cancel deletes nothing" "$(log bare | grep -c '^cli \[--delete\]')" 0
 
 clearlog xfce
-inenv xfce PLAN_TITLE=t sh "$HD/handler.sh" "claude-html://delete/$A" >/dev/null 2>&1
+inenv xfce PLAN_TITLE=t sh "$HD/linux/handler.sh" "claude-html://delete/$A" >/dev/null 2>&1
 check "xfce, no dialog tool: the question goes to a terminal window" \
   "$(log xfce | grep '^xfce4-terminal' | sed "s|$(cd -P "$HD" && pwd)|HD|")" \
   "xfce4-terminal [-x] [sh] [-c] [\"\$0\" --delete \"\$1\"; printf \"\\nPress Enter to close. \"; read -r _] [HD/claude-html] [$A]"
@@ -573,7 +573,7 @@ check "  and nothing is deleted unasked" "$(log xfce | grep -c '\[--yes\]')" 0
 
 clearlog headless
 check "headless: a delete link is refused" \
-  "$(inenv headless PLAN_TITLE=t sh "$HD/handler.sh" "claude-html://delete/$A" >/dev/null 2>&1; echo $?)" 1
+  "$(inenv headless PLAN_TITLE=t sh "$HD/linux/handler.sh" "claude-html://delete/$A" >/dev/null 2>&1; echo $?)" 1
 check "  and nothing is deleted" "$(log headless | grep -c '^cli \[--delete\]')" 0
 
 # The command behind it, on each desktop: it always asks first, in the
@@ -604,23 +604,23 @@ cp "$T/lconf.before" "$LCONF"
 # command are never in the question (an argument, which any local process
 # can read), only in a private file its own text window reads.
 GD="$T/guard-details"; mkdir -p "$GD"; : > "$GD/found"; : > "$GD/command"; : > "$GD/details.txt"
-gdry() { inenv "$1" CH_DRY=1 bash -c '. "$0/platform.sh"; ch_detect; CH_HERE="$0"; ch_choose bash Weather "MySQL password (1)" "mysql -u root -p*** db" "$1"' "$HERE" "$GD"; }
+gdry() { inenv "$1" CH_DRY=1 bash -c '. "$0/lib/platform.sh"; ch_detect; CH_HERE="$0"; ch_choose bash Weather "MySQL password (1)" "mysql -u root -p*** db" "$1"' "$HERE" "$GD"; }
 check "ubuntu: zenity, a Details button, then zenity's text window on the private file" \
   "$(gdry ubuntu | grep -c -e "^Closes after 1 minute — counts as Cancel.' '--ok-label=OK' '--extra-button=Details' " -e "^'zenity' '--text-info' '--title=claude-html' '--filename=$GD/details.txt' '--width=720' '--height=460'$")" 2
 check "  the guard's question says the wait set: 45 seconds" \
-  "$(inenv ubuntu CLAUDE_HTML_GUARD_WAIT=45 CH_DRY=1 bash -c '. "$0/platform.sh"; ch_detect; ch_choose prompt P "GitHub token (1)"' "$HERE" | grep -c '^Closes after 45 seconds — counts as Cancel.')" 1
+  "$(inenv ubuntu CLAUDE_HTML_GUARD_WAIT=45 CH_DRY=1 bash -c '. "$0/lib/platform.sh"; ch_detect; ch_choose prompt P "GitHub token (1)"' "$HERE" | grep -c '^Closes after 45 seconds — counts as Cancel.')" 1
 check "kde: kdialog, a fifth entry, then its text box" \
   "$(gdry kde | grep -c -e "'details' 'Details — show what was found and the whole command' 'off'$" -e "^'kdialog' '--title' 'claude-html' '--textbox' '$GD/details.txt' '720' '460'$")" 2
 check "bare wm: xmessage, a Details button, then the file shown by xmessage" \
   "$(gdry bare | grep -c -e "'Cancel:1,Allow once:2,Safe:3,Stop:4,Details:5'" -e "^'xmessage' '-center' '-title' 'claude-html' '-buttons' 'Back:0' '-default' 'Back' '-file' '$GD/details.txt'$")" 2
 check "  without details (none written), no Details at all" \
-  "$(inenv ubuntu CH_DRY=1 bash -c '. "$0/platform.sh"; ch_detect; ch_choose prompt P "GitHub token (1)"' "$HERE" | grep -c 'Details')" 0
+  "$(inenv ubuntu CH_DRY=1 bash -c '. "$0/lib/platform.sh"; ch_detect; ch_choose prompt P "GitHub token (1)"' "$HERE" | grep -c 'Details')" 0
 # The banner, where the desktop has notify-send; none headless.
 stub "$T/env/ubuntu/bin" notify-send
 check "notify-send: the banner on a Linux desktop" \
-  "$(clearlog ubuntu; inenv ubuntu bash -c '. "$0/limits.sh"; CH_LIM_NOTIFY=1; ch_lim_banner "your stop rule starts Fri 20:00 at 80 %"; wait' "$HERE"; log ubuntu)" \
+  "$(clearlog ubuntu; inenv ubuntu bash -c '. "$0/lib/limits.sh"; CH_LIM_NOTIFY=1; ch_lim_banner "your stop rule starts Fri 20:00 at 80 %"; wait' "$HERE"; log ubuntu)" \
   "notify-send [-a] [claude-html] [claude-html] [your stop rule starts Fri 20:00 at 80 %]"
-check "  none headless" "$(clearlog headless; inenv headless bash -c '. "$0/limits.sh"; CH_LIM_NOTIFY=1; ch_lim_banner x; wait' "$HERE"; log headless)" ""
+check "  none headless" "$(clearlog headless; inenv headless bash -c '. "$0/lib/limits.sh"; CH_LIM_NOTIFY=1; ch_lim_banner x; wait' "$HERE"; log headless)" ""
 
 # ── 7. moving things to the trash ────────────────────────────────────
 echo "trash"
@@ -679,7 +679,7 @@ spec_trash() {
   HOME="$H" XDG_DATA_HOME="${2:-$H/.local/share}" node -e '
     var src = require("fs").readFileSync(process.argv[1], "utf8");
     var platform = new Function("require", "process", src + "\nreturn platform;")(require, process);
-    process.stdout.write(String(platform().trash(process.argv[2], "spec")));' "$HERE/delete.js" "$1" 2>&1
+    process.stdout.write(String(platform().trash(process.argv[2], "spec")));' "$HERE/actions/delete.js" "$1" 2>&1
 }
 spec_trash "$T/odd dir/a b%c ü.txt" > "$T/r"
 check "an awkward name goes in" "$(cat "$T/r")" true
@@ -710,14 +710,14 @@ check "headless, unconfirmed: nothing moves" \
 
 # ── 8. registering the handler ───────────────────────────────────────
 echo "register"
-reg() { inenv ubuntu XDG_DATA_HOME="$T/xdg" XDG_CONFIG_HOME="$T/xdgc" sh -c '. "$1/platform.sh"; ch_detect; '"$1" sh "$HERE"; }
+reg() { inenv ubuntu XDG_DATA_HOME="$T/xdg" XDG_CONFIG_HOME="$T/xdgc" sh -c '. "$1/lib/platform.sh"; ch_detect; '"$1" sh "$HERE"; }
 clearlog ubuntu
 check "CLAUDE_HTML_NO_REGISTER is honoured" "$(reg 'ch_register_handler "$1"')" \
   "not registered: CLAUDE_HTML_NO_REGISTER is set"
 check "a handler in a temp folder is refused" \
-  "$(inenv ubuntu sh -c '. "$1/platform.sh"; ch_detect; unset CLAUDE_HTML_NO_REGISTER; ch_register_handler /tmp/x' sh "$HERE")" \
+  "$(inenv ubuntu sh -c '. "$1/lib/platform.sh"; ch_detect; unset CLAUDE_HTML_NO_REGISTER; ch_register_handler /tmp/x' sh "$HERE")" \
   "not registered: /tmp/x is a temporary folder"
-regok() { inenv ubuntu XDG_DATA_HOME="$T/xdg" XDG_CONFIG_HOME="$T/xdgc" sh -c '. "$1/platform.sh"; ch_detect; unset CLAUDE_HTML_NO_REGISTER; '"$1" sh "$HERE"; }
+regok() { inenv ubuntu XDG_DATA_HOME="$T/xdg" XDG_CONFIG_HOME="$T/xdgc" sh -c '. "$1/lib/platform.sh"; ch_detect; unset CLAUDE_HTML_NO_REGISTER; '"$1" sh "$HERE"; }
 # The clone itself is the one place that is not temporary; everything this
 # writes still goes into the fake XDG folders, and xdg-mime is a stand-in.
 check "registering writes the handler" "$(regok 'ch_register_handler "$1"')" \
@@ -725,7 +725,7 @@ check "registering writes the handler" "$(regok 'ch_register_handler "$1"')" \
 HF="$T/xdg/applications/claude-html-handler.desktop"
 check "  a valid desktop file" "$(desk "$HF" | cut -c1)" "{"
 check "  that runs this handler with the link" "$(desk "$HF" argv)" \
-  "$(node -e 'console.log(JSON.stringify([process.argv[1] + "/handler.sh", "%u"]))' "$HERE")"
+  "$(node -e 'console.log(JSON.stringify([process.argv[1] + "/linux/handler.sh", "%u"]))' "$HERE")"
 check "  and claims the scheme" "$(grep -c '^MimeType=x-scheme-handler/claude-html;$' "$HF")" 1
 check "  through xdg-mime" "$(log ubuntu | grep '^xdg-mime')" \
   "xdg-mime [default] [claude-html-handler.desktop] [x-scheme-handler/claude-html]"
@@ -737,8 +737,8 @@ check "  and only our line from mimeapps.list" "$(cat "$T/xdgc/mimeapps.list")" 
   "$(printf '[Default Applications]\ntext/html=firefox.desktop')"
 P2="$T/a \"clone\" \$x \`y\` back\\slash 100%"
 check "an awkward clone path survives Exec quoting" \
-  "$(inenv ubuntu sh -c '. "$1/platform.sh"; printf "[Desktop Entry]\nType=Application\nName=x\nExec=%s %%u\n" "$(ch_desktop_arg "$2/handler.sh")"' sh "$HERE" "$P2" > "$T/p2.desktop"; desk "$T/p2.desktop" argv)" \
-  "$(node -e 'console.log(JSON.stringify([process.argv[1] + "/handler.sh", "%u"]))' "$P2")"
+  "$(inenv ubuntu sh -c '. "$1/lib/platform.sh"; printf "[Desktop Entry]\nType=Application\nName=x\nExec=%s %%u\n" "$(ch_desktop_arg "$2/linux/handler.sh")"' sh "$HERE" "$P2" > "$T/p2.desktop"; desk "$T/p2.desktop" argv)" \
+  "$(node -e 'console.log(JSON.stringify([process.argv[1] + "/linux/handler.sh", "%u"]))' "$P2")"
 
 # install.sh on a fake Ubuntu: registers, and the pages then offer actions.
 H2="$T/home2"; mkdir -p "$H2/.claude"

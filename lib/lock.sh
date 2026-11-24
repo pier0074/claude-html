@@ -1,7 +1,7 @@
 # Sourced, not run: the one lock every save, build and update takes turns
 # through, so two never write the same pages, cache or clone at once.
 #
-#   . "$HERE/lock.sh"
+#   . "$HERE/lib/lock.sh"
 #   ch_lock_take <seconds> [<what to say while waiting>]   0: taken, 1: not
 #   ch_lock_release                                        only if taken here
 #   ch_lock_holder                                         the holder's pid

@@ -58,7 +58,7 @@ done
 pick() {   # PATH, node dirs, then VAR=value…
   local p="$1" d="$2"; shift 2
   env -u CLAUDE_HTML_ENGINE PATH="$p" CLAUDE_HTML_NODE_DIRS="$d" "$@" \
-    /bin/bash -c '. "$0/platform.sh"; ch_pick_engine; printf "%s|%s|%s" "$CH_ENGINE" "$CH_NODE" "$CH_ENGINE_NOTE"' "$HERE"
+    /bin/bash -c '. "$0/lib/platform.sh"; ch_pick_engine; printf "%s|%s|%s" "$CH_ENGINE" "$CH_NODE" "$CH_ENGINE_NOTE"' "$HERE"
 }
 engine() { pick "$@" | cut -d'|' -f1; }
 nodeat() { pick "$@" | cut -d'|' -f2; }
@@ -103,7 +103,7 @@ check "  without waiting for it to end" "$([ -f "$T/hangs/finished" ] && echo wa
 # cannot touch anything either.
 rm -f "$T/old one/runs"; printf '1;\n' > "$T/nothing.js"
 refused="$(env -u CLAUDE_HTML_ENGINE HOME="$T/home" PATH="$T/old one:$SYS" CLAUDE_HTML_NODE_DIRS="" CLAUDE_HTML_FORCE_NODE=1 \
-  /bin/bash -c '. "$0/platform.sh"; ch_pick_engine; ch_js "$1"; echo "status $?"' "$HERE" "$T/nothing.js" 2>&1)"
+  /bin/bash -c '. "$0/lib/platform.sh"; ch_pick_engine; ch_js "$1"; echo "status $?"' "$HERE" "$T/nothing.js" 2>&1)"
 check "with only a node too old and no osascript, nothing is run" "$(cat "$T/old one/runs" 2>/dev/null | wc -l | tr -d ' ')" 0
 check "  and it says why" "$(printf '%s\n' "$refused" | sed -n 1p)" \
   "claude-html: no working node 14.14 or later and no osascript: the pages cannot be built until there is one"

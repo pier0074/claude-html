@@ -15,10 +15,12 @@ function check(name, ok, detail) {
 }
 
 // ── variables ──
-var code = ["claude-html", "helper.applescript", "tests/run-all.sh"]
-  .concat(fs.readdirSync(HERE).filter(function (f) { return /\.(sh|js)$/.test(f); }))
-  .concat(fs.readdirSync(path.join(HERE, "viewer")).filter(function (f) { return /\.js$/.test(f); })
-    .map(function (f) { return "viewer/" + f; }));
+var code = ["claude-html", "mac/helper.applescript", "tests/run-all.sh"]
+  .concat(fs.readdirSync(HERE).filter(function (f) { return /\.(sh|js)$/.test(f); }));
+["lib", "build", "actions", "mac", "linux", "viewer"].forEach(function (d) {
+  code = code.concat(fs.readdirSync(path.join(HERE, d)).filter(function (f) { return /\.(sh|js)$/.test(f); })
+    .map(function (f) { return d + "/" + f; }));
+});
 function names(text) {
   var out = {};
   (text.match(/CLAUDE_HTML_[A-Z0-9]+(?:_[A-Z0-9]+)*/g) || []).forEach(function (n) { out[n] = true; });

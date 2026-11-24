@@ -22,12 +22,12 @@ IFS= read -r -t 5 -d '' NOTE || true
 HERE="${BASH_SOURCE[0]%/*}"
 [ "$HERE" = "${BASH_SOURCE[0]}" ] && HERE=.
 case "$HERE" in /*) ;; *) HERE="$PWD/$HERE" ;; esac
-# shellcheck source=conf.sh
-. "$HERE/conf.sh" 2>/dev/null || exit 0
+# shellcheck source=lib/conf.sh
+. "$HERE/lib/conf.sh" 2>/dev/null || exit 0
 # The owner's stop rules and API budget (limits.sh), before the secret
 # check: a prompt stopped here never reaches it. With neither set, this
 # is a file sourced and a few variables read, and no command is started.
-if [ "$KIND" = prompt ] && [ -f "$HERE/limits.sh" ] && . "$HERE/limits.sh" 2>/dev/null; then
+if [ "$KIND" = prompt ] && [ -f "$HERE/lib/limits.sh" ] && . "$HERE/lib/limits.sh" 2>/dev/null; then
   ch_lim_settings
   if [ -n "$CH_LIM_ON" ] && { [ "$CH_LIM_N" -gt 0 ] || [ "$CH_LIM_BC" -gt 0 ]; }; then
     LIM_OUT="$(ch_lim_prompt "$NOTE" "$HERE" 2>/dev/null)"
@@ -75,8 +75,8 @@ if [ -f "$ENGINE_CACHE" ] && [ -n "$(find "$ENGINE_CACHE" -mtime -1 2>/dev/null)
   [ "$_want" = "${CLAUDE_HTML_ENGINE:-}" ] || CH_ENGINE=""
   [ "$CH_ENGINE" = node ] && [ ! -x "$CH_NODE" ] && CH_ENGINE=""
 fi
-# shellcheck source=platform.sh
-. "$HERE/platform.sh" 2>/dev/null || exit 0
+# shellcheck source=lib/platform.sh
+. "$HERE/lib/platform.sh" 2>/dev/null || exit 0
 if [ -z "$CH_ENGINE" ]; then
   ch_pick_engine
   ( umask 077; printf '%s|%s|%s\n' "${CLAUDE_HTML_ENGINE:-}" "$CH_ENGINE" "$CH_NODE" > "$ENGINE_CACHE" ) 2>/dev/null
@@ -101,7 +101,7 @@ if [ -n "$DIALOG" ]; then
   trap '[ -n "$DDIR" ] && rm -rf "$DDIR"' EXIT
   trap 'exit 0' HUP INT TERM
 fi
-OUT_JSON="$(printf '%s' "$NOTE" | ch_js "$HERE/guard.js" "$KIND" "$HERE" "$STATE" "$LIST" "$CONF" "$DIALOG" "$DDIR" 2>/dev/null)" || exit 0
+OUT_JSON="$(printf '%s' "$NOTE" | ch_js "$HERE/actions/guard.js" "$KIND" "$HERE" "$STATE" "$LIST" "$CONF" "$DIALOG" "$DDIR" 2>/dev/null)" || exit 0
 case "$OUT_JSON" in
   '{"choose":'*)
     FOUND="$(printf '%s' "$OUT_JSON" | sed -n 's/^{"choose":"\([^"]*\)".*/\1/p')"
@@ -120,7 +120,7 @@ case "$OUT_JSON" in
     # No one to ask is no answer, which is the answer in words, as the
     # next prompt.
     if ch_detect 2>/dev/null && ch_can_ask; then ANS="$(ch_choose "$KIND" "$PROJ" "$FOUND" "$CMD" "$DDIR" 2>/dev/null)" || ANS=""; fi
-    OUT_JSON="$(printf '%s' "$NOTE" | ch_js "$HERE/guard.js" "answer-$KIND" "$HERE" "$STATE" "$LIST" "$CONF" "$ANS" "$CH_GUARD_LIMIT" 2>/dev/null)" || exit 0 ;;
+    OUT_JSON="$(printf '%s' "$NOTE" | ch_js "$HERE/actions/guard.js" "answer-$KIND" "$HERE" "$STATE" "$LIST" "$CONF" "$ANS" "$CH_GUARD_LIMIT" 2>/dev/null)" || exit 0 ;;
 esac
 # Only a decision is ever passed on: never an error, never anything else.
 case "$OUT_JSON" in '{'*'}') printf '%s\n' "$OUT_JSON" ;; esac

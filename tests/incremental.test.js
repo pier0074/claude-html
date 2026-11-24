@@ -40,11 +40,11 @@ function loadRun(file, fsOver) {
   // eslint-disable-next-line no-new-func
   return new Function("require", "Buffer", "process", src + "\nreturn run;")(req, Buffer, process);
 }
-var convertRun = loadRun(path.join(HERE, "convert.js"));
+var convertRun = loadRun(path.join(HERE, "build/convert.js"));
 function convert(o, engine) {
   var opt = JSON.stringify(o);
   if ((engine || ENGINE) === "osascript") {
-    var r = cp.spawnSync("osascript", ["-l", "JavaScript", path.join(HERE, "convert.js"), opt],
+    var r = cp.spawnSync("osascript", ["-l", "JavaScript", path.join(HERE, "build/convert.js"), opt],
                          { encoding: "utf8", maxBuffer: 1 << 28 });
     return r.stdout;
   }
@@ -132,7 +132,7 @@ parts.push(JSON.stringify({ type: "assistant", cwd: APP, sessionId: P, timestamp
 // Secrets, which every build and archive must mask the same way wherever
 // the transcript was cut: in a prompt, in a key block inside a result, and
 // a name and its value. The cuts below fall inside each of them.
-var FS = require("./fake-secrets");
+var FS = require("./fixtures/fake-secrets");
 var SECRET_TOK = FS.cases[2].secret, SECRET_PEM = FS.cases.filter(function (c) { return c.rule === "private-key"; })[0];
 var SECRET_PW = FS.rnd(15);
 parts.push(user(5, "my token is " + SECRET_TOK + " — keep it out of the pages"));
@@ -411,7 +411,7 @@ expectSame("with stray files left in the cache", cutThenWhole(function (o) {
 (function () {
   function during(name, to) {
     var o = out(), page = path.join(o, "sessions", P + ".html"), fired = false;
-    var hooked = loadRun(path.join(HERE, "convert.js"), { renameSync: function (a, b) {
+    var hooked = loadRun(path.join(HERE, "build/convert.js"), { renameSync: function (a, b) {
       fs.renameSync(a, b);
       if (!fired && b === page) { fired = true; setMain(to, T_CUT); }
     } });
@@ -539,10 +539,10 @@ if (ENGINE === "osascript") (function () {
 var sh = fs.readFileSync(path.join(HERE, "save-conversation.sh"), "utf8");
 var ARCHIVER = path.join(T, "archive.js");
 // As the save writes it: the archiver, then the redactor and the parse
-// after it, and the archive format release.sh names.
+// after it, and the archive format lib/version.sh names.
 fs.writeFileSync(ARCHIVER, sh.slice(sh.indexOf("<<'ARCHIVEREOF'\n") + 16, sh.indexOf("\nARCHIVEREOF\n") + 1) +
-                 fs.readFileSync(path.join(HERE, "redact.js"), "utf8") + fs.readFileSync(path.join(HERE, "parse.js"), "utf8"));
-var AF = /^CH_ARCHIVE_FORMAT=(\d+)/m.exec(fs.readFileSync(path.join(HERE, "release.sh"), "utf8"))[1];
+                 fs.readFileSync(path.join(HERE, "build/redact.js"), "utf8") + fs.readFileSync(path.join(HERE, "build/parse.js"), "utf8"));
+var AF = /^CH_ARCHIVE_FORMAT=(\d+)/m.exec(fs.readFileSync(path.join(HERE, "lib/version.sh"), "utf8"))[1];
 var archiveRun = loadRun(ARCHIVER);
 var AR = path.join(T, "arch"), ARCH = path.join(AR, P + ".json"), STATE = path.join(AR, ".cache", P + ".archive");
 fs.mkdirSync(AR, { recursive: true });
@@ -677,7 +677,7 @@ if (ENGINE === "osascript") {
     messages: [{ role: "user", text: "my token is " + SECRET_TOK }] }));
   var saved = JSON.stringify({ sourceBytes: 2, format: 5, sessionId: id, project: RA, messages: [] });
   var reads = 0;
-  var hooked = loadRun(path.join(HERE, "convert.js"), { readFileSync: function (p, enc) {
+  var hooked = loadRun(path.join(HERE, "build/convert.js"), { readFileSync: function (p, enc) {
     var got = fs.readFileSync(p, enc);
     if (p === file && ++reads === 1) fs.writeFileSync(file, saved);
     return got;

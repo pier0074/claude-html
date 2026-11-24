@@ -60,8 +60,8 @@ if [ "${1:-}" = "--background" ]; then
   if [ -f "$HOME/.claude/.claude-html.update" ]; then
     _pwd="$PWD"; cd -P "$_here" 2>/dev/null && _here="$PWD"; cd "$_pwd" 2>/dev/null
     _ver=""; [ -f "$_here/VERSION" ] && read -r _ver < "$_here/VERSION"
-    # shellcheck source=release.sh
-    if [ -f "$_here/release.sh" ] && . "$_here/release.sh" &&
+    # shellcheck source=lib/version.sh
+    if [ -f "$_here/lib/version.sh" ] && . "$_here/lib/version.sh" &&
        ch_update_notice "$_here" "$_ver" && [ "$CH_UP_TOLD" != "$CH_UP_NOTICE" ]; then
       _msg="claude-html $CH_UP_NOTICE is out · update with: claude-html --update"
       CH_UP_TOLD="$CH_UP_NOTICE"; ch_update_write
@@ -71,11 +71,11 @@ if [ "${1:-}" = "--background" ]; then
   # way: a rule about to apply or just started, a budget level reached.
   # Never the plan's own percentages, which Claude Code warns about itself.
   # Builtins only, unless there is something to tell.
-  # shellcheck source=limits.sh
-  if [ -f "$_here/limits.sh" ]; then
+  # shellcheck source=lib/limits.sh
+  if [ -f "$_here/lib/limits.sh" ]; then
     # Its own rules for errors: what it cannot work out, it does not say.
     set +eu
-    if . "$_here/limits.sh" 2>/dev/null; then
+    if . "$_here/lib/limits.sh" 2>/dev/null; then
       ch_lim_settings
       if [ -n "$CH_LIM_ON" ] && { [ "$CH_LIM_N" -gt 0 ] || [ "$CH_LIM_BC" -gt 0 ]; }; then
         _sid=""; _re='"session_id"[[:space:]]*:[[:space:]]*"([A-Za-z0-9._-]{1,128})"'
@@ -122,8 +122,8 @@ MODE=wait
 # Only archive work under the projects root. Where that is, and where the
 # pages go, is decided exactly as the claude-html command decides it.
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=conf.sh
-. "$HERE/conf.sh"
+# shellcheck source=lib/conf.sh
+. "$HERE/lib/conf.sh"
 # Its physical path too, as the command has it: the update notice is kept
 # per clone, by that path. The projects root stays decided by the other.
 HERE_P="$(cd -P "$HERE" && pwd)"
@@ -131,8 +131,8 @@ HERE_P="$(cd -P "$HERE" && pwd)"
 # detached, or the session end's), ask whether a newer release is out, for
 # at most five seconds. Before the lock, so no other save waits on it
 # either, and before the build at the end, which puts it on the index.
-if { [ "$MODE" = try ] || [ -n "${CLAUDE_HTML_DETACHED:-}" ]; } && [ -f "$HERE/update.sh" ]; then
-  "${BASH:-bash}" "$HERE/update.sh" "$HERE_P" --daily </dev/null >/dev/null 2>&1 || true
+if { [ "$MODE" = try ] || [ -n "${CLAUDE_HTML_DETACHED:-}" ]; } && [ -f "$HERE/lib/update.sh" ]; then
+  "${BASH:-bash}" "$HERE/lib/update.sh" "$HERE_P" --daily </dev/null >/dev/null 2>&1 || true
 fi
 if [[ "$(pwd)" != "$ROOT" && "$(pwd)" != "$ROOT"/* ]]; then
   exit 0
@@ -142,15 +142,15 @@ fi
 # node. platform.sh picks which runs it, as it does for the command: node
 # when a working one is here, osascript when not. Picked after the checks
 # above, so a save that has nothing to do never pays for looking.
-# shellcheck source=platform.sh
-. "$HERE/platform.sh"
+# shellcheck source=lib/platform.sh
+. "$HERE/lib/platform.sh"
 ch_pick_engine
 run_js() { ch_js "$@"; }
 
 # One save at a time: they share the pages, and the build's cache. The lock
 # is lock.sh's, the one the command and the update take turns through too.
-# shellcheck source=lock.sh
-. "$HERE/lock.sh"
+# shellcheck source=lib/lock.sh
+. "$HERE/lib/lock.sh"
 OWN_LOCK=0
 release_lock() { ch_lock_release; return 0; }
 # A reply's save gives way at once; the session end's waits fifty seconds,
@@ -184,13 +184,13 @@ trap 'release_lock' EXIT
 rebuild_pages() {
   # The helper app kept in step with its source, where there is one.
   ch_helper_refresh "$HERE" --if-stale || true
-  [ -f "$HERE/convert.js" ] || return 0
+  [ -f "$HERE/build/convert.js" ] || return 0
   # The build keeps a cache that only one build at a time may write: one
   # that runs without the lock does without it, and reads everything.
   local nocache=""
   [ "$OWN_LOCK" = 1 ] || nocache=":cache false"
   # shellcheck disable=SC2086
-  run_js "$HERE/convert.js" "$(ch_js_opts "$HERE_P" $nocache)" >/dev/null 2>&1 || true
+  run_js "$HERE/build/convert.js" "$(ch_js_opts "$HERE_P" $nocache)" >/dev/null 2>&1 || true
   ch_private_out "$OUT"
 }
 
@@ -227,7 +227,7 @@ function run(argv) {
   // own list. "off" is no redaction; no signature at all, as when a test
   // runs this alone, is the built-in rules, and an archive no save trusts.
   var rsig = argv[6] || "", listPath = argv[7] || "";
-  // The format this release writes, from release.sh, by the save.
+  // The format this release writes, from lib/version.sh, by the save.
   var FORMAT = Number(argv[8]) || 0;
   if (!FORMAT) throw new Error("no archive format given: nothing archived");
 
@@ -548,7 +548,7 @@ function run(argv) {
 
   var archive = JSON.stringify({
     sourceBytes: sourceBytes,
-    // CH_ARCHIVE_FORMAT, in release.sh, says what each format added.
+    // CH_ARCHIVE_FORMAT, in lib/version.sh, says what each format added.
     // Read by the save's skip check, which is why both sit near the top.
     format: FORMAT,
     redact: rsig,
@@ -604,11 +604,11 @@ RSIG="$(ch_redact_sig "$HERE")"
 # The redactor and the parse, after the archiver: a function declaration
 # is there for run() wherever in the file it stands. Missing, the archiver
 # refuses.
-cat "$HERE/redact.js" "$HERE/parse.js" >> "$ARCHIVER" 2>/dev/null || true
-# The archive format this release writes, from release.sh: the archiver
+cat "$HERE/build/redact.js" "$HERE/build/parse.js" >> "$ARCHIVER" 2>/dev/null || true
+# The archive format this release writes, from lib/version.sh: the archiver
 # writes it, and the check below skips only what is in it already.
-# shellcheck source=release.sh
-. "$HERE/release.sh"
+# shellcheck source=lib/version.sh
+. "$HERE/lib/version.sh"
 
 PROJECT_PATH=$(pwd)
 

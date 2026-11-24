@@ -6,16 +6,16 @@
 //   node tests/guard.test.js anchors            every text a rule starts at is in guard.sh's list
 "use strict";
 var fs = require("fs"), path = require("path");
-var F = require("./fake-secrets");
+var F = require("./fixtures/fake-secrets");
 var HERE = path.resolve(__dirname, "..");
 var args = process.argv.slice(2);
 
 // The rules the guard uses, as guard.js names them.
-var SURE = /var SURE = \{\};\s*\(([\s\S]*?)\)\.split/.exec(fs.readFileSync(path.join(HERE, "guard.js"), "utf8"))[1]
+var SURE = /var SURE = \{\};\s*\(([\s\S]*?)\)\.split/.exec(fs.readFileSync(path.join(HERE, "actions/guard.js"), "utf8"))[1]
   .replace(/["+\s]+/g, " ").trim().split(" ");
 
 if (args[0] === "anchors") {
-  var src = fs.readFileSync(path.join(HERE, "redact.js"), "utf8");
+  var src = fs.readFileSync(path.join(HERE, "build/redact.js"), "utf8");
   var sh = fs.readFileSync(path.join(HERE, "guard.sh"), "utf8");
   var list = /^ANCHORS='([^']*)'/m.exec(sh)[1].split("|");
   var found = [], re = /\["((?:[^"\\]|\\.)*)", (true|false), /g, m;
@@ -37,10 +37,10 @@ if (args[0] === "anchors") {
 if (args[0] === "expect") {
   var note = JSON.parse(fs.readFileSync(args[1], "utf8")), bash = args[2] === "bash", out = args[3];
   var text = bash ? note.tool_input.command : note.prompt;
-  var src = fs.readFileSync(path.join(HERE, "redact.js"), "utf8");
+  var src = fs.readFileSync(path.join(HERE, "build/redact.js"), "utf8");
   var lib = new Function(src + "\nreturn [claudeHtmlRedactor];")();
   var sure = {}; SURE.forEach(function (r) { sure[r] = true; });
-  var LABEL = JSON.parse(/var LABEL = (\{[\s\S]*?\});/.exec(fs.readFileSync(path.join(HERE, "guard.js"), "utf8"))[1]
+  var LABEL = JSON.parse(/var LABEL = (\{[\s\S]*?\});/.exec(fs.readFileSync(path.join(HERE, "actions/guard.js"), "utf8"))[1]
     .replace(/([{,]\s*)([a-z]+):/g, '$1"$2":').replace(/"(?:[^"\\]|\\.)*"/g, function (q) { return q; }));
   var taken = [], lines = [];
   lib[0]("", true, true, sure).find(text).forEach(function (m) {

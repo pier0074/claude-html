@@ -76,7 +76,7 @@ function guard(argv) {
 
   var note = JSON.parse(stdin() || "null");
   if (!note || typeof note !== "object") return "";
-  var src = read(HERE + "/redact.js");
+  var src = read(HERE + "/build/redact.js");
   if (src === null) return "";
   var lib = new Function(src + "\nreturn [claudeHtmlRedactor, fingerprint];")();
 

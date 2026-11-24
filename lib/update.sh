@@ -26,8 +26,8 @@ HERE="${1:-}"; shift || true
 [ -n "$HERE" ] && [ -d "$HERE" ] || { echo "update.sh: which clone?" >&2; exit 2; }
 HERE="$(cd -P "$HERE" && pwd)"
 SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=release.sh
-. "$SELF/release.sh"
+# shellcheck source=version.sh
+. "$SELF/version.sh"
 
 # No prompt for a password, ever: a fetch that would ask fails instead.
 export GIT_TERMINAL_PROMPT=0
@@ -150,23 +150,28 @@ fetch_releases() {
 }
 
 # The changelog entries after $1 up to $2, from release $2's own changelog.
+# A heading's number is compared as every release number is, by ch_ver_gt.
 changelog_between() {
-  g show "v$2:CHANGELOG.md" 2>/dev/null | awk -v lo="$1" -v hi="$2" '
-    function gt(a, b,   x, y, i) {
-      split(a, x, "."); split(b, y, ".")
-      for (i = 1; i <= 3; i++) { if (x[i] + 0 > y[i] + 0) return 1; if (x[i] + 0 < y[i] + 0) return 0 }
-      return 0
-    }
-    /^## / { on = ($2 ~ /^[0-9]+\.[0-9]+\.[0-9]+$/) && gt($2, lo) && !gt($2, hi) }
-    on { print }'
+  local line v on=false
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      '## '*)
+        v="${line#'## '}"; v="${v%%[[:space:]]*}"; on=false
+        ch_ver_gt "$v" "$1" && ! ch_ver_gt "$v" "$2" && on=true ;;
+    esac
+    [ "$on" = true ] && printf '%s\n' "$line"
+  done < <(g show "v$2:CHANGELOG.md" 2>/dev/null)
+  return 0
 }
 
 # The archive format a release writes: CH_ARCHIVE_FORMAT in its own
-# release.sh, or, for a release from before that line, the number in its
+# lib/version.sh (release.sh at the top, for a release from before the
+# folders), or, for a release from before that line, the number in its
 # save script.
 archive_format() {
   local f
-  f="$(g show "v$1:release.sh" 2>/dev/null | sed -n 's/^CH_ARCHIVE_FORMAT=\([0-9][0-9]*\).*/\1/p' | head -1)"
+  f="$( { g show "v$1:lib/version.sh" || g show "v$1:release.sh"; } 2>/dev/null |
+    sed -n 's/^CH_ARCHIVE_FORMAT=\([0-9][0-9]*\).*/\1/p' | head -1)"
   [ -n "$f" ] || f="$(g show "v$1:save-conversation.sh" 2>/dev/null |
     sed -n 's/^[[:space:]]*format:[[:space:]]*\([0-9][0-9]*\),.*/\1/p' | head -1)"
   printf '%s' "$f"
@@ -414,7 +419,7 @@ fi
 # so a pause is not taken for a hang. lock.sh is the copy beside this one,
 # or the clone's for a copy made by an older command.
 # shellcheck source=lock.sh
-if [ -f "$SELF/lock.sh" ]; then . "$SELF/lock.sh"; else . "$HERE/lock.sh"; fi
+if [ -f "$SELF/lock.sh" ]; then . "$SELF/lock.sh"; else . "$HERE/lib/lock.sh"; fi
 release_lock() { ch_lock_release; }
 trap 'release_lock' EXIT
 _lw="${CLAUDE_HTML_UPDATE_LOCK_WAIT:-60}"
@@ -441,8 +446,8 @@ BUILT=0
 build_here() {
   local report
   report="$( HERE="$HERE"
-    . "$HERE/conf.sh" && . "$HERE/platform.sh" && ch_pick_engine &&
-    ch_js "$HERE/convert.js" "$(ch_js_opts "$HERE")" 2>&1 )" || {
+    . "$HERE/$LIB/conf.sh" && . "$HERE/$LIB/platform.sh" && ch_pick_engine &&
+    ch_js "$HERE/$BUILD/convert.js" "$(ch_js_opts "$HERE")" 2>&1 )" || {
     printf '%s\n' "$report" >> "$LOG"; return 1; }
   case "$report" in '{"error"'*|'') printf '%s\n' "$report" >> "$LOG"; return 1 ;; esac
   BUILT="$(printf '%s' "$report" | sed -n 's/.*"built":\([0-9]*\).*/\1/p')"
@@ -495,8 +500,12 @@ NOW="$(cat "$HERE/VERSION" 2>/dev/null | tr -d '[:space:]')"
 install_here || roll_back "its install.sh failed"
 INSTALL_REBUILT="$(sed -n 's/.*built: *[0-9]* session(s), \([0-9]*\) rebuilt.*/\1/p' "$LOG" | tail -1)"
 
-# 8. a build, which rebuilds what the new scripts would make differently
-if [ -f "$HERE/platform.sh" ] && grep -q '^ch_js()' "$HERE/platform.sh"; then
+# 8. a build, which rebuilds what the new scripts would make differently.
+# Where its scripts are is the release's own: in folders, or, for one from
+# before them, at the top of the clone.
+LIB=lib BUILD=build
+[ -f "$HERE/lib/platform.sh" ] || LIB=. BUILD=.
+if [ -f "$HERE/$LIB/platform.sh" ] && grep -q '^ch_js()' "$HERE/$LIB/platform.sh"; then
   build_here || roll_back "its first build failed"
 fi
 release_lock

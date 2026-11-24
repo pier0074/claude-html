@@ -10,10 +10,10 @@
 // Nothing here prints a secret: a failure names the rule and the case.
 "use strict";
 var fs = require("fs"), path = require("path"), os = require("os"), cp = require("child_process");
-var F = require("./fake-secrets");
+var F = require("./fixtures/fake-secrets");
 
 var HERE = path.resolve(__dirname, "..");
-var SRC = fs.readFileSync(path.join(HERE, "redact.js"), "utf8");
+var SRC = fs.readFileSync(path.join(HERE, "build/redact.js"), "utf8");
 var make = new Function(SRC + "\nreturn claudeHtmlRedactor;")();
 var args = process.argv.slice(2);
 
@@ -181,7 +181,7 @@ if (ENGINE === "osascript") (function () {
       "  $(JSON.stringify(out)).writeToFileAtomicallyEncodingError(argv[2], true, 4, null);\n" +
       "  return 'done';\n}\n");
     var res = cp.spawnSync("osascript", ["-l", "JavaScript", path.join(T, "runner.js"),
-      path.join(HERE, "redact.js"), path.join(T, "in.json"), path.join(T, "out.json")], { encoding: "utf8" });
+      path.join(HERE, "build/redact.js"), path.join(T, "in.json"), path.join(T, "out.json")], { encoding: "utf8" });
     var got = fs.existsSync(path.join(T, "out.json")) ? fs.readFileSync(path.join(T, "out.json"), "utf8") : "";
     var want = [];
     [true, false].forEach(function (c) {

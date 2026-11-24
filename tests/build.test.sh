@@ -17,7 +17,7 @@ check() {
 T="$(cd "$(tmpdir chbuild)" && pwd)"
 trap 'chmod -R u+rw "$T" 2>/dev/null; rm -rf "$T"' EXIT
 mkdir -p "$T/home"
-build() { HOME="$T/home" run_js "$HERE/convert.js" "$1"; }
+build() { HOME="$T/home" run_js "$HERE/build/convert.js" "$1"; }
 errors() { grep -o '"error":' | wc -l | tr -d ' '; }
 has() { [ -s "$1" ] && echo yes || echo no; }
 

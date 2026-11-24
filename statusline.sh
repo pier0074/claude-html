@@ -41,7 +41,7 @@ fi
 
 HERE="${BASH_SOURCE[0]%/*}"; [ "$HERE" = "${BASH_SOURCE[0]}" ] && HERE=.
 LINE="claude-html"
-if . "$HERE/limits.sh" 2>/dev/null; then
+if . "$HERE/lib/limits.sh" 2>/dev/null; then
   ch_lim_settings; ch_lim_now; ch_lim_read_state
 
   # ── what the note says, in any order and spacing ─────────────────────

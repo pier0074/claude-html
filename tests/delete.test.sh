@@ -42,7 +42,7 @@ printf '{"sessionId":"%s","messages":[{"role":"user","text":"archived"}]}\n' "$A
 } > "$H/.claude/history.jsonl"
 
 cli() { env HOME="$H" CLAUDE_HTML_TRASH="$TRASH" /bin/bash "$HERE/claude-html" "$@" </dev/null 2>&1; }
-build() { HOME="$H" run_js "$HERE/convert.js" \
+build() { HOME="$H" run_js "$HERE/build/convert.js" \
   "{\"root\":\"$ROOT\",\"out\":\"$OUT\",\"here\":\"$HERE\",\"exportPath\":\"${1:-/nonexistent}\"}" >/dev/null; }
 gone() { [ -e "$1" ] && echo still-there || echo gone; }
 listed() { grep -q "$1" "$OUT/index.html" && echo listed || echo absent; }

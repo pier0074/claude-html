@@ -5,7 +5,7 @@
 # repository" whose main is one commit per release, each made from this very
 # tree with its VERSION and changelog changed and a stub install.sh that
 # records that it ran; and clones of it as the installs. The claude-html,
-# update.sh, release.sh, conf.sh, save-conversation.sh and convert.js under
+# lib/update.sh, lib/version.sh, lib/conf.sh, save-conversation.sh and build/convert.js under
 # test are this tree's own. Nothing here ever uses the network: HOME, the
 # conf, the projects, the pages and the release remote all point into the
 # sandbox, and every remote is a local path.
@@ -46,9 +46,7 @@ gitx() { HOME="$H" XDG_CONFIG_HOME="$H/.config" git -c user.name=tester -c user.
 # A release's tree: this one's files, its own VERSION and changelog, and a
 # stub install.sh. 2.0.0 writes archive format 3; 3.1.0 changes the viewer
 # (so its pages are rebuilt) and the hooks (so the update says so).
-FILES="claude-html conf.sh platform.sh release.sh lock.sh update.sh save-conversation.sh guard.sh guard.js
-  convert.js parse.js prices.js prices.tsv redact.js dialog.js delete.js open.js resume.js settings-hooks.js handler.sh .gitignore viewer
-  limits.sh limits-cli.sh limits.js statusline.sh"
+FILES="claude-html save-conversation.sh guard.sh statusline.sh .gitignore lib build actions mac linux viewer"
 changelog_for() {   # the newest version, then all it includes
   echo "# Changelog"; echo
   local v
@@ -81,9 +79,9 @@ EOF
     > "$d/hooks.json"
   case "$v" in
     # 2.x as releases before 3.1.3 were: the number written in the save
-    # script, and no CH_ARCHIVE_FORMAT in release.sh.
+    # script, and no CH_ARCHIVE_FORMAT in lib/version.sh.
     2.*) sed 's/^\([[:space:]]*\)format: FORMAT,/\1format: 3,/' "$d/save-conversation.sh" > "$d/s.tmp" && mv "$d/s.tmp" "$d/save-conversation.sh"
-         grep -v '^CH_ARCHIVE_FORMAT=' "$d/release.sh" > "$d/r.tmp" && mv "$d/r.tmp" "$d/release.sh" ;;
+         grep -v '^CH_ARCHIVE_FORMAT=' "$d/lib/version.sh" > "$d/r.tmp" && mv "$d/r.tmp" "$d/lib/version.sh" ;;
     3.1.0) echo "/* 3.1.0 */" >> "$d/viewer/page.js" ;;
   esac
 }
@@ -172,7 +170,7 @@ settle() {
 }
 
 # ── release numbers ──────────────────────────────────────────────────
-. "$HERE/release.sh"
+. "$HERE/lib/version.sh"
 o=""
 for p in "3.10.0 3.9.0" "3.0.10 3.0.9" "4.0.0 3.99.99" "3.1.0 3.0.1" "10.0.0 9.0.0"; do
   ch_ver_gt ${p% *} ${p#* } && o="$o+" || o="$o-"
@@ -286,12 +284,12 @@ check "through a symlink, from another folder" "$rc $(at)" "0 v3.1.0"
 
 # ── refusals ────────────────────────────────────────────────────────
 clone a v3.0.1
-echo "# mine" >> "$INST/conf.sh"
+echo "# mine" >> "$INST/lib/conf.sh"
 out="$(ch --update)"; rc=$?
 has "a changed file of the release: refused" "$out" "conf.sh"
-check "  nothing moved, the change kept" "$rc $(at) $(tail -1 "$INST/conf.sh")" "1 v3.0.1 # mine"
-gitx -C "$INST" checkout -q -- conf.sh
-echo "# staged" >> "$INST/redact.js"; gitx -C "$INST" add redact.js
+check "  nothing moved, the change kept" "$rc $(at) $(tail -1 "$INST/lib/conf.sh")" "1 v3.0.1 # mine"
+gitx -C "$INST" checkout -q -- lib/conf.sh
+echo "# staged" >> "$INST/build/redact.js"; gitx -C "$INST" add build/redact.js
 out="$(ch --update)"; rc=$?
 check "  a staged one too" "$rc $(at)" "1 v3.0.1"
 gitx -C "$INST" reset -q --hard
@@ -322,7 +320,7 @@ kill "$SLEEPER" 2>/dev/null; rm -rf "$H/.claude/.claude-html.lock"
 clone a v3.1.0
 out="$(ch --update 3.0.0)"; rc=$?
 # The format this tree writes, which every release made from it writes too.
-AFNOW="$(. "$HERE/release.sh"; printf '%s' "$CH_ARCHIVE_FORMAT")"
+AFNOW="$(. "$HERE/lib/version.sh"; printf '%s' "$CH_ARCHIVE_FORMAT")"
 has "going back: warned, with the archive format" "$out" "archive format $AFNOW"
 has "  refused without a yes and no terminal" "$out" "going back needs a yes"
 check "  nothing moved" "$rc $(at)" "1 v3.1.0"
@@ -366,7 +364,7 @@ check "  exit 1" "$rc" 1
 REALGIT="$(command -v git)"
 mkdir -p "$T/gitlog"; printf '#!/bin/sh\necho "$*" >> "%s/gitcalls"\nexec "%s" "$@"\n' "$T" "$REALGIT" > "$T/gitlog/git"
 chmod +x "$T/gitlog/git"; rm -f "$H/.claude/.claude-html.update" "$T/gitcalls"
-run env PATH="$T/gitlog:$PATH" bash "$T/zip/claude-html/update.sh" "$T/zip/claude-html" --daily
+run env PATH="$T/gitlog:$PATH" bash "$T/zip/claude-html/lib/update.sh" "$T/zip/claude-html" --daily
 check "  its daily check runs no git, and is recorded for the day" \
   "$(cat "$T/gitcalls" 2>/dev/null | wc -l | tr -d ' ') $(state here) $([ -n "$(state checked)" ] && [ "$(state checked)" != 0 ] && echo checked)" \
   "0 $T/zip/claude-html checked"
@@ -374,7 +372,7 @@ check "  its daily check runs no git, and is recorded for the day" \
 # install them, in a dialog: not run.
 mkdir -p "$T/noclt"; printf '#!/bin/sh\nexit 2\n' > "$T/noclt/xcode-select"; chmod +x "$T/noclt/xcode-select"
 clone a v3.0.1
-out="$(run env PATH="$T/noclt:/usr/bin:/bin" CLAUDE_HTML_UNAME=Darwin bash "$INST/update.sh" "$INST" unset status 2>&1)"
+out="$(run env PATH="$T/noclt:/usr/bin:/bin" CLAUDE_HTML_UNAME=Darwin bash "$INST/lib/update.sh" "$INST" unset status 2>&1)"
 has "a Mac without developer tools: its git stand-in is never run" "$out" "git is not installed"
 
 

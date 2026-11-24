@@ -25,7 +25,7 @@ trap 'rm -rf "$T"' EXIT
 
 ID=aaaaaaaa-1111-2222-3333-444444444444
 OLD=bbbbbbbb-1111-2222-3333-444444444444
-AF="$(. "$HERE/release.sh"; printf '%s' "$CH_ARCHIVE_FORMAT")"
+AF="$(. "$HERE/lib/version.sh"; printf '%s' "$CH_ARCHIVE_FORMAT")"
 
 # A transcript with every case the two readers once read differently:
 # harness context, the harness's tags in a prompt, a slash command, Claude
@@ -43,7 +43,7 @@ fixture() {   # transcript, cwd
       return rec(Object.assign({ type: "assistant", timestamp: at(m), message: { id: mid, role: "assistant", model: "claude-opus-5",
         content: content, usage: { input_tokens: m + 1, output_tokens: 2 * m + 1, cache_read_input_tokens: 5, cache_creation_input_tokens: 1 } } }, extra || {}));
     }
-    var F = require(process.argv[4] + "/tests/fake-secrets.js");
+    var F = require(process.argv[4] + "/tests/fixtures/fake-secrets.js");
     var gh = F.cases.filter(function (c) { return c.rule === "github"; })[0];
     var pw = F.cases.filter(function (c) { return c.rule === "url-password"; })[0];
     fs.writeFileSync(process.argv[5], gh.secret + "\n" + pw.secret + "\n");
@@ -108,8 +108,8 @@ for ENG in $ENGINES; do
       run CLAUDE_HTML_OUT="$T/$ENG/out-save" CLAUDE_HTML_DETACHED=1 bash "$HERE/save-conversation.sh" >/dev/null 2>&1)
   }
   build() {   # out
-    run bash -c '. "$0/conf.sh" 2>/dev/null; . "$0/platform.sh"; ch_pick_engine
-      ch_js "$0/convert.js" "{\"root\":\"$1\",\"out\":\"$2\",\"here\":\"$0\"}"' "$HERE" "$ROOT" "$1" >/dev/null 2>&1
+    run bash -c '. "$0/lib/conf.sh" 2>/dev/null; . "$0/lib/platform.sh"; ch_pick_engine
+      ch_js "$0/build/convert.js" "{\"root\":\"$1\",\"out\":\"$2\",\"here\":\"$0\"}"' "$HERE" "$ROOT" "$1" >/dev/null 2>&1
   }
 
   # ── the archive is the transcript ──

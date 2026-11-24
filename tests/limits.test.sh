@@ -170,7 +170,7 @@ echo "weeks"
 lim() {   # now, then bash run with limits.sh loaded and settings read
   local n="$1"; shift
   env -i PATH="$PATH" HOME="$H" TZ="$TZ" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_TEST_NOW="$n" \
-    /bin/bash -c '. "$0/platform.sh"; . "$0/limits.sh"; ch_lim_settings; ch_lim_now; ch_lim_read_state; '"$*" "$HERE"
+    /bin/bash -c '. "$0/lib/platform.sh"; . "$0/lib/limits.sh"; ch_lim_settings; ch_lim_now; ch_lim_read_state; '"$*" "$HERE"
 }
 rm -f "$STATE"
 # Zurich leaves summer time on Sunday 25 October 2026, at 01:00 UTC.
@@ -308,13 +308,13 @@ words "fix the bug" >/dev/null 2>&1; rm -f "$H/.claude/.claude-html-guard/limits
 check "over ssh: in words" "$(dlg Cancel "fix the bug" SSH_CONNECTION="10.0.0.1 22 10.0.0.2 22" | grep -c 'Answer:\\n\\n  cancel  do not send')" 1
 
 # The macOS window: the guard's dialog.js, given the rule's rows.
-. "$HERE/platform.sh"
+. "$HERE/lib/platform.sh"
 check "macOS: osascript runs dialog.js with the rows and the last two choices" \
   "$(CH_DIALOG=osascript CH_HERE="$HERE" CH_DRY=1 ch_choose_limit "Weekly limit rule reached" "Used:" "81 % of the week  ·  resets Tue 08:00" "Rule:" "from Fri 20:00, stop at 80 %" "Allow until the reset — no more asking this week" "Stop — turn this rule off")" \
-  "'osascript' '-l' 'JavaScript' '$HERE/dialog.js' '--limit' '60' 'limits' 'Weekly limit rule reached' 'Used:' '81 % of the week  ·  resets Tue 08:00' 'Rule:' 'from Fri 20:00, stop at 80 %' 'Allow until the reset — no more asking this week' 'Stop — turn this rule off'"
+  "'osascript' '-l' 'JavaScript' '$HERE/mac/dialog.js' '--limit' '60' 'limits' 'Weekly limit rule reached' 'Used:' '81 % of the week  ·  resets Tue 08:00' 'Rule:' 'from Fri 20:00, stop at 80 %' 'Allow until the reset — no more asking this week' 'Stop — turn this rule off'"
 check "  the rules box: in a private file, its path given, never its text" \
   "$(CH_DIALOG=osascript CH_HERE="$HERE" CH_DRY=1 ch_choose_limit "Weekly limit rule reached" "Used:" "81 %" "Rule:" "r" "c3" "c4" "$(printf 'CLAUDE_HTML_LIMIT_RULES=x\nrules')")" \
-  "'osascript' '-l' 'JavaScript' '$HERE/dialog.js' '--box' 'Rule:' '${TMPDIR:-/tmp}/chguard.XXXXXX/box' '--limit' '60' 'limits' 'Weekly limit rule reached' 'Used:' '81 %' 'Rule:' 'r' 'c3' 'c4'"
+  "'osascript' '-l' 'JavaScript' '$HERE/mac/dialog.js' '--box' 'Rule:' '${TMPDIR:-/tmp}/chguard.XXXXXX/box' '--limit' '60' 'limits' 'Weekly limit rule reached' 'Used:' '81 %' 'Rule:' 'r' 'c3' 'c4'"
 check "  on Linux, in the text, with the time limit" \
   "$(CH_DIALOG=zenity CH_DRY=1 ch_choose_limit h k1 v1 k2 v2 c3 c4 "the rules here" | grep -c -e '^the rules here$' -e '^Closes after 1 minute — counts as Cancel.' )" 2
 check "kdialog: a radio list, Cancel on" \
@@ -323,8 +323,8 @@ check "xmessage: four buttons, Cancel the default" \
   "$(CH_DIALOG=xmessage CH_DRY=1 ch_choose_limit h k1 v1 k2 v2 c3 c4 | grep -c "'-buttons' 'Cancel:1,Allow once:2,Until the reset:3,Stop:4' '-default' 'Cancel'")" 1
 if [ "$HAVE_OSASCRIPT" = true ]; then
   # A picture, and the window closes at once: nothing waits on anyone.
-  osascript -l JavaScript "$HERE/dialog.js" --limit 8 --snap "$T/stop.png" limits "Weekly limit rule reached" "Used:" "81 % of the week" "Rule:" "from Fri 20:00, stop at 80 %" c3 c4 >/dev/null 2>&1
-  osascript -l JavaScript "$HERE/dialog.js" --limit 8 --snap "$T/confirm.png" confirm "Change claude-html limits?" "Asked by the Token usage page." "$(printf 'Stop rules:\tfrom Fri 20:00, stop at 80 %%')" >/dev/null 2>&1
+  osascript -l JavaScript "$HERE/mac/dialog.js" --limit 8 --snap "$T/stop.png" limits "Weekly limit rule reached" "Used:" "81 % of the week" "Rule:" "from Fri 20:00, stop at 80 %" c3 c4 >/dev/null 2>&1
+  osascript -l JavaScript "$HERE/mac/dialog.js" --limit 8 --snap "$T/confirm.png" confirm "Change claude-html limits?" "Asked by the Token usage page." "$(printf 'Stop rules:\tfrom Fri 20:00, stop at 80 %%')" >/dev/null 2>&1
   check "macOS: both windows draw" "$(head -c 4 "$T/stop.png" | od -c | head -1 | grep -c 'P   N   G') $(head -c 4 "$T/confirm.png" | od -c | head -1 | grep -c 'P   N   G')" "1 1"
 fi
 
@@ -548,7 +548,7 @@ v1/fri-2000-80/none/80-95/on"
 BAD="$(printf '%s\n' "$BAD" | sed '$d' | sed '$d')"
 printf '%s\n' "$GOOD" > "$T/link.good"; printf '%s\n' "$BAD" > "$T/link.bad"
 printf 'v1/fri-2000-80/none/80-95/on\nx' > "$T/link.nl"; printf 'v1/fri-2000-80/none/80-95/on ' > "$T/link.sp"
-lok() { env -i PATH="$PATH" HOME="$H" /bin/bash -c '. "$0/limits-cli.sh"; ch_lim_link_ok "$1" && echo ok || echo no' "$HERE" "$1"; }
+lok() { env -i PATH="$PATH" HOME="$H" /bin/bash -c '. "$0/lib/limits-cli.sh"; ch_lim_link_ok "$1" && echo ok || echo no' "$HERE" "$1"; }
 n=0; while IFS= read -r g; do [ "$(lok "$g")" = ok ] && n=$((n + 1)); done < "$T/link.good"
 check "the grammar takes the good ones (4)" "$n" 4
 n=0; m=0; while IFS= read -r b; do m=$((m + 1)); [ "$(lok "$b")" = no ] && n=$((n + 1)); done < "$T/link.bad"
@@ -608,7 +608,7 @@ echo "spend"
 # Per session: a recorded cost, where Claude Code wrote one, else the
 # price table's for its tokens, never both; in the hours of the period.
 WS="$(node -e '
-var L = new Function(require("fs").readFileSync(process.argv[1] + "/limits.js", "utf8") + "\nreturn claudeHtmlLimits();")();
+var L = new Function(require("fs").readFileSync(process.argv[1] + "/build/limits.js", "utf8") + "\nreturn claudeHtmlLimits();")();
 var PR = { total: function (u, o) { var c = 0, n = 0; Object.keys(u).forEach(function (h) {
   var t = Date.parse(h + ":00:00Z"); if (t < o.since || t >= o.until) return;
   Object.keys(u[h]).forEach(function (m) { var k = u[h][m]; c += k[1] * 10; n += k[1]; }); });
@@ -670,7 +670,7 @@ check "the templates have a place for it" \
 for ENG in $([ "$HAVE_OSASCRIPT" = true ] && echo osascript) node; do
   rm -rf "$T/out" "$STATE" "$SPEND"; conf
   env -i PATH="$PATH" HOME="$H" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_ENGINE=$ENG /bin/bash -c \
-    'HERE="$0"; . "$HERE/conf.sh"; . "$HERE/platform.sh"; ch_pick_engine; ch_js "$HERE/convert.js" "$(ch_js_opts "$HERE" :cache false)"' "$HERE" >/dev/null 2>&1
+    'HERE="$0"; . "$HERE/lib/conf.sh"; . "$HERE/lib/platform.sh"; ch_pick_engine; ch_js "$HERE/build/convert.js" "$(ch_js_opts "$HERE" :cache false)"' "$HERE" >/dev/null 2>&1
   check "$ENG: nothing set: no limits in the pages" "$(grep -c '"limits":' "$T/out/usage.html" "$T/out/index.html" | grep -c ':0')" 2
 done
 

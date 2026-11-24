@@ -40,7 +40,7 @@ T0="$(date +%s)"
 
 # The longest start first, so the last one to end is not a long one begun late.
 QUICK="viewer diff index pages docs"
-SUITES="incremental guard limits linux update usage prices engine install hooks backend archive redact races build agents delete open helper safety"
+SUITES="incremental guard limits linux update layout usage prices engine install hooks backend archive redact races build agents delete open helper safety"
 run_one() {   # name
   local t="$1" s rc
   s="$(date +%s)"

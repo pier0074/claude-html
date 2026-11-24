@@ -21,8 +21,8 @@
 URL="${1:-}"
 [ $# -eq 1 ] || { echo "handler.sh: expected one link" >&2; exit 2; }
 
-# The clone this file is in, which is where the command is too.
-HERE="$(cd -P "$(dirname "$0")" && pwd)" || exit 2
+# The clone this file's folder is in, which is where the command is too.
+HERE="$(cd -P "$(dirname "$0")/.." && pwd)" || exit 2
 CLI="$HERE/claude-html"
 
 H='[0-9a-fA-F]'
@@ -62,8 +62,8 @@ else
   esac
 fi
 
-# shellcheck source=platform.sh
-. "$HERE/platform.sh"
+# shellcheck source=../lib/platform.sh
+. "$HERE/lib/platform.sh"
 ch_detect
 
 # Says something to the person who clicked, in whatever this desktop has.

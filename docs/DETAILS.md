@@ -119,7 +119,7 @@ count of sessions it covers:
 
 **What it cost, calculated from a dated price file.** Beside what Claude Code
 recorded — never added to it — every session also gets a calculated cost: its
-tokens times the price of the time, from `prices.tsv` in the repository (one
+tokens times the price of the time, from `build/prices.tsv` in the repository (one
 line per model and price period, copied from Anthropic's pricing page, with
 the page and the day it was checked; [SETUP.md](SETUP.md#prices) says how to
 add a line). The index and the line under a session's title show it where
@@ -267,8 +267,8 @@ To erase every trace as well:
 | `~/.claude/claude-html.conf` | the two directories, and the week reset offered commented out; written once, then only added to |
 | `~/.claude/settings.json` | hooks that save after every reply (`Stop`) and at the end (`SessionEnd`, `PreCompact`); the guard's; `statusLine`, claude-html's or claude-html's around yours; `cleanupPeriodDays` set to 3650 **only if you have not set it** |
 | `~/.local/bin/claude-html` | a symlink, so you can type `claude-html` |
-| `Claude HTML.app` | macOS: built beside the scripts; receives the index's delete, open and resume links |
-| `~/.local/share/applications/claude-html-handler.desktop` | Linux, where there is a desktop: claims `claude-html://` links for `handler.sh`, registered with `xdg-mime` |
+| `Claude HTML.app` | macOS: built at the top of the clone, beside `claude-html`; receives the index's delete, open and resume links |
+| `~/.local/share/applications/claude-html-handler.desktop` | Linux, where there is a desktop: claims `claude-html://` links for `linux/handler.sh`, registered with `xdg-mime` |
 
 **Hooks you already have are kept.** New ones are appended beside whatever is
 there; existing entries are read, never rewritten. Another tool's `SessionEnd`
@@ -388,10 +388,25 @@ Moved to [SETUP.md](SETUP.md), with every variable, its default and an example.
 
 ## How it works
 
+**Where everything is.** The clone is laid out by what each file does:
+
+| Where | What |
+| ----- | ---- |
+| `claude-html`, `install.sh` | the command and the installer |
+| `save-conversation.sh`, `guard.sh`, `statusline.sh` | what `settings.json` runs: the save, the guard and the status line, called by their full path, so they stay at the top |
+| `lib/` | the shell the others source: the conf (`conf.sh`), what the machine has (`platform.sh`), the lock, the plan limits, the update (`update.sh`) and the release numbers (`version.sh`) |
+| `build/` | the pages: `convert.js` builds them, with `parse.js`, `redact.js`, `prices.js` and its `prices.tsv`, and `limits.js` |
+| `actions/` | what the command and the installer run besides: the guard's judge, open, resume, delete, and the edit of `settings.json` |
+| `mac/` | the helper app's source and build, and the windows (`dialog.js`) |
+| `linux/` | the link handler |
+| `viewer/` | what the pages carry: their HTML, CSS and JavaScript |
+| `tests/` | the suites (`bash tests/run-all.sh`), their data in `tests/fixtures/` |
+| `docs/` | this file and [SETUP.md](SETUP.md); the pictures in `docs/img/` |
+
 The JavaScript is the same files under `osascript` and `node`, and they
 produce the same bytes under either. The data work — archiving and building
 pages — goes to node when a working one is installed, being the faster, and
-to `osascript` when it is not; `platform.sh` decides, once, for the hook, the
+to `osascript` when it is not; `lib/platform.sh` decides, once, for the hook, the
 command and the installer alike. A hook runs after every reply and when a session ends. It writes a permanent
 archive beside the project, then rebuilds whatever changed — normally a third
 of a second, because sessions whose pages are current are never read again.
@@ -573,7 +588,7 @@ the file into `~/.local/share/Trash/files` under a free name and writes the
 `.trashinfo` (percent-encoded `Path=`, `DeletionDate=`) that every desktop's
 restore reads; a file on another filesystem is refused rather than copied.
 
-Links reach the machine through `handler.sh`, which `install.sh` registers
+Links reach the machine through `linux/handler.sh`, which `install.sh` registers
 with `xdg-mime` as the handler for `x-scheme-handler/claude-html` (never from
 a temporary folder, and not when `CLAUDE_HTML_NO_REGISTER` is set);
 `--uninstall` takes it out again. The handler accepts exactly

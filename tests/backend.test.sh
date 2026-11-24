@@ -66,7 +66,7 @@ opts() { printf '{"root":"%s","out":"%s","here":"%s","exportPath":"%s"}' "$ROOT"
 
 # ── node builds it, wherever we are ─────────────────────────────────
 NOUT="$T/out-node"
-R="$(HOME="$H" node "$HERE/convert.js" "$(opts "$NOUT")")"
+R="$(HOME="$H" node "$HERE/build/convert.js" "$(opts "$NOUT")")"
 check "node builds the fixture" \
   "$(printf '%s' "$R" | sed -n 's/.*"sessions":\([0-9]*\).*/\1/p')" 3
 check "  with no errors" "$(printf '%s' "$R" | grep -c '"error":')" 0
@@ -83,12 +83,12 @@ check "  with the session's cost, as whole micro-dollars" \
 
 # a second run must be a no-op under node too
 check "node skips what has not changed" \
-  "$(HOME="$H" node "$HERE/convert.js" "$(opts "$NOUT")" | sed -n 's/.*"built":\([0-9]*\).*/\1/p')" 0
+  "$(HOME="$H" node "$HERE/build/convert.js" "$(opts "$NOUT")" | sed -n 's/.*"built":\([0-9]*\).*/\1/p')" 0
 
 # ── and byte for byte what osascript builds ─────────────────────────
 if command -v osascript >/dev/null 2>&1; then
   JOUT="$T/out-jxa"
-  HOME="$H" osascript -l JavaScript "$HERE/convert.js" "$(opts "$JOUT")" >/dev/null
+  HOME="$H" osascript -l JavaScript "$HERE/build/convert.js" "$(opts "$JOUT")" >/dev/null
   # Both are on this mac, whichever engine built them, so both offer the
   # macOS-only controls: node here must not hide a working delete button.
   check "osascript tells the index it is on a mac" "$(grep -c '"mac":true}' "$JOUT/index.html")" 1
@@ -111,7 +111,7 @@ else
 fi
 
 # ── the rest runs under whichever engine lib.sh picked ──────────────
-build() { HOME="$2" run_js "$HERE/convert.js" "$1"; }
+build() { HOME="$2" run_js "$HERE/build/convert.js" "$1"; }
 num() { sed -n "s/.*\"$1\":\([0-9]*\).*/\1/p"; }
 has() { [ -s "$1" ] && echo yes || echo no; }
 # The page's data, back out of its script element and through JSON.parse.

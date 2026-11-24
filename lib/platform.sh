@@ -1,7 +1,7 @@
 # Sourced, not run: what kind of machine this is, and which of its own tools
 # does each job claude-html needs done outside the browser.
 #
-#   . "$HERE/platform.sh"; ch_detect
+#   . "$HERE/lib/platform.sh"; ch_detect
 #
 # Nothing is installed and nothing is assumed. Each capability goes to the
 # best tool the machine already has, the desktop's own first, and a job with
@@ -76,8 +76,8 @@ ch_json_obj() {
 ch_js_opts() {
   _h="$1"; shift
   _lj=""
-  if [ -f "$_h/limits.sh" ]; then
-    _lj="$(bash -c 'set +eu; . "$1/platform.sh" && . "$1/limits.sh" && ch_lim_json' _ "$_h" 2>/dev/null)" || _lj=""
+  if [ -f "$_h/lib/limits.sh" ]; then
+    _lj="$(bash -c 'set +eu; . "$1/lib/platform.sh" && . "$1/lib/limits.sh" && ch_lim_json' _ "$_h" 2>/dev/null)" || _lj=""
     case "$_lj" in '{'*'}') set -- "$@" :limits "$_lj" ;; esac
   fi
   ch_json_obj root "$ROOT" out "$OUT" here "$_h" "$@"
@@ -400,7 +400,7 @@ ch_loose_out() {   # the pages folder: how many of its own files others can reac
 }
 
 # ── git ────────────────────────────────────────────────────────────
-# ch_git_ok is release.sh's: source it first.
+# ch_git_ok is version.sh's: source it first.
 # Archive folders git would take into a commit: under a work tree, and not
 # ignored. One per line. Asks nothing of a git that cannot run quietly.
 ch_archives_tracked() {   # project folders…
@@ -430,7 +430,7 @@ ch_redact_off() {
 }
 ch_redact_sig() {
   if ch_redact_off; then printf off; return 0; fi
-  printf 'on:%s:%s' "$(ch_md5 "$1/redact.js")" "$(ch_md5 "${CLAUDE_HTML_REDACT_FILE:-$HOME/.claude/claude-html.redact}")"
+  printf 'on:%s:%s' "$(ch_md5 "$1/build/redact.js")" "$(ch_md5 "${CLAUDE_HTML_REDACT_FILE:-$HOME/.claude/claude-html.redact}")"
 }
 
 # ── the guard's question ──────────────────────────────────────────────
@@ -563,7 +563,7 @@ Closes after $(ch_span "$CH_GUARD_LIMIT") — counts as Cancel."
   case "$CH_DIALOG" in
     # A window of osascript's own, whichever engine does the data work:
     # AppleScript's dialogs have no radio buttons. It counts down itself.
-    osascript) set -- osascript -l JavaScript "$CH_HERE/dialog.js" --limit "$CH_GUARD_LIMIT"
+    osascript) set -- osascript -l JavaScript "$CH_HERE/mac/dialog.js" --limit "$CH_GUARD_LIMIT"
                if [ -n "$_dd" ] && [ -f "$_dd/found" ]; then set -- "$@" --box Found: "$_dd/found"; fi
                if [ -n "$_dd" ] && [ -f "$_dd/command" ]; then set -- "$@" --pre Command: "$_dd/command"; fi
                set -- "$@" "$_kind" "$_proj" "$_found"
@@ -695,7 +695,7 @@ Closes after $(ch_span "$CH_GUARD_LIMIT") — counts as Cancel."
                  _bf="$(ch_box_file "$_box")" || _bf=""
                  [ -z "$_bf" ] || set -- --box "$_k2" "$_bf" "$@"
                fi
-               set -- osascript -l JavaScript "$CH_HERE/dialog.js" "$@" ;;
+               set -- osascript -l JavaScript "$CH_HERE/mac/dialog.js" "$@" ;;
     zenity) set -- zenity --list --radiolist --title=claude-html --no-markup --text="$_text" \
               --ok-label=OK --column=" " --column=Choice \
               TRUE "$_c1" FALSE "$_c2" FALSE "$_c3" FALSE "$_c4" ;;
@@ -749,7 +749,7 @@ Closes after $(ch_span "$CH_GUARD_LIMIT") — nothing changed."
                  _bf="$(ch_box_file "$_box")" || _bf=""
                  [ -z "$_bf" ] || set -- --box "$_bk" "$_bf" "$@"
                fi
-               set -- osascript -l JavaScript "$CH_HERE/dialog.js" "$@" ;;
+               set -- osascript -l JavaScript "$CH_HERE/mac/dialog.js" "$@" ;;
     zenity) set -- zenity --question --no-markup --default-cancel --title=claude-html \
               --ok-label="$4" --cancel-label=Cancel --text="$_text" ;;
     kdialog) set -- kdialog --title claude-html --continue-label "$4" \
@@ -845,8 +845,8 @@ ch_helper_can() {
   [ -z "${CLAUDE_HTML_NO_REGISTER:-}" ]
 }
 ch_helper_refresh() {
-  ch_helper_can && [ -x "$1/helper-build.sh" ] || return 1
-  "$1/helper-build.sh" "$1/Claude HTML.app" --register ${2:+"$2"} >/dev/null 2>&1
+  ch_helper_can && [ -x "$1/mac/helper-build.sh" ] || return 1
+  "$1/mac/helper-build.sh" "$1/Claude HTML.app" --register ${2:+"$2"} >/dev/null 2>&1
 }
 
 # ── the link handler, on Linux ─────────────────────────────────────────
@@ -908,12 +908,12 @@ ch_register_handler() {
     echo "Version=1.0"
     echo "Name=claude-html links"
     echo "Comment=Opens, resumes or deletes a conversation from the claude-html index"
-    echo "Exec=$(ch_desktop_arg "$_here/handler.sh") %u"
+    echo "Exec=$(ch_desktop_arg "$_here/linux/handler.sh") %u"
     echo "Terminal=false"
     echo "NoDisplay=true"
     echo "MimeType=x-scheme-handler/claude-html;"
   } > "$_f.tmp.$$" && mv -f "$_f.tmp.$$" "$_f" || { echo "not registered: cannot write $_f"; return 1; }
-  chmod +x "$_here/handler.sh" 2>/dev/null || true
+  chmod +x "$_here/linux/handler.sh" 2>/dev/null || true
   xdg-mime default "$CH_HANDLER_NAME" x-scheme-handler/claude-html >/dev/null 2>&1 ||
     { echo "not registered: xdg-mime refused"; return 1; }
   if ch_have update-desktop-database; then

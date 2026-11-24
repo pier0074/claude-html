@@ -114,8 +114,8 @@ to Mondays.
 ## Prices
 
 The calculated cost — shown beside what Claude Code recorded, and in its place
-where it recorded nothing, marked `calc` — comes from `prices.tsv` in the
-clone: Anthropic's API list prices, in USD per million tokens, one line per
+where it recorded nothing, marked `calc` — comes from `build/prices.tsv` in
+the clone: Anthropic's API list prices, in USD per million tokens, one line per
 model and per price period. [DETAILS.md](DETAILS.md#what-you-get) says how a
 cost is worked out from it.
 
@@ -152,7 +152,7 @@ no `--force` needed.
 
 | Setting | What it is | Default |
 | ------- | ---------- | ------- |
-| `CLAUDE_HTML_PRICES` | a price file of your own, in the same format, instead of the clone's | `prices.tsv` in the clone |
+| `CLAUDE_HTML_PRICES` | a price file of your own, in the same format, instead of the clone's | `build/prices.tsv` in the clone |
 
 Like `CLAUDE_HTML_EXPORT` it is read from the environment only, so in the
 conf it needs `export`. Your own file is not updated with the tool: copy the
@@ -285,7 +285,7 @@ passwords in URLs, after `-u`, `sshpass -p`, `mysql -p`, names in capitals,
 On a match it stops and asks. With someone at the screen, in a window,
 which for a command also shows its first line, masked:
 
-<img src="guard-dialog.png" width="440" alt="The guard's dialog: where, what was found, four choices">
+<img src="img/guard-dialog.png" width="440" alt="The guard's dialog: where, what was found, four choices">
 
 Every text in the window can be selected and copied with ⌘C. **Found ▸**
 and, for a command, **Command ▸** are disclosure arrows, closed until you
@@ -428,7 +428,7 @@ CLAUDE_HTML_LIMIT_RULES="fri 20:00 80% · sat 00:00 90%"   # or joined by commas
 The stop is gentle: only a **new prompt** waits, in the guard's own window,
 Cancel picked already:
 
-<img src="limits-stop.png" width="440" alt="The stop window: the week, the rule, four choices">
+<img src="img/limits-stop.png" width="440" alt="The stop window: the week, the rule, four choices">
 
 | Answer | What happens |
 | ------ | ------------ |

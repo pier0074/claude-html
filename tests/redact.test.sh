@@ -14,7 +14,7 @@ set -u
 . "$(dirname "$0")/lib.sh"
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
-AF="$(. "$HERE/release.sh"; printf "%s" "$CH_ARCHIVE_FORMAT")"
+AF="$(. "$HERE/lib/version.sh"; printf "%s" "$CH_ARCHIVE_FORMAT")"
 pass=0; fail=0
 check() {
   if [ "$2" = "$3" ]; then pass=$((pass + 1)); printf '  ok    %s\n' "$1"
@@ -55,7 +55,7 @@ ch() { sandbox /bin/bash "$HERE/claude-html" "$@" 2>&1 | tee -a "$LOG"; }
 # How many files under a folder hold any of the probes. Only the count.
 leaky() { grep -rlF -f "$T/probes.txt" "$@" 2>/dev/null | wc -l | tr -d ' '; }
 fingerprint() { find "$PROJ" -type f | sort | while IFS= read -r f; do printf '%s %s\n' "$f" "$(ch_md5 "$f")"; done; }
-. "$HERE/platform.sh"
+. "$HERE/lib/platform.sh"
 BEFORE="$(fingerprint)"
 cp -p "$CONV/$Q.json" "$T/q.before"
 

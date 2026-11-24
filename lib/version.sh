@@ -1,6 +1,6 @@
 # Sourced: release numbers, and the notice that a newer one is out.
 #
-#   . "$HERE/release.sh"
+#   . "$HERE/lib/version.sh"
 #
 # The Stop hook sources this after every reply, so reading what is here
 # starts no command, reads no file but the state and the conf, and never

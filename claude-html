@@ -46,8 +46,8 @@ UPD_ENV=unset
 [ -n "${CLAUDE_HTML_UPDATE_CHECK+x}" ] && UPD_ENV="set:$CLAUDE_HTML_UPDATE_CHECK"
 
 # Where install.sh was told things live, decided as the hook decides it.
-# shellcheck source=conf.sh
-. "$HERE/conf.sh"
+# shellcheck source=lib/conf.sh
+. "$HERE/lib/conf.sh"
 
 # One line of the conf, changed where it stands or added: conf.sh's.
 conf_line() { ch_conf_set "$@"; }
@@ -59,23 +59,23 @@ conf_line() { ch_conf_set "$@"; }
 case "${1:-}" in
   --limits|--limits-apply)
     set +u
-    # shellcheck source=platform.sh
-    . "$HERE/platform.sh"
-    # shellcheck source=limits.sh
-    . "$HERE/limits.sh"
-    # shellcheck source=limits-cli.sh
-    . "$HERE/limits-cli.sh"
+    # shellcheck source=lib/platform.sh
+    . "$HERE/lib/platform.sh"
+    # shellcheck source=lib/limits.sh
+    . "$HERE/lib/limits.sh"
+    # shellcheck source=lib/limits-cli.sh
+    . "$HERE/lib/limits-cli.sh"
     if [ "$1" = --limits ]; then shift; ch_lim_cli "$@"; exit $?; fi
     [ $# = 2 ] || { echo "claude-html --limits-apply <payload>" >&2; exit 2; }
     ch_lim_apply "$2"; _rc=$?
     [ "$_rc" = 10 ] || exit "$_rc"
     # The pages show what was applied: built as a save builds them, in turn.
     ch_pick_engine
-    # shellcheck source=lock.sh
-    . "$HERE/lock.sh"
+    # shellcheck source=lib/lock.sh
+    . "$HERE/lib/lock.sh"
     _nc=""; ch_lock_take 60 || _nc=":cache false"
     # shellcheck disable=SC2086
-    ch_js "$HERE/convert.js" "$(ch_js_opts "$HERE" $_nc)" >/dev/null 2>&1
+    ch_js "$HERE/build/convert.js" "$(ch_js_opts "$HERE" $_nc)" >/dev/null 2>&1
     [ -n "$_nc" ] || ch_lock_release
     ch_private_out "$OUT"
     exit 0 ;;
@@ -88,8 +88,8 @@ if [ -n "$UPDATE" ]; then
       # Off also forgets what the last check saw, so the notice goes at the
       # next build; on makes the next save look again.
       conf_line CLAUDE_HTML_UPDATE_CHECK "$UPDWORD"
-      # shellcheck source=release.sh
-      . "$HERE/release.sh"
+      # shellcheck source=lib/version.sh
+      . "$HERE/lib/version.sh"
       if ch_update_read; then
         CH_UP_CHECKED=0; [ "$UPDWORD" = off ] && CH_UP_NEWEST=""
         ch_update_write
@@ -111,7 +111,7 @@ if [ -n "$UPDATE" ]; then
   # The move rewrites this clone, and bash reads a script as it runs it, so
   # the update runs from a copy of itself made outside it.
   _tmp="$(mktemp -d "${TMPDIR:-/tmp}/claude-html-update.XXXXXX")" || exit 1
-  cp "$HERE/update.sh" "$HERE/release.sh" "$HERE/lock.sh" "$_tmp/" || { rm -rf "$_tmp"; exit 1; }
+  cp "$HERE/lib/update.sh" "$HERE/lib/version.sh" "$HERE/lib/lock.sh" "$_tmp/" || { rm -rf "$_tmp"; exit 1; }
   case "$UPDWORD" in
     status|--check) _action=status ;;
     list) _action=list ;;
@@ -127,8 +127,8 @@ fi
 # The data work - reading transcripts, building pages - is the same bytes
 # under osascript and node, and platform.sh picks which runs it, exactly as
 # for the hook. The helper app is a Mac's whichever engine that is.
-# shellcheck source=platform.sh
-. "$HERE/platform.sh"
+# shellcheck source=lib/platform.sh
+. "$HERE/lib/platform.sh"
 ch_pick_engine
 run_js() { ch_js "$@"; }
 
@@ -139,8 +139,8 @@ ch_helper_refresh "$HERE" --if-stale || true
 # may write. The saves take turns through this lock, so the command waits
 # for its turn as well; one that does not get it within a minute builds
 # without the cache, reading everything, as every build once did.
-# shellcheck source=lock.sh
-. "$HERE/lock.sh"
+# shellcheck source=lib/lock.sh
+. "$HERE/lib/lock.sh"
 NOCACHE=""
 take_lock() {
   if ch_lock_take 60; then trap 'release_lock' EXIT; return 0; fi
@@ -321,11 +321,11 @@ if [ -n "$DOCTOR" ]; then
   ch_doctor
   echo
   echo "  version   $VERSION"
-  echo "  update    $(bash "$HERE/update.sh" "$HERE" --doctor-line 2>/dev/null)"
+  echo "  update    $(bash "$HERE/lib/update.sh" "$HERE" --doctor-line 2>/dev/null)"
   echo "  pages     $OUT"
   # The archive folders it knows of, and whether git would commit any.
-  # shellcheck source=release.sh
-  . "$HERE/release.sh"
+  # shellcheck source=lib/version.sh
+  . "$HERE/lib/version.sh"
   _tracked="$( { [ -f "$HOME/.claude/claude-html.archives" ] && cat "$HOME/.claude/claude-html.archives"; echo "$ROOT"
                  for _d in "$ROOT"/*; do echo "$_d"; done; } 2>/dev/null | sort -u |
                while IFS= read -r _d; do [ -n "$_d" ] && ch_archives_tracked "$_d"; done )"
@@ -340,11 +340,11 @@ if [ -n "$DOCTOR" ]; then
   echo "  projects  $ROOT"
   # Which secrets are masked, and how many archives still hold some. Never
   # what the own list says.
-  run_js "$HERE/convert.js" "$(js_opts :redactInfo true)" 2>/dev/null ||
+  run_js "$HERE/build/convert.js" "$(js_opts :redactInfo true)" 2>/dev/null ||
     echo "  redact    could not be checked: $CH_ENGINE_WHY"
   guard_line | sed 's/^/  /'
-  # shellcheck source=limits-cli.sh
-  echo "  limits    $( set +u; . "$HERE/limits.sh" && . "$HERE/limits-cli.sh" && ch_lim_doctor 2>/dev/null)"
+  # shellcheck source=lib/limits-cli.sh
+  echo "  limits    $( set +u; . "$HERE/lib/limits.sh" && . "$HERE/lib/limits-cli.sh" && ch_lim_doctor 2>/dev/null)"
   exit 0
 fi
 
@@ -354,7 +354,7 @@ fi
 # them. It takes its turn with the saves, and then builds, so the pages
 # say the archives are clean.
 if [ -n "$REDACTCHECK" ]; then
-  run_js "$HERE/convert.js" "$(js_opts :redactCheck true)" || exit 1
+  run_js "$HERE/build/convert.js" "$(js_opts :redactCheck true)" || exit 1
   exit 0
 fi
 if [ -n "$REDACTARCHIVES" ]; then
@@ -362,10 +362,10 @@ if [ -n "$REDACTARCHIVES" ]; then
     echo "a save is still running; try again in a moment — nothing was rewritten" >&2
     exit 1
   fi
-  RESULT="$(run_js "$HERE/convert.js" "$(js_opts :redactArchives true)")" || {
+  RESULT="$(run_js "$HERE/build/convert.js" "$(js_opts :redactArchives true)")" || {
     echo "$RESULT" >&2; exit 1; }
   printf '%s\n' "$RESULT"
-  run_js "$HERE/convert.js" "$(js_opts)" >/dev/null 2>&1 || true
+  run_js "$HERE/build/convert.js" "$(js_opts)" >/dev/null 2>&1 || true
   release_lock
   case "$RESULT" in *"could not rewrite"*) exit 1 ;; esac
   exit 0
@@ -380,7 +380,7 @@ if [ -n "$RESUME$RESUMEPLAN" ]; then
   full_id
   actions_setup
   EXT=.sh; [ "$ACT_MAC" = true ] && EXT=.command
-  RESULT="$(act_js "$HERE/resume.js" "$(ch_json_obj id "$ONLY" out "$OUT" ext "$EXT")" 2>&1)" || {
+  RESULT="$(act_js "$HERE/actions/resume.js" "$(ch_json_obj id "$ONLY" out "$OUT" ext "$EXT")" 2>&1)" || {
     echo "$RESULT" >&2; exit 1; }
   LAUNCHER="$(printf '%s\n' "$RESULT" | sed -n 's/^LAUNCHER	//p')"
   COMMAND="$(printf '%s\n' "$RESULT" | sed -n 's/^COMMAND	//p')"
@@ -438,8 +438,8 @@ exec "$s" -i'
     echo "an update window was opened less than a minute ago; nothing was opened" >&2; exit 1
   fi
   TO="the newest release"
-  # shellcheck source=release.sh
-  if . "$HERE/release.sh" 2>/dev/null && ch_update_read && [ "$CH_UP_HERE" = "$HERE" ] &&
+  # shellcheck source=lib/version.sh
+  if . "$HERE/lib/version.sh" 2>/dev/null && ch_update_read && [ "$CH_UP_HERE" = "$HERE" ] &&
      [ -n "$CH_UP_NEWEST" ]; then TO="$CH_UP_NEWEST"; fi
   mkdir -p "$(dirname "$LAUNCHER")" &&
   printf '#!/bin/sh\n# Written by claude-html for the run button on the index: asks, the update,\n# then your shell, so what it said stays on the screen.\nprintf %s\nread -r answer\ncase "$answer" in y|Y|yes|YES) %s --update ;; *) echo "nothing was changed" ;; esac\necho\n%s\n' \
@@ -459,7 +459,7 @@ if [ -n "$OPEN$OPENPLAN" ]; then
   MODE=apply; [ -n "$OPENPLAN" ] && MODE=plan
   # Nothing here can open anything (a server): it says where, and stops.
   if [ "$ACT_MAC" != true ] && [ -z "$CH_OPENER" ]; then MODE=plan; fi
-  RESULT="$(act_js "$HERE/open.js" \
+  RESULT="$(act_js "$HERE/actions/open.js" \
     "$(ch_json_obj id "$ONLY" mode "$MODE" root "$ROOT" out "$OUT" opener "$CH_OPENER")" 2>&1)" || {
     echo "$RESULT" >&2; exit 1; }
   printf '%s\n' "$RESULT" | awk -F'\t' '{ print $1 ": " $2 }'
@@ -480,7 +480,7 @@ if [ -n "$DELETE$PLAN" ]; then
       ch_json_obj id "$ONLY" mode "$1" root "$ROOT" out "$OUT" trashMethod "$CH_TRASH"
     fi
   }
-  PLANTXT="$(act_js "$HERE/delete.js" "$(opts plan)" 2>&1)" || {
+  PLANTXT="$(act_js "$HERE/actions/delete.js" "$(opts plan)" 2>&1)" || {
     echo "$PLANTXT" >&2; exit 1; }
   if [ -n "$PLAN" ]; then printf '%s\n' "$PLANTXT"; exit 0; fi
 
@@ -508,7 +508,7 @@ if [ -n "$DELETE$PLAN" ]; then
   # Whatever happens next, the index is rebuilt: anything that did move must
   # leave it, even if a later step failed.
   STATUS=0
-  RESULT="$(act_js "$HERE/delete.js" "$(opts apply)" 2>&1)" || {
+  RESULT="$(act_js "$HERE/actions/delete.js" "$(opts apply)" 2>&1)" || {
     STATUS=1; echo "$RESULT" >&2; }
   printf '%s\n' "$RESULT" | awk -F'\t' '
     $1 == "DONE" && $4 == "1" { print "hidden from the index" }
@@ -519,7 +519,7 @@ if [ -n "$DELETE$PLAN" ]; then
   printf '%s\n' "$RESULT" | grep -q '^FAILED' && STATUS=1
   take_lock || true
   # shellcheck disable=SC2086
-  run_js "$HERE/convert.js" "$(js_opts $NOCACHE)" >/dev/null 2>&1 || true
+  run_js "$HERE/build/convert.js" "$(js_opts $NOCACHE)" >/dev/null 2>&1 || true
   exit "$STATUS"
 fi
 
@@ -527,7 +527,7 @@ fi
 # than sixty-nine times.
 take_lock || echo "a save is still running; building without the cache" >&2
 # shellcheck disable=SC2086
-REPORT="$(run_js "$HERE/convert.js" "$(js_opts :force "$FORCE" only "$ONLY" $NOCACHE)" 2>&1)" || {
+REPORT="$(run_js "$HERE/build/convert.js" "$(js_opts :force "$FORCE" only "$ONLY" $NOCACHE)" 2>&1)" || {
   echo "build failed: $REPORT" >&2
   exit 1
 }
@@ -564,8 +564,8 @@ summary() {
 summary
 
 # A newer release, as the last daily check saw it: one line, on stderr.
-# shellcheck source=release.sh
-if [ -f "$HERE/release.sh" ] && . "$HERE/release.sh" && ch_update_notice "$HERE" "$VERSION"; then
+# shellcheck source=lib/version.sh
+if [ -f "$HERE/lib/version.sh" ] && . "$HERE/lib/version.sh" && ch_update_notice "$HERE" "$VERSION"; then
   echo "claude-html $CH_UP_NOTICE is out · update with claude-html --update" >&2
 fi
 

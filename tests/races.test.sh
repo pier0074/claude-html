@@ -52,7 +52,7 @@ mkdir -p "$T/a/projects/-x-app" "$T/a/out" "$T/a/home"
 J="$T/a/projects/-x-app/aaaaaaaa-0000-0000-0000-000000000001.jsonl"
 PAGE="$T/a/out/sessions/aaaaaaaa-0000-0000-0000-000000000001.html"
 C="{\"root\":\"$T/a/none\",\"out\":\"$T/a/out\",\"projects\":\"$T/a/projects\",\"here\":\"$HERE\",\"exportPath\":\"/nonexistent\"}"
-convert() { HOME="$T/a/home" run_js "$HERE/convert.js" "$C"; }
+convert() { HOME="$T/a/home" run_js "$HERE/build/convert.js" "$C"; }
 
 printf '%s\n' "$USER_LINE" > "$J"; setm "$J" 1789200000.2
 convert >/dev/null
@@ -152,7 +152,7 @@ check "a reply's save that gives way says so, and who holds the lock" \
 rm -rf "$HC/.claude/.claude-html.lock"
 # Two waiters that both found the lock left over: the second, finding it
 # is no longer the one it judged, leaves the new one alone.
-( HOME="$HC"; . "$HERE/lock.sh"
+( HOME="$HC"; . "$HERE/lib/lock.sh"
   mkdir "$CH_LOCK"; printf '%s %s\n' $$ "$(ch_proc_start $$)" > "$CH_LOCK/owner"
   ch_lock_reclaim "999999 Thu Jan  1 00:00:00 1970" )
 check "a left-over lock is taken away only while it is the one judged so" \

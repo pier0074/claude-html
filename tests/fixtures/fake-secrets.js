@@ -4,7 +4,7 @@
 // and the random parts are made by a fixed sequence, so every run has the
 // same ones.
 //
-//   var F = require("./fake-secrets");
+//   var F = require("./fixtures/fake-secrets");
 //   F.cases     [{ rule, text, secret }]: text holds secret, in context
 //   F.probes()  what must never be found again: each secret, and the first
 //               ten characters of its random part, so a cut-off half shows

@@ -40,7 +40,7 @@ A="$H/.claude/projects/$D/$P/subagents/agent-abc123.jsonl"
 printf '{"agentType":"general-purpose","description":"task","toolUseId":"t1","model":"opus"}\n' \
   > "$H/.claude/projects/$D/$P/subagents/agent-abc123.meta.json"
 
-build() { HOME="$H" run_js "$HERE/convert.js" \
+build() { HOME="$H" run_js "$HERE/build/convert.js" \
   "{\"root\":\"$ROOT\",\"out\":\"$OUT\",\"here\":\"$HERE\",\"exportPath\":\"/nonexistent\"}"; }
 # A JavaScript expression over d, the JSON on stdin (or, with a file and an
 # id, the JSON a page embeds there), printed as a list or a word would be
@@ -114,9 +114,9 @@ check "  and the dashboard returns from the manifest alone" \
 sed -n "/^cat > \"\$ARCHIVER\" <<'ARCHIVEREOF'\$/,/^ARCHIVEREOF\$/p" "$HERE/save-conversation.sh" |
   sed '1d;$d' > "$T/archive.js"
 # The save appends the redactor and the parse to it, and so does this, and
-# hands it the archive format release.sh names.
-cat "$HERE/redact.js" "$HERE/parse.js" >> "$T/archive.js"
-AF="$(. "$HERE/release.sh"; printf '%s' "$CH_ARCHIVE_FORMAT")"
+# hands it the archive format lib/version.sh names.
+cat "$HERE/build/redact.js" "$HERE/build/parse.js" >> "$T/archive.js"
+AF="$(. "$HERE/lib/version.sh"; printf '%s' "$CH_ARCHIVE_FORMAT")"
 printf '{"type":"assistant","cwd":"%s","timestamp":"2026-10-07T09:00:01Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"SECRET REASONING"}]}}\n' "$APP" >> "$J"
 build >/dev/null
 BEFORE="$(usage_json)"
@@ -205,7 +205,7 @@ node -e 'var fs=require("fs"),p=process.argv[1],m=JSON.parse(fs.readFileSync(p,"
       m[k].usage[h][x].length = 5; }); }); }); fs.writeFileSync(p,JSON.stringify(m))' "$OUT/.manifest.json"
 build >/dev/null
 check "  and across the upgrade that added cost, from a version 3 manifest" "$(usage_json)" "$BEFORE"
-R="$(HOME="$H" run_js "$HERE/convert.js" \
+R="$(HOME="$H" run_js "$HERE/build/convert.js" \
   "{\"root\":\"$ROOT\",\"out\":\"$OUT\",\"here\":\"$HERE\",\"exportPath\":\"/nonexistent\",\"force\":true}")"
 check "  through a forced rebuild as well" \
   "$(printf '%s' "$R" | sed -n 's/.*"built":\([0-9]*\).*"errors":\(\[\]\).*/\1 \2/p') $(usage_json)" "1 [] $BEFORE"
@@ -262,7 +262,7 @@ T1=1791450000000   # 2026-10-08T09:00:00Z, a new counter
   cstate "$S3" $T0 2 0
 } > "$CP/$S3.jsonl"
 COPT="{\"root\":\"$CR\",\"out\":\"$CO\",\"here\":\"$HERE\",\"exportPath\":\"/nonexistent\"}"
-cbuild() { HOME="$CH_" run_js "$HERE/convert.js" "$COPT"; }
+cbuild() { HOME="$CH_" run_js "$HERE/build/convert.js" "$COPT"; }
 cdata() {   # page, expression over d
   node -e 'var h=require("fs").readFileSync(process.argv[1],"utf8");
     var m=/id="(?:session|index|usage)-data">([\s\S]*?)<\/script>/.exec(h);

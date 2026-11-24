@@ -5,6 +5,19 @@ fixes, a minor adds without breaking, a major needs something from you
 (usually `./install.sh` again). To update: `claude-html --update`; before
 3.1.0, `git checkout main && git pull && ./install.sh`.
 
+## 3.5.0 — 2026-11-24
+
+- **Tidier clone.** The files now live in folders: `lib/` (the shell
+  libraries), `build/` (what builds the pages, and the price file),
+  `actions/` (the guard, open, resume, delete, the settings writer), `mac/`
+  and `linux/`. The command and the three scripts Claude Code calls
+  (`save-conversation.sh`, `guard.sh`, `statusline.sh`) stay at the top, so
+  your hooks keep working through the update, and back if you return to an
+  older release. Nothing to do: `claude-html --update` moves you.
+- `release.sh` is now `lib/version.sh`; the images are in `docs/img/`.
+- The changelog shown before an update compares release numbers with the
+  same code as the update itself.
+
 ## 3.4.0 — 2026-11-24
 
 - **Windows you can read and copy.** Every text in the guard's window, the

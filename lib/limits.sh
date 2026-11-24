@@ -1,6 +1,6 @@
 # Sourced, not run: plan limits, the API budget and the stop rules.
 #
-#   . "$HERE/limits.sh"
+#   . "$HERE/lib/limits.sh"
 #
 # Claude Code hands its status-line command the plan's usage — for Pro,
 # Max and Ultra subscribers rate_limits.five_hour and .seven_day, each a
@@ -764,7 +764,7 @@ claude-html --limits budget off   turns the budget off"
   mkdir -p "$dir" 2>/dev/null
   printf '%s %s %s\n' "$CH_NOW" "$kind" "${prule// /_}" > "$pend"
   ans=""
-  if ! ch_is_off "${CLAUDE_HTML_GUARD_DIALOG:-on}" && . "$here/platform.sh" 2>/dev/null; then
+  if ! ch_is_off "${CLAUDE_HTML_GUARD_DIALOG:-on}" && . "$here/lib/platform.sh" 2>/dev/null; then
     CH_HERE="$here"
     if ch_detect 2>/dev/null && ch_can_ask; then
       ans="$(ch_choose_limit "$head" "$k1" "$v1" "$k2" "$v2" "$c3" "$c4" "$box" 2>/dev/null)" || ans=""

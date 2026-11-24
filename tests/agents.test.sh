@@ -37,7 +37,7 @@ printf '{"type":"assistant","cwd":"%s","isSidechain":true,"timestamp":"2026-10-0
 printf '{"agentType":"general-purpose","description":"check the backend","toolUseId":"toolu_TEST","model":"opus"}\n' \
   > "$H/.claude/projects/$D/$P/subagents/agent-abc123.meta.json"
 
-build() { HOME="$H" run_js "$HERE/convert.js" \
+build() { HOME="$H" run_js "$HERE/build/convert.js" \
   "{\"root\":\"$ROOT\",\"out\":\"$OUT\",\"here\":\"$HERE\",\"exportPath\":\"/nonexistent\",\"actions\":true}"; }
 field() { node -e 'var m=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
   var v=(m[process.argv[2]]||{})[process.argv[3]]; console.log(v===undefined?"":v)' "$OUT/.manifest.json" "$P" "$1"; }

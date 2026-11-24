@@ -1,6 +1,6 @@
 # Sourced, not run: where the pages go and which projects are watched.
 #
-#   HERE=<the clone>; . "$HERE/conf.sh"    sets CONF, ROOT and OUT
+#   HERE=<the clone>; . "$HERE/lib/conf.sh"    sets CONF, ROOT and OUT
 #
 # One rule for every script that needs these, because the hook and the
 # command once answered differently and built two sets of pages: a variable

@@ -335,11 +335,11 @@ function run(argv) {
   var REDACT_LIST = opt.redactList || env("CLAUDE_HTML_REDACT_FILE") || HOME + "/.claude/claude-html.redact";
   // The md5s before the texts: if either changes in between, the signature
   // is the older one, and the next build makes it all again.
-  var RSIG = REDACT_ON ? "on:" + digest(HERE + "/redact.js") + ":" + digest(REDACT_LIST) : "off";
-  var REDACT_SRC = read(HERE + "/redact.js");
+  var RSIG = REDACT_ON ? "on:" + digest(HERE + "/build/redact.js") + ":" + digest(REDACT_LIST) : "off";
+  var REDACT_SRC = read(HERE + "/build/redact.js");
   if (REDACT_SRC === null) {
     // Without it nothing could be redacted, so nothing is built.
-    return JSON.stringify({ error: "redact.js is missing from " + HERE + ", so nothing was built" });
+    return JSON.stringify({ error: "redact.js is missing from " + HERE + "/build, so nothing was built" });
   }
   var REDACTOR = new Function(REDACT_SRC + "\nreturn claudeHtmlRedactor;")();
   var OWN_LIST = REDACT_ON ? read(REDACT_LIST) || "" : "";
@@ -354,9 +354,9 @@ function run(argv) {
   // and the harness's tags taken out. The archiver carries the same file,
   // so a page made from an archive is the page made from its transcript.
   // Handed the redactor by asking, since the commands below swap it.
-  var PARSE_SRC = read(HERE + "/parse.js");
+  var PARSE_SRC = read(HERE + "/build/parse.js");
   if (PARSE_SRC === null) {
-    return JSON.stringify({ error: "parse.js is missing from " + HERE + ", so nothing was built" });
+    return JSON.stringify({ error: "parse.js is missing from " + HERE + "/build, so nothing was built" });
   }
   var P = new Function(PARSE_SRC + "\nreturn claudeHtmlParse;")()(function () { return RED; });
   var cap = P.cap, capRed = P.capRed, hashText = P.hashText;
@@ -367,13 +367,13 @@ function run(argv) {
   // worked out beside — never into — what Claude Code recorded. The page
   // carries the same file, so the dashboard prices by the same lines.
   // Without prices.js nothing is calculated, and the pages say so.
-  var PRICES_SRC = read(HERE + "/prices.js") || "";
-  var PRICES_PATH = opt.prices || env("CLAUDE_HTML_PRICES") || HERE + "/prices.tsv";
+  var PRICES_SRC = read(HERE + "/build/prices.js") || "";
+  var PRICES_PATH = opt.prices || env("CLAUDE_HTML_PRICES") || HERE + "/build/prices.tsv";
   var PRICES_TEXT = PRICES_SRC ? read(PRICES_PATH) || "" : "";
   var PR = PRICES_SRC ? new Function(PRICES_SRC + "\nreturn claudeHtmlPrices;")()(PRICES_TEXT) : null;
   // The first archive format written through parse.js: from it on, an
   // archive's messages are the page's. (The format a release writes is
-  // CH_ARCHIVE_FORMAT, in release.sh.)
+  // CH_ARCHIVE_FORMAT, in lib/version.sh.)
   var PARSED_FORMAT = 5;
   // The first that keeps the cache write's split (5-minute, 1-hour).
   var SPLIT_FORMAT = 6;
@@ -1123,7 +1123,7 @@ function run(argv) {
   var LIMITS = opt.limits && typeof opt.limits === "object" ? opt.limits : null;
   var LIMLIB = null;
   if (LIMITS) {
-    try { LIMLIB = new Function((read(HERE + "/limits.js") || "") + "\nreturn claudeHtmlLimits();")(); }
+    try { LIMLIB = new Function((read(HERE + "/build/limits.js") || "") + "\nreturn claudeHtmlLimits();")(); }
     catch (e) { LIMLIB = null; }
   }
   function limitsSpend(sessions) {
@@ -1140,7 +1140,7 @@ function run(argv) {
 
   // A newer release, as the daily check last saw it for this very clone:
   // read from the state file it keeps, so the page itself never asks
-  // anything of the network. release.sh decides the same way for the
+  // anything of the network. lib/version.sh decides the same way for the
   // terminal and for Claude Code.
   function isVer(v) { return /^\d+\.\d+\.\d+$/.test(v || ""); }
   function verGt(a, b) {

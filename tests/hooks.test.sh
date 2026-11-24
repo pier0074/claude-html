@@ -11,7 +11,7 @@ set -u
 . "$(dirname "$0")/lib.sh"
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
-AF="$(. "$HERE/release.sh"; printf "%s" "$CH_ARCHIVE_FORMAT")"
+AF="$(. "$HERE/lib/version.sh"; printf "%s" "$CH_ARCHIVE_FORMAT")"
 pass=0; fail=0
 check() {
   if [ "$2" = "$3" ]; then pass=$((pass + 1)); printf '  ok    %s\n' "$1"
@@ -117,7 +117,7 @@ printf '{"session_id":"%s","transcript_path":"%s","cwd":"%s","hook_event_name":"
   env HOME="$T/home" /bin/bash -c "cd '$NAPP' && /bin/bash '$HERE/save-conversation.sh' --try" >/dev/null 2>&1
 check "the hook puts a nested folder it archived into on the list" "$(grep -cxF "$NAPP" "$LIST")" 1
 rm -f "$NJ"; rm -rf "$ROOT/pages"
-HOME="$T/home" run_js "$HERE/convert.js" \
+HOME="$T/home" run_js "$HERE/build/convert.js" \
   "{\"root\":\"$ROOT\",\"out\":\"$ROOT/pages\",\"here\":\"$HERE\",\"exportPath\":\"/nonexistent\"}" >/dev/null
 check "  and with its transcript and the pages gone, the build still finds it" \
   "$(exists "$ROOT/pages/sessions/$NID.html")" yes
@@ -218,15 +218,15 @@ check "  and of two archives, the one in the transcript's folder names the proje
 # through it failed there, detached, so nobody saw. The scripts start
 # through env, and relaunch with the bash that runs them.
 check "no script starts with #!/bin/bash, nor runs one through it" \
-  "$(grep -l '^#!/bin/bash' "$HERE"/*.sh "$HERE/claude-html" | wc -l | tr -d ' ') $(grep -cE '(^|[;&|(]|nohup)[[:space:]]*/bin/bash[[:space:]]' "$HERE/save-conversation.sh")" "0 0"
+  "$(grep -l '^#!/bin/bash' "$HERE"/*.sh "$HERE"/lib/*.sh "$HERE"/mac/*.sh "$HERE"/linux/*.sh "$HERE/claude-html" | wc -l | tr -d ' ') $(grep -cE '(^|[;&|(]|nohup)[[:space:]]*/bin/bash[[:space:]]' "$HERE/save-conversation.sh")" "0 0"
 
 # ── the helper app: a Mac's only ────────────────────────────────────
 # The save and the command keep the helper app in step on a Mac; elsewhere
 # there is none to build, and the build script is never run. A stand-in
 # for it, in a copy of the clone, says when it is.
 CL="$T/clone"; mkdir -p "$CL"
-for f in "$HERE"/*.sh "$HERE"/*.js "$HERE/claude-html" "$HERE/VERSION" "$HERE/viewer"; do cp -R "$f" "$CL/"; done
-printf '#!/bin/sh\necho "$*" >> "%s/helper-calls"\n' "$T" > "$CL/helper-build.sh"; chmod +x "$CL/helper-build.sh"
+for f in "$HERE"/*.sh "$HERE/claude-html" "$HERE/VERSION" "$HERE/lib" "$HERE/build" "$HERE/actions" "$HERE/mac" "$HERE/linux" "$HERE/viewer"; do cp -R "$f" "$CL/"; done
+printf '#!/bin/sh\necho "$*" >> "%s/helper-calls"\n' "$T" > "$CL/mac/helper-build.sh"; chmod +x "$CL/mac/helper-build.sh"
 hsave() { env -u CLAUDE_HTML_NO_REGISTER HOME="$T/home" "$@" /bin/bash -c "cd '$APP' && bash '$CL/save-conversation.sh' --try" </dev/null >/dev/null 2>&1
           env -u CLAUDE_HTML_NO_REGISTER HOME="$T/home" "$@" bash "$CL/claude-html" "$ID" >/dev/null 2>&1; }
 for _ in $(seq 1 1200); do [ -d "$T/home/.claude/.claude-html.lock" ] || break; sleep 0.1; done
@@ -242,7 +242,7 @@ GONE_ID=ffffffff-0000-0000-0000-00000000dead
 mkdir -p "$ROOT/pages/.archive-errors"
 printf '{"id":"%s","source":"/x","error":"archiving failed: old","kind":"archive"}\n' "$GONE_ID" > "$ROOT/pages/.archive-errors/$GONE_ID.json"
 printf '{"id":"%s","source":"/x","error":"archiving failed: now","kind":"archive"}\n' "$ID" > "$ROOT/pages/.archive-errors/$ID.json"
-env HOME="$T/home" bash -c '. "$0/conf.sh"; . "$0/platform.sh"; ch_pick_engine; ch_js "$0/convert.js" "$(ch_js_opts "$0")"' "$HERE" >/dev/null 2>&1
+env HOME="$T/home" bash -c '. "$0/lib/conf.sh"; . "$0/lib/platform.sh"; ch_pick_engine; ch_js "$0/build/convert.js" "$(ch_js_opts "$0")"' "$HERE" >/dev/null 2>&1
 check "an archive failure of a session no longer there is cleared by the build, one still there kept" \
   "$(exists "$ROOT/pages/.archive-errors/$GONE_ID.json") $(exists "$ROOT/pages/.archive-errors/$ID.json")" "no yes"
 rm -f "$ROOT/pages/.archive-errors/$ID.json"

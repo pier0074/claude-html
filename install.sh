@@ -8,8 +8,8 @@ umask 077
 # with osascript there; node elsewhere. The JavaScript is the same under both.
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # What kind of machine this is, and which of its own tools it has.
-# shellcheck source=platform.sh
-. "$HERE/platform.sh"
+# shellcheck source=lib/platform.sh
+. "$HERE/lib/platform.sh"
 ch_detect
 ch_pick_engine
 if [ -z "${CLAUDE_HTML_FORCE_NODE:-}" ] && command -v osascript >/dev/null 2>&1; then
@@ -101,7 +101,7 @@ if [ "$UNINSTALL" = 1 ]; then
   if [ "$CH_OS" = linux ]; then
     GONE="$(ch_unregister_handler)" && say "$GONE" || true
   fi
-  RESULT="$(run_js "$HERE/settings-hooks.js" "$SETTINGS" "$HERE" remove 2>/dev/null || true)"
+  RESULT="$(run_js "$HERE/actions/settings-hooks.js" "$SETTINGS" "$HERE" remove 2>/dev/null || true)"
   case "$RESULT" in
     unparseable) say "settings.json is not valid JSON — left alone" ;;
     removed*)    _sl=""; [ "${RESULT#*;}" != "$RESULT" ] && _sl=";${RESULT#*;}"
@@ -136,9 +136,9 @@ echo; echo "claude-html"; echo
 # adds only what is missing, and changes ROOT or OUT only when told to.
 # conf.sh's helpers, run in a subshell: sourcing it here would also set
 # ROOT and OUT from the conf, over what was asked for.
-conf_value() { _v="$1"; ( . "$HERE/conf.sh" >/dev/null 2>&1; ch_conf_value "$_v" ); }
+conf_value() { _v="$1"; ( . "$HERE/lib/conf.sh" >/dev/null 2>&1; ch_conf_value "$_v" ); }
 conf_has() { grep -Eq "^[[:space:]]*(export[[:space:]]+)?$1=" "$CONF"; }
-conf_set() { _k="$1" _v="$2"; ( . "$HERE/conf.sh" >/dev/null 2>&1; ch_conf_set "$_k" "$_v" ); }
+conf_set() { _k="$1" _v="$2"; ( . "$HERE/lib/conf.sh" >/dev/null 2>&1; ch_conf_set "$_k" "$_v" ); }
 conf_add() {
   # An editor that saves without a final newline would otherwise have the new
   # line glued onto the user's last one, spoiling both.
@@ -158,8 +158,8 @@ WEEK_NOTE='
 # hook or the command happens to run, and every project would get pages of
 # its own.
 # ch_abs_path is conf.sh's, read in a subshell, where what it sets is lost.
-# shellcheck source=conf.sh
-abs() { _a="$1"; ( . "$HERE/conf.sh" >/dev/null 2>&1; ch_abs_path "$_a" ); }
+# shellcheck source=lib/conf.sh
+abs() { _a="$1"; ( . "$HERE/lib/conf.sh" >/dev/null 2>&1; ch_abs_path "$_a" ); }
 if [ -n "$OUT" ]; then OUT="$(abs "$OUT")"; fi
 if [ -n "$ROOT" ]; then ROOT="$(abs "$ROOT")"; fi
 mkdir -p "$(dirname "$CONF")"
@@ -189,8 +189,8 @@ fi
 # What the command and the hook will now use, by the rule they both follow,
 # so this run builds the very pages they will.
 FROM_ENV="${CLAUDE_HTML_OUT:-}${CLAUDE_HTML_ROOT:-}"
-# shellcheck source=conf.sh
-. "$HERE/conf.sh"
+# shellcheck source=lib/conf.sh
+. "$HERE/lib/conf.sh"
 mkdir -p "$OUT"
 echo
 say "pages:    $OUT"
@@ -198,7 +198,7 @@ say "projects: $ROOT"
 [ -z "$FROM_ENV" ] || say "          (from your environment, which wins over $CONF)"
 
 # ── 2. the command ──────────────────────────────────────────────────
-chmod +x "$HERE/claude-html" "$HERE"/*.sh 2>/dev/null || true
+chmod +x "$HERE/claude-html" "$HERE"/*.sh "$HERE"/lib/*.sh "$HERE"/mac/*.sh "$HERE"/linux/*.sh 2>/dev/null || true
 
 # The command is put on PATH where there is none, or one that leads here
 # or nowhere. One that leads to another install, or a file that is not a
@@ -241,7 +241,7 @@ if [ -z "$NOGUARD" ]; then
 fi
 # || true: a failure here must not abandon the install half-done.
 HOOKED=1
-RESULT="$(run_js "$HERE/settings-hooks.js" "$SETTINGS" "$HERE" add $NOGUARD 2>/dev/null || true)"
+RESULT="$(run_js "$HERE/actions/settings-hooks.js" "$SETTINGS" "$HERE" add $NOGUARD 2>/dev/null || true)"
 case "$RESULT" in
   unparseable)
     HOOKED=0
@@ -300,7 +300,7 @@ say "engine:   $CH_ENGINE${CH_NODE:+ ($CH_NODE)}"
 echo
 # Without the build cache: a save may be building beside this one, and only
 # the saves and the command, which take turns, may write it.
-REPORT="$(ch_js "$HERE/convert.js" "$(ch_js_opts "$(cd -P "$HERE" && pwd)" :cache false)" 2>&1 || true)"
+REPORT="$(ch_js "$HERE/build/convert.js" "$(ch_js_opts "$(cd -P "$HERE" && pwd)" :cache false)" 2>&1 || true)"
 ch_private_out "$OUT"
 case "$REPORT" in
   *'"sessions"'*)

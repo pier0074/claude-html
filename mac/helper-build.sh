@@ -11,6 +11,8 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# The clone this folder is in: the command on PATH leads there.
+CLONE="$(cd "$HERE/.." && pwd -P)"
 APP="$1"; shift
 REGISTER=0; IFSTALE=0
 for a in "$@"; do
@@ -65,7 +67,7 @@ esac
 for link in "$HOME/.local/bin/claude-html" /usr/local/bin/claude-html; do
   [ -L "$link" ] || continue
   target="$(cd "$(dirname "$(readlink "$link")")" 2>/dev/null && pwd -P)"
-  [ -n "$target" ] && [ "$target" != "$(cd "$HERE" && pwd -P)" ] && REGISTER=0
+  [ -n "$target" ] && [ "$target" != "$CLONE" ] && REGISTER=0
   break
 done
 

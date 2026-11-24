@@ -18,7 +18,7 @@ check() {
 T="$(mktemp -d /tmp/chredact-guard.XXXXXX)"; T="$(cd "$T" && pwd -P)"
 trap 'rm -rf "$T"' EXIT
 node "$HERE/tests/guard.test.js" fixture "$T"
-. "$HERE/platform.sh"
+. "$HERE/lib/platform.sh"
 H="$T/home"; mkdir -p "$H/.claude" "$T/bin"
 LOG="$T/log"; : > "$LOG"
 LIST="$H/.claude/claude-html.redact"; CONFF="$H/.claude/claude-html.conf"; STATE="$H/.claude/.claude-html-guard/sess-1"
@@ -137,12 +137,13 @@ for ENG in $ENGINES; do
 
   # ── it fails open, quietly ─────────────────────────────────────────
   reset
-  mkdir -p "$T/broken"; cp "$HERE"/guard.sh "$HERE"/guard.js "$HERE"/conf.sh "$HERE"/platform.sh "$T/broken/"
-  printf 'syntax error (' > "$T/broken/redact.js"
+  mkdir -p "$T/broken/lib" "$T/broken/actions" "$T/broken/build"; cp "$HERE"/guard.sh "$T/broken/"
+  cp "$HERE"/lib/conf.sh "$HERE"/lib/platform.sh "$T/broken/lib/"; cp "$HERE"/actions/guard.js "$T/broken/actions/"
+  printf 'syntax error (' > "$T/broken/build/redact.js"
   R="$(env HOME="$H" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_REDACT_FILE="$LIST" CLAUDE_HTML_ENGINE="$ENG" \
        CLAUDE_HTML_GUARD_DIALOG=off /bin/bash "$T/broken/guard.sh" prompt < "$T/note.secret" 2>&1; echo "exit $?")"
   check "$ENG: a broken redact.js lets the prompt through, saying nothing" "$R" "exit 0"
-  rm -f "$T/broken/redact.js"
+  rm -f "$T/broken/build/redact.js"
   R="$(env HOME="$H" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_ENGINE="$ENG" CLAUDE_HTML_GUARD_DIALOG=off \
        /bin/bash "$T/broken/guard.sh" prompt < "$T/note.secret" 2>&1; echo "exit $?")"
   check "$ENG: so does a missing one" "$R" "exit 0"
@@ -172,11 +173,11 @@ TEXTB="Claude's command has been interrupted${NL}Sensitive information detected$
 CH4="'Cancel — do not send' 'FALSE' 'Allow once — it is sensitive, send it this time only' 'FALSE' 'Safe — it is not sensitive, send it and never ask again' 'FALSE' 'Stop — turn this check off'"
 CH4B="'Cancel — do not run' 'FALSE' 'Allow once — it is sensitive, run it this time only' 'FALSE' 'Safe — it is not sensitive, run it and never ask again' 'FALSE' 'Stop — turn this check off'"
 check "macOS: a window of osascript's own, told the kind and the project only, and its time limit" \
-  "$(cat "$T/dry.osascript")" "'osascript' '-l' 'JavaScript' '$HERE/dialog.js' '--limit' '60' 'prompt' 'Weather' 'GitHub token (1)'"
+  "$(cat "$T/dry.osascript")" "'osascript' '-l' 'JavaScript' '$HERE/mac/dialog.js' '--limit' '60' 'prompt' 'Weather' 'GitHub token (1)'"
 check "  with details: the private files' paths, never what they hold" \
-  "$(cat "$T/drydet.osascript")" "'osascript' '-l' 'JavaScript' '$HERE/dialog.js' '--limit' '60' '--box' 'Found:' '$DD/found' '--pre' 'Command:' '$DD/command' 'bash' 'Weather' 'MySQL password (1)' 'mysql -u root -p*** db'"
+  "$(cat "$T/drydet.osascript")" "'osascript' '-l' 'JavaScript' '$HERE/mac/dialog.js' '--limit' '60' '--box' 'Found:' '$DD/found' '--pre' 'Command:' '$DD/command' 'bash' 'Weather' 'MySQL password (1)' 'mysql -u root -p*** db'"
 check "  and the test's limit drives its countdown" \
-  "$(CLAUDE_HTML_GUARD_TEST_LIMIT=8 bash -c '. "$1/platform.sh"; CH_DIALOG=osascript CH_HERE="$1" CH_DRY=1 ch_choose prompt P F' _ "$HERE" | grep -c "'--limit' '8' ")" 1
+  "$(CLAUDE_HTML_GUARD_TEST_LIMIT=8 bash -c '. "$1/lib/platform.sh"; CH_DIALOG=osascript CH_HERE="$1" CH_DRY=1 ch_choose prompt P F' _ "$HERE" | grep -c "'--limit' '8' ")" 1
 check "zenity: a radio list, Cancel picked, OK, the time limit said" \
   "$(cat "$T/dry.zenity")" "'zenity' '--list' '--radiolist' '--title=claude-html' '--no-markup' '--text=$TEXT' '--ok-label=OK' '--column= ' '--column=Choice' 'TRUE' $CH4"
 check "  with details: a Details button, and the file in zenity's own text window" \
@@ -204,11 +205,11 @@ check "the time limit in words" "$(ch_span 600)|$(ch_span 60)|$(ch_span 120)|$(c
 # The countdown's words, worked out with no clock: whole seconds, never
 # below 0:00, the confirmation's own wording.
 check "the countdown's words" \
-  "$(node -e 'var c=require(process.argv[1]).countdown; console.log([c(600),c(599),c(61),c(60),c(9),c(0),c(-3),c(3600),c(4271),c(599,"confirm"),c(0,"confirm")].join("|"))' "$HERE/dialog.js")" \
+  "$(node -e 'var c=require(process.argv[1]).countdown; console.log([c(600),c(599),c(61),c(60),c(9),c(0),c(-3),c(3600),c(4271),c(599,"confirm"),c(0,"confirm")].join("|"))' "$HERE/mac/dialog.js")" \
   "Cancel in 10:00|Cancel in 9:59|Cancel in 1:01|Cancel in 1:00|Cancel in 0:09|Cancel in 0:00|Cancel in 0:00|Cancel in 1:00:00|Cancel in 1:11:11|closes in 9:59 — nothing changed|closes in 0:00 — nothing changed"
 if [ "$HAVE_OSASCRIPT" = true ]; then
   check "  the same under osascript, nothing shown" \
-    "$(osascript -l JavaScript "$HERE/dialog.js" countdown 599)|$(osascript -l JavaScript "$HERE/dialog.js" --limit 8 countdown 0 confirm)" \
+    "$(osascript -l JavaScript "$HERE/mac/dialog.js" countdown 599)|$(osascript -l JavaScript "$HERE/mac/dialog.js" --limit 8 countdown 0 confirm)" \
     "Cancel in 9:59|closes in 0:00 — nothing changed"
 fi
 
@@ -222,13 +223,13 @@ check "  its bounds: 30 seconds and 60 minutes in, 29 seconds and 61 minutes out
   "$(wsecs 30 30s 60m 3600 29 29s 61m 3601 999999)" "0:30 0:30 0:3600 0:3600 2: 2: 2: 2: 2: "
 check "  what is not a wait, and nothing at all" "$(wsecs abc 1m90s 5ms 1s30m -5 1.5m 2h m '' ' ')" \
   "1: 1: 1: 1: 1: 1: 1: 1: 1: 1: "
-gwait() { env -u CLAUDE_HTML_GUARD_TEST_LIMIT "$@" bash -c '. "$1/platform.sh"; printf "%s|%s" "$CH_GUARD_LIMIT" "$CH_GUARD_WAIT_BAD"' _ "$HERE"; }
+gwait() { env -u CLAUDE_HTML_GUARD_TEST_LIMIT "$@" bash -c '. "$1/lib/platform.sh"; printf "%s|%s" "$CH_GUARD_LIMIT" "$CH_GUARD_WAIT_BAD"' _ "$HERE"; }
 check "the wait in force: a minute unset or empty, the setting, the default for a bad one, said" \
   "$(gwait) $(gwait CLAUDE_HTML_GUARD_WAIT=) $(gwait CLAUDE_HTML_GUARD_WAIT=2m) $(gwait CLAUDE_HTML_GUARD_WAIT=abc) $(gwait CLAUDE_HTML_GUARD_WAIT=29s) $(gwait CLAUDE_HTML_GUARD_WAIT=61m)" \
   "60| 60| 120| 60|abc 60|29s 60|61m"
 check "  the tests' own limit wins over it, without the floor" "$(gwait CLAUDE_HTML_GUARD_WAIT=2m CLAUDE_HTML_GUARD_TEST_LIMIT=8)" "8|"
 # What the windows are given, dry, by the setting alone.
-wdry() { env -u CLAUDE_HTML_GUARD_TEST_LIMIT CLAUDE_HTML_GUARD_WAIT="$1" bash -c '. "$1/platform.sh"; CH_HERE="$1" CH_DRY=1; '"$2" _ "$HERE"; }
+wdry() { env -u CLAUDE_HTML_GUARD_TEST_LIMIT CLAUDE_HTML_GUARD_WAIT="$1" bash -c '. "$1/lib/platform.sh"; CH_HERE="$1" CH_DRY=1; '"$2" _ "$HERE"; }
 check "the setting reaches every window: the guard's, the stop window, the confirmation (macOS)" \
   "$(wdry 45s 'CH_DIALOG=osascript ch_choose prompt P F; CH_DIALOG=osascript ch_choose_limit h k1 v1 k2 v2 c3 c4; CH_DIALOG=osascript ch_confirm t s "$(printf "k\tv")" Apply' | grep -c "'--limit' '45' ")" 3
 check "  and their words (Linux)" \
@@ -237,11 +238,11 @@ check "  a bad one is not obeyed: the default minute" \
   "$(wdry 9h 'CH_DIALOG=osascript ch_choose prompt P F' | grep -c "'--limit' '60' ")" 1
 # The countdown starts at the limit the window is given.
 check "the countdown starts at --limit" \
-  "$(node -e 'var d=require(process.argv[1]),o=d.options(["--limit","45","countdown","start"]);console.log(d.countdown(o.limit)+"|"+d.countdown(d.options(["--limit","3600"]).limit))' "$HERE/dialog.js")" \
+  "$(node -e 'var d=require(process.argv[1]),o=d.options(["--limit","45","countdown","start"]);console.log(d.countdown(o.limit)+"|"+d.countdown(d.options(["--limit","3600"]).limit))' "$HERE/mac/dialog.js")" \
   "Cancel in 0:45|Cancel in 1:00:00"
 if [ "$HAVE_OSASCRIPT" = true ]; then
   check "  the same under osascript, nothing shown" \
-    "$(osascript -l JavaScript "$HERE/dialog.js" --limit 45 countdown start)|$(osascript -l JavaScript "$HERE/dialog.js" --limit 90 countdown start confirm)" \
+    "$(osascript -l JavaScript "$HERE/mac/dialog.js" --limit 45 countdown start)|$(osascript -l JavaScript "$HERE/mac/dialog.js" --limit 90 countdown start confirm)" \
     "Cancel in 0:45|closes in 1:30 — nothing changed"
 fi
 
@@ -473,7 +474,7 @@ reset
 # The window's answer comes once it has closed, up to an hour after what
 # it answers was put on record: it must still find it. Each engine runs
 # guard.js as the hook does.
-gj() { if [ "$1" = osascript ]; then shift; osascript -l JavaScript "$HERE/guard.js" "$@"; else shift; node "$HERE/guard.js" "$@"; fi; }
+gj() { if [ "$1" = osascript ]; then shift; osascript -l JavaScript "$HERE/actions/guard.js" "$@"; else shift; node "$HERE/actions/guard.js" "$@"; fi; }
 age() { node -e 'var f=process.argv[1],s=JSON.parse(require("fs").readFileSync(f));s.pending.time-=process.argv[2]*1000;require("fs").writeFileSync(f,JSON.stringify(s))' "$STATE" "$1"; }
 mkdir -p "$(dirname "$STATE")" "$T/ddj"
 for ENG in $ENGINES; do
@@ -494,7 +495,7 @@ reset
 B="$T/build"; APP="$B/root/app"; PROJ="$B/home/.claude/projects/$(printf '%s' "$APP" | tr '/' '-')"
 mkdir -p "$PROJ" "$APP"
 SID=5ec1e7a1-0000-4000-8000-0000000000b1
-TOK="$(node -e 'var F=require(process.argv[1]); process.stdout.write(F.cases.filter(function(c){return c.rule==="github"})[0].secret)' "$HERE/tests/fake-secrets.js")"
+TOK="$(node -e 'var F=require(process.argv[1]); process.stdout.write(F.cases.filter(function(c){return c.rule==="github"})[0].secret)' "$HERE/tests/fixtures/fake-secrets.js")"
 node -e '
 var fs=require("fs"), P=process.argv[1], A=process.argv[2], S=process.argv[3], tok=process.argv[4];
 function l(o){return JSON.stringify(o)+"\n";}
@@ -508,7 +509,7 @@ touch -t 202611020910 "$BJ"
 bld() {  # out engine
   local o="$1"; shift
   env HOME="$B/home" CLAUDE_HTML_REDACT_FILE="$BL" CLAUDE_HTML_ENGINE="$1" /bin/bash -c \
-    '. "$0/platform.sh"; ch_pick_engine; ch_js "$0/convert.js" "$1"' "$HERE" \
+    '. "$0/lib/platform.sh"; ch_pick_engine; ch_js "$0/build/convert.js" "$1"' "$HERE" \
     "{\"root\":\"$B/root\",\"out\":\"$o\",\"here\":\"$HERE\",\"exportPath\":\"/nonexistent\"}" >/dev/null 2>&1
 }
 tree() { (cd "$1" && find . -type f | sort | while IFS= read -r f; do printf '%s %s\n' "$f" "$(sed 's/"built":[0-9]*,/"built":0,/' "$f" | cksum)"; done); }
@@ -516,7 +517,7 @@ tree() { (cd "$1" && find . -type f | sort | while IFS= read -r f; do printf '%s
 check "a value allowed once is masked in the pages" "$(grep -rlF "$TOK" "$B/o-none" | wc -l | tr -d ' ')" 0
 SALT=0123456789abcdef
 printf 'safe:%s:%s   # github, 2026-11-19\n' "$SALT" \
-  "$(node -e 'var s=require("fs").readFileSync(process.argv[1],"utf8"); process.stdout.write(new Function(s+"\nreturn fingerprint;")()(process.argv[2],process.argv[3]))' "$HERE/redact.js" "$SALT" "$TOK")" > "$BL"
+  "$(node -e 'var s=require("fs").readFileSync(process.argv[1],"utf8"); process.stdout.write(new Function(s+"\nreturn fingerprint;")()(process.argv[2],process.argv[3]))' "$HERE/build/redact.js" "$SALT" "$TOK")" > "$BL"
 bld "$B/o-safe" node
 check "a safe value is shown in the pages" "$(grep -c "deploy with $TOK" "$B/o-safe/sessions/$SID.html")" 1
 check "  where it was masked before: the signature made the page again" \
@@ -596,8 +597,8 @@ rm -f "$H/.claude/.claude-html.limits" "$H/.claude/.claude-html.limits-marks"; r
 # ── installed beside what is there, once ─────────────────────────────
 S="$T/settings.json"
 printf '{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"theirs.sh"}]}]}}\n' > "$S"
-node "$HERE/settings-hooks.js" "$S" "$HERE" add >/dev/null
-node "$HERE/settings-hooks.js" "$S" "$HERE" add >/dev/null
+node "$HERE/actions/settings-hooks.js" "$S" "$HERE" add >/dev/null
+node "$HERE/actions/settings-hooks.js" "$S" "$HERE" add >/dev/null
 check "install adds the two guard hooks once, beside the user's" \
   "$(grep -c 'guard.sh' "$S") $(grep -c 'theirs.sh' "$S") $(grep -c '"matcher": "Bash"' "$S")" "2 1 1"
 check "  with a timeout past the longest wait, 60 minutes" "$(grep -A2 'guard.sh' "$S" | grep -c '"timeout": 3660')" 2
@@ -606,15 +607,15 @@ node -e 'var fs=require("fs"),p=process.argv[1],s=JSON.parse(fs.readFileSync(p,"
   ["UserPromptSubmit","PreToolUse"].forEach(function(e){s.hooks[e].forEach(function(g){g.hooks.forEach(function(h){
     if (/guard\.sh/.test(h.command)) h.timeout=660;});});});
   fs.writeFileSync(p,JSON.stringify(s,null,2))' "$S"
-R="$(node "$HERE/settings-hooks.js" "$S" "$HERE" add)"
+R="$(node "$HERE/actions/settings-hooks.js" "$S" "$HERE" add)"
 check "an older install's 660 is set to 3660 where it stands, nothing added" \
   "$(grep -c 'guard.sh' "$S") $(grep -A2 'guard.sh' "$S" | grep -c '"timeout": 3660') $(grep -c '"timeout": 660' "$S") $(grep -c 'theirs.sh' "$S")" "2 2 0 1"
 check "  and the installer says so" "$(printf '%s' "$R" | grep -c '"UserPromptSubmit timeout 3660","PreToolUse/Bash timeout 3660"')" 1
-check "  a second run finds nothing to do" "$(node "$HERE/settings-hooks.js" "$S" "$HERE" add | grep -c timeout)" 0
-node "$HERE/settings-hooks.js" "$S" "$HERE" add no-guard >/dev/null
+check "  a second run finds nothing to do" "$(node "$HERE/actions/settings-hooks.js" "$S" "$HERE" add | grep -c timeout)" 0
+node "$HERE/actions/settings-hooks.js" "$S" "$HERE" add no-guard >/dev/null
 check "--no-guard leaves them out, and takes out ones already there" "$(grep -c 'guard.sh' "$S") $(grep -c 'theirs.sh' "$S")" "0 1"
-node "$HERE/settings-hooks.js" "$S" "$HERE" add >/dev/null
-node "$HERE/settings-hooks.js" "$S" "$HERE" remove >/dev/null
+node "$HERE/actions/settings-hooks.js" "$S" "$HERE" add >/dev/null
+node "$HERE/actions/settings-hooks.js" "$S" "$HERE" remove >/dev/null
 check "uninstall removes only its own" "$(grep -c 'guard.sh\|save-conversation' "$S") $(grep -c 'theirs.sh' "$S")" "0 1"
 
 echo

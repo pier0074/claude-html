@@ -16,7 +16,7 @@ check() {
 }
 T="$(cd "$(tmpdir chsafety)" && pwd)"
 trap 'rm -rf "$T"' EXIT
-build() { HOME="$T/home" run_js "$HERE/convert.js" "$1"; }
+build() { HOME="$T/home" run_js "$HERE/build/convert.js" "$1"; }
 has() { [ -e "$1" ] && echo yes || echo no; }
 mkdir -p "$T/home"
 

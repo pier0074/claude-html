@@ -25,7 +25,7 @@ APP="$T/Claude HTML.app"
 SCPT="$APP/Contents/Resources/Scripts/main.scpt"
 handles() { osadecompile "$SCPT" 2>/dev/null | grep -c "claude-html://$1/"; }
 
-"$HERE/helper-build.sh" "$APP" >/dev/null 2>&1
+"$HERE/mac/helper-build.sh" "$APP" >/dev/null 2>&1
 check "it builds" "$([ -f "$SCPT" ] && echo yes || echo no)" yes
 check "  and handles the delete links" "$([ "$(handles delete)" -gt 0 ] && echo yes || echo no)" yes
 check "  and the open-a-project links" "$([ "$(handles open)" -gt 0 ] && echo yes || echo no)" yes
@@ -41,12 +41,12 @@ check "  with a signature macOS accepts" \
   "$(codesign --verify "$APP" >/dev/null 2>&1 && echo valid || echo broken)" valid
 
 BEFORE="$(stat -f %m "$SCPT")"
-"$HERE/helper-build.sh" "$APP" --if-stale >/dev/null 2>&1
+"$HERE/mac/helper-build.sh" "$APP" --if-stale >/dev/null 2>&1
 check "an app already current is left alone" "$(stat -f %m "$SCPT")" "$BEFORE"
 
 # Pretend the app was built before the source was last edited.
 touch -t 202001010000 "$SCPT"
-"$HERE/helper-build.sh" "$APP" --if-stale >/dev/null 2>&1
+"$HERE/mac/helper-build.sh" "$APP" --if-stale >/dev/null 2>&1
 check "an app older than its source is rebuilt" \
   "$([ "$(stat -f %m "$SCPT")" != "$(date -j -f '%Y%m%d%H%M' 202001010000 +%s)" ] && echo rebuilt || echo stale)" \
   rebuilt
@@ -58,7 +58,7 @@ check "  and handles both kinds of link again" \
 # from the script alone, compiled here, no app: nothing is registered.
 check "  and the limits link, through --limits-apply only" \
   "$(osadecompile "$SCPT" 2>/dev/null | grep -c '" --limits-apply " & quoted form of payload\|if not my isLimitsPayload(payload) then return')" 2
-osacompile -o "$T/h.scpt" "$HERE/helper.applescript"
+osacompile -o "$T/h.scpt" "$HERE/mac/helper.applescript"
 isl() { osascript -e "on run argv" -e "set s to load script POSIX file \"$T/h.scpt\"" -e "tell s to return isLimitsPayload(item 1 of argv)" -e "end run" -- "$1" 2>/dev/null; }
 n=0; m=0
 for p in "v1/fri-2000-80.sat-0000-90/50-week/80-95/off" "v1/none/none/80-95/on" "v1/mon-0000-1/12.50-month/1-99/off" \
@@ -116,7 +116,7 @@ check "  and can be run" "$([ -x "$L" ] && echo yes)" yes
 # the suite.
 realwin() {   # seconds args…
   local lim="$1"; shift
-  osascript -l JavaScript "$HERE/dialog.js" "$@" 2>/dev/null & local p=$!
+  osascript -l JavaScript "$HERE/mac/dialog.js" "$@" 2>/dev/null & local p=$!
   ( sleep "$lim"; kill "$p" 2>/dev/null ) >/dev/null 2>&1 & local w=$!
   wait "$p"; local rc=$?; kill "$w" 2>/dev/null; wait "$w" 2>/dev/null
   return $rc
@@ -144,7 +144,7 @@ realwin 15 --limit 8 --box Rule: "$T/rule" --open Rule: --snap "$T/stop.png" lim
 realwin 15 --limit 8 --box File: "$T/lines" --open File: --snap "$T/confirm.png" confirm "Change claude-html limits?" "Asked by the Token usage page." "$(printf 'File:\t~/.claude/claude-html.conf')" >/dev/null
 check "the stop and confirmation windows draw, their box open" \
   "$(head -c 4 "$T/stop.png" | od -c | head -1 | grep -c 'P   N   G') $(head -c 4 "$T/confirm.png" | od -c | head -1 | grep -c 'P   N   G') $(ls "$T/rule" "$T/lines" 2>/dev/null | wc -l | tr -d ' ')" "1 1 0"
-check "no window of a test is left running" "$(pgrep -f "$HERE/dialog.js" | wc -l | tr -d ' ')" 0
+check "no window of a test is left running" "$(pgrep -f "$HERE/mac/dialog.js" | wc -l | tr -d ' ')" 0
 
 echo
 echo "  $pass passed, $fail failed"

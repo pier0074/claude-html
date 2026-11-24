@@ -1,7 +1,7 @@
 // The diff acceptance criterion from the spec: applying the diff to the old
 // text must reproduce the new text exactly, on every edit ever made here.
 const CH = require("../viewer/viewer.js");
-const edits = require("./corpus/edits.json");
+const edits = require("./fixtures/corpus/edits.json");
 
 let pass = 0, fail = [];
 for (const [i, e] of edits.entries()) {

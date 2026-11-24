@@ -110,7 +110,8 @@ function run(argv) {
   // theirs. A command is claude-html's when it has the shape the installer
   // writes - bash, a path ending in one of its scripts, and that script's
   // own argument - and its folder is a copy of claude-html (it holds files
-  // only claude-html has), or, in the quoted form only this installer
+  // only claude-html has: in its folders, or at its top for a copy from
+  // before them), or, in the quoted form only this installer
   // writes, a copy that has since gone. This clone's are the ones in this
   // folder; any other is left from an install somewhere else.
   // save-session-link.sh is gone, but an early install may still have its
@@ -132,7 +133,8 @@ function run(argv) {
     return { dir: p.slice(0, slash), script: script, arg: arg, quoted: m[1] !== undefined };
   }
   function looksOurs(dir) {
-    return exists(dir + "/convert.js") || exists(dir + "/guard.js") ||
+    return exists(dir + "/build/convert.js") || exists(dir + "/actions/guard.js") ||
+           exists(dir + "/convert.js") || exists(dir + "/guard.js") ||
            (exists(dir + "/save-conversation.sh") && exists(dir + "/save-session-link.sh"));
   }
   var HERE_REAL = real(here);

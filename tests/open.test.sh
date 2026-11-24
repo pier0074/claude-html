@@ -41,7 +41,7 @@ cat > "$OUT/.manifest.json" <<EOF
 EOF
 
 resolve() {
-  osascript -l JavaScript "$HERE/open.js" \
+  osascript -l JavaScript "$HERE/actions/open.js" \
     "{\"id\":\"$1\",\"mode\":\"plan\",\"root\":\"$ROOT\",\"out\":\"$OUT\"}" 2>&1
 }
 what() { resolve "$1" | awk -F'\t' '{print $1}'; }

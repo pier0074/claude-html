@@ -55,7 +55,7 @@ BAD="$T/bad.tsv"
 } > "$BAD"
 
 # ── prices.js on its own ────────────────────────────────────────────
-cat "$HERE/prices.js" > "$T/unit.js"
+cat "$HERE/build/prices.js" > "$T/unit.js"
 cat >> "$T/unit.js" <<'JS'
 function run(argv) {
   var text = typeof $ !== "undefined"
@@ -131,8 +131,8 @@ fi
 # ── the real price file ─────────────────────────────────────────────
 R="$(node -e '
   var fs = require("fs"), here = process.argv[1];
-  var P = new Function(fs.readFileSync(here + "/prices.js", "utf8") + "\nreturn claudeHtmlPrices;")()(
-    fs.readFileSync(here + "/prices.tsv", "utf8"));
+  var P = new Function(fs.readFileSync(here + "/build/prices.js", "utf8") + "\nreturn claudeHtmlPrices;")()(
+    fs.readFileSync(here + "/build/prices.tsv", "utf8"));
   var o = { errors: P.errors, n: P.lines.length };
   o.unsourced = P.lines.filter(function (l) {
     return !/^https:\/\/(www\.anthropic\.com|platform\.claude\.com|docs\.claude\.com|claude\.com)\//.test(l.source) || !l.checked;
@@ -183,10 +183,10 @@ node -e '
 build() {   # out [engine]
   local o="$1"
   if [ "${2:-}" = node ]; then
-    HOME="$H" CLAUDE_HTML_PRICES="$PF" node "$HERE/convert.js" \
+    HOME="$H" CLAUDE_HTML_PRICES="$PF" node "$HERE/build/convert.js" \
       "{\"root\":\"$ROOT\",\"out\":\"$o\",\"here\":\"$HERE\",\"exportPath\":\"/nonexistent\"}"
   else
-    HOME="$H" CLAUDE_HTML_PRICES="$PF" run_js "$HERE/convert.js" \
+    HOME="$H" CLAUDE_HTML_PRICES="$PF" run_js "$HERE/build/convert.js" \
       "{\"root\":\"$ROOT\",\"out\":\"$o\",\"here\":\"$HERE\",\"exportPath\":\"/nonexistent\"}"
   fi
 }
@@ -226,7 +226,7 @@ fi
 
 # A new price is a new page: the calculated cost on it would be stale.
 sed 's/^claude-alpha-1\t2026-10-07\t\t1\t5/claude-alpha-1\t2026-10-07\t\t1\t6/' "$PF" > "$T/p2.tsv"
-B="$(HOME="$H" CLAUDE_HTML_PRICES="$T/p2.tsv" run_js "$HERE/convert.js" \
+B="$(HOME="$H" CLAUDE_HTML_PRICES="$T/p2.tsv" run_js "$HERE/build/convert.js" \
   "{\"root\":\"$ROOT\",\"out\":\"$OUT\",\"here\":\"$HERE\",\"exportPath\":\"/nonexistent\"}")"
 check "a changed price file rebuilds the pages it prices" \
   "$(printf '%s' "$B" | js d.built) $(ix $S1 's.calc')" "2 54650"
@@ -235,8 +235,8 @@ build "$OUT" >/dev/null
 # ── archives ────────────────────────────────────────────────────────
 sed -n "/^cat > \"\$ARCHIVER\" <<'ARCHIVEREOF'\$/,/^ARCHIVEREOF\$/p" "$HERE/save-conversation.sh" |
   sed '1d;$d' > "$T/archive.js"
-cat "$HERE/redact.js" "$HERE/parse.js" >> "$T/archive.js"
-AF="$(. "$HERE/release.sh"; printf '%s' "$CH_ARCHIVE_FORMAT")"
+cat "$HERE/build/redact.js" "$HERE/build/parse.js" >> "$T/archive.js"
+AF="$(. "$HERE/lib/version.sh"; printf '%s' "$CH_ARCHIVE_FORMAT")"
 CONV="$APP/.claude/.claude-conversations"; mkdir -p "$CONV"
 for s in $S1 $S2; do
   run_js "$T/archive.js" "$PD/$s.jsonl" "$s" "$APP" "$(size_of "$PD/$s.jsonl")" "" "" "" "" "$AF" > "$CONV/$s.json"
@@ -309,7 +309,7 @@ var ctx = {
   window: { addEventListener: function () {} }
 };
 vm.runInNewContext(fs.readFileSync(here + "/viewer/viewer.js", "utf8") + "\n" +
-                   fs.readFileSync(here + "/prices.js", "utf8") + "\n" +
+                   fs.readFileSync(here + "/build/prices.js", "utf8") + "\n" +
                    fs.readFileSync(here + "/viewer/usage.js", "utf8"), ctx);
 function text(id) { return el(id).innerHTML.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim(); }
 function button(id) { el(id).listeners.click(); }

@@ -23,7 +23,7 @@ trap 'rm -rf "$T"' EXIT
 # folder with a space in its name rather than run from here.
 C="$T/my clone/claude-html"
 mkdir -p "$C"
-for f in "$HERE"/*.sh "$HERE"/*.js "$HERE/claude-html" "$HERE/helper.applescript" "$HERE/viewer"; do
+for f in "$HERE"/*.sh "$HERE/claude-html" "$HERE/lib" "$HERE/build" "$HERE/actions" "$HERE/mac" "$HERE/linux" "$HERE/viewer"; do
   [ -e "$f" ] && cp -R "$f" "$C/"
 done
 H="$T/home"; ROOT="$T/my projects"; APP="$ROOT/app"; PAGES="$T/my pages"
@@ -159,7 +159,7 @@ node -e 'var fs=require("fs"),p=process.argv[1],s=JSON.parse(fs.readFileSync(p,"
   s.hooks.SessionEnd[0].hooks[0].command=process.argv[2];
   fs.writeFileSync(p,JSON.stringify(s,null,2))' "$H/.claude/settings.json" "$LEGACY"
 check "remove takes quoted and unquoted alike" \
-  "$(CLAUDE_HTML_FORCE_NODE=1 run_js "$C/settings-hooks.js" "$H/.claude/settings.json" "$C" remove)" "removed 6; status line removed"
+  "$(CLAUDE_HTML_FORCE_NODE=1 run_js "$C/actions/settings-hooks.js" "$H/.claude/settings.json" "$C" remove)" "removed 6; status line removed"
 install
 
 # ── which hooks are ours: the whole command, never a script's name ──
@@ -169,7 +169,7 @@ install
 S2="$T/hooks/settings.json"; OLD="$T/old clone"; GONE="$T/gone clone"; MINE="$T/u dir"
 mkdir -p "$T/hooks" "$OLD" "$MINE"
 : > "$OLD/convert.js"; : > "$OLD/guard.js"; : > "$MINE/guard.sh"
-sh_js() { HOME="$H" run_js "$C/settings-hooks.js" "$S2" "$C" "$@"; }
+sh_js() { HOME="$H" run_js "$C/actions/settings-hooks.js" "$S2" "$C" "$@"; }
 mk_settings() {
   node -e 'function q(p){return "\x27"+p+"\x27";}
     var o=process.argv[1], g=process.argv[2], m=process.argv[3];
@@ -211,6 +211,14 @@ check "remove takes out this clone's hooks only" "$(sh_js remove) $(grep -cF "$C
 mk_settings
 sh_js remove >/dev/null
 check "  and never another clone's" "$(grep -cF "$OLD/" "$S2") $(theirs3)" "4 1 1 1"
+# Another clone laid out in folders, as this one is, is a copy of claude-html too.
+NEWC="$T/new clone"; mkdir -p "$NEWC/build" "$NEWC/actions"
+: > "$NEWC/build/convert.js"; : > "$NEWC/actions/guard.js"
+_old="$OLD"; OLD="$NEWC"; mk_settings; OLD="$_old"
+R="$(sh_js add)"
+check "  another clone in folders: its hooks are replaced as a set too" \
+  "$(grep -cF "$NEWC/" "$S2") $(printf '%s' "$R" | grep -c 'replaced 5 hook(s) of') $(theirs3)" "0 1 1 1 1"
+mk_settings
 # A settings.json kept in a dotfiles folder, as a symlink, stays one.
 mkdir -p "$T/dots2"; mv "$S2" "$T/dots2/settings.json"; ln -s "$T/dots2/settings.json" "$S2"
 sh_js add >/dev/null
