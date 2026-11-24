@@ -152,7 +152,7 @@ FORCE=false
 DELETE=""; PLAN=""; YES=false
 OPEN=""; OPENPLAN=""
 RESUME=""; RESUMEPLAN=""; DOCTOR=""; UPDTERM=""
-REDACTCHECK=""; REDACTARCHIVES=""; GUARD=""; GUARDARG=""
+REDACTCHECK=""; REDACTARCHIVES=""; GUARD=""; GUARDARG=""; GUARDVAL=""; GUARDMORE=""
 ONLY=""
 for arg in "$@"; do
   case "$arg" in
@@ -187,12 +187,16 @@ for arg in "$@"; do
       echo "claude-html --redact-check     what would be masked as secret, per session and archive; changes nothing"
       echo "claude-html --redact-archives  rewrite the archives that still hold secrets, masked"
       echo "claude-html --guard on|prompt|off|status   stop a secret before it reaches Claude"
+      echo "claude-html --guard wait [45s|2m|1m30s|default]   how long its windows wait before Cancel"
       echo "claude-html --limits         plan usage, stop rules, API budget: what is set and the latest figures"
       echo "claude-html --limits add \"fri 20:00 80%\" | remove <n> | rules \"…\"|none"
       echo "claude-html --limits budget day|week|month <dollars> | budget off | budget warn <a> <b>"
       echo "claude-html --limits notify on|off | on|off"
       exit 0 ;;
-    *) if [ -n "$GUARD" ] && [ -z "$GUARDARG" ]; then GUARDARG="$arg"; else ONLY="$arg"; fi ;;
+    *) if [ -n "$GUARD" ] && [ -z "$GUARDARG" ]; then GUARDARG="$arg"
+       elif [ -n "$GUARD" ] && [ "$GUARDARG" = wait ]; then
+         if [ -z "$GUARDVAL" ]; then GUARDVAL="$arg"; else GUARDMORE=1; fi
+       else ONLY="$arg"; fi ;;
   esac
 done
 
@@ -230,8 +234,42 @@ guard_line() {
   if ch_is_off "${CLAUDE_HTML_GUARD_DIALOG:-on}"; then asks="in words, as the next prompt"
   else asks="in a dialog when someone is at the screen"; fi
   n="$(guard_hooks)"
-  printf 'guard %s · %s safe value(s) · hooks %s of 2 in settings.json · asks %s · %s\n' \
-    "$what" "$(guard_safe)" "${n:-0}" "$asks" "$(ch_engine_line | cut -d' ' -f1)"
+  printf 'guard %s · %s safe value(s) · hooks %s of 2 in settings.json · asks %s · waits %s · %s\n' \
+    "$what" "$(guard_safe)" "${n:-0}" "$asks" "$(guard_wait_words)" "$(ch_engine_line | cut -d' ' -f1)"
+  guard_wait_bad
+}
+# How long the windows wait, as the setting says: platform.sh reads it
+# (ch_wait_secs), this only says it.
+WAIT_RANGE="from 30 seconds to 60 minutes, written 45, 45s, 2m or 1m30s"
+guard_wait_secs() {
+  if [ -n "${CLAUDE_HTML_GUARD_WAIT:-}" ] && ch_wait_secs "$CLAUDE_HTML_GUARD_WAIT"; then echo "$_WS"
+  else echo "$CH_WAIT_DEFAULT"; fi
+}
+guard_wait_words() { ch_span "$(guard_wait_secs)"; }
+guard_wait_where() {
+  case "$CH_GUARD_WAIT_FROM" in
+    environment) echo "CLAUDE_HTML_GUARD_WAIT in your environment, which wins over the conf" ;;
+    conf) echo "CLAUDE_HTML_GUARD_WAIT in $CONF" ;;
+    *) echo "the default" ;;
+  esac
+}
+# A setting that is not a wait is not obeyed in silence: said here, under
+# the guard's line, as --limits says a rule it ignores.
+guard_wait_bad() {
+  [ -n "${CLAUDE_HTML_GUARD_WAIT:-}" ] || return 0
+  ch_wait_secs "$CLAUDE_HTML_GUARD_WAIT"; case $? in
+    0) return 0 ;;
+    2) echo "  Ignored  CLAUDE_HTML_GUARD_WAIT=\"$CLAUDE_HTML_GUARD_WAIT\" ($(guard_wait_where | sed 's/^CLAUDE_HTML_GUARD_WAIT //')): out of range, $WAIT_RANGE; the default, $(ch_span "$CH_WAIT_DEFAULT"), applies" ;;
+    *) echo "  Ignored  CLAUDE_HTML_GUARD_WAIT=\"$CLAUDE_HTML_GUARD_WAIT\" ($(guard_wait_where | sed 's/^CLAUDE_HTML_GUARD_WAIT //')): not a wait, $WAIT_RANGE; the default, $(ch_span "$CH_WAIT_DEFAULT"), applies" ;;
+  esac
+}
+guard_wait_show() {
+  local where
+  if [ -n "${CLAUDE_HTML_GUARD_WAIT:-}" ] && ! ch_wait_secs "$CLAUDE_HTML_GUARD_WAIT"; then where="the default"
+  else where="$(guard_wait_where)"; fi
+  echo "The guard's windows wait $(guard_wait_words) ($where), then close as Cancel."
+  guard_wait_bad
+  echo "  $WAIT_RANGE · claude-html --guard wait 2m · claude-html --guard wait default"
 }
 if [ -n "$GUARD" ]; then
   case "$GUARDARG" in
@@ -241,12 +279,35 @@ if [ -n "$GUARD" ]; then
       echo "$(guard_line)"
       [ "$(guard_hooks)" = 2 ] || [ "$GUARDARG" = off ] ||
         echo "the guard's hooks are not in $SETTINGS: run ./install.sh in $HERE to add them" ;;
+    wait)
+      [ -z "$GUARDMORE$ONLY" ] || { echo "claude-html --guard wait [45s|2m|1m30s|default]" >&2; exit 2; }
+      case "$GUARDVAL" in
+        "") guard_wait_show ;;
+        default)
+          ch_conf_unset CLAUDE_HTML_GUARD_WAIT
+          [ "$CH_GUARD_WAIT_FROM" = environment ] || CLAUDE_HTML_GUARD_WAIT=""
+          echo "The guard's windows wait the default, $(ch_span "$CH_WAIT_DEFAULT"): its line is out of $CONF."
+          [ "$CH_GUARD_WAIT_FROM" != environment ] ||
+            echo "But CLAUDE_HTML_GUARD_WAIT=$CLAUDE_HTML_GUARD_WAIT in your environment wins over the conf, so here they wait $(guard_wait_words)." ;;
+        *)
+          # Checked before anything is written: a wait the windows would
+          # not obey never reaches the conf.
+          ch_wait_secs "$GUARDVAL"; case $? in
+            0) ;;
+            2) echo "out of range: $GUARDVAL — $WAIT_RANGE; nothing was changed" >&2; exit 2 ;;
+            *) echo "not a wait: $GUARDVAL — $WAIT_RANGE; nothing was changed" >&2; exit 2 ;;
+          esac
+          conf_line CLAUDE_HTML_GUARD_WAIT "$GUARDVAL"
+          echo "The guard's windows wait $(ch_span "$_WS"), then close as Cancel: CLAUDE_HTML_GUARD_WAIT in $CONF."
+          [ "$CH_GUARD_WAIT_FROM" != environment ] ||
+            echo "But CLAUDE_HTML_GUARD_WAIT=$CLAUDE_HTML_GUARD_WAIT in your environment wins over the conf, so here they wait $(guard_wait_words)." ;;
+      esac ;;
     status|"")
       echo "$(guard_line)"
       # The safe values by rule and date: what a line says after its #.
       grep '^[[:space:]]*safe:' "$GUARD_LIST" 2>/dev/null | sed -n 's/^[^#]*#[[:space:]]*/  safe  /p'
       [ "$(guard_safe)" = 0 ] || echo "  to forget one, delete its line in $GUARD_LIST" ;;
-    *) echo "claude-html --guard on|prompt|off|status" >&2; exit 2 ;;
+    *) echo "claude-html --guard on|prompt|off|status|wait" >&2; exit 2 ;;
   esac
   exit 0
 fi
@@ -281,7 +342,7 @@ if [ -n "$DOCTOR" ]; then
   # what the own list says.
   run_js "$HERE/convert.js" "$(js_opts :redactInfo true)" 2>/dev/null ||
     echo "  redact    could not be checked: $CH_ENGINE_WHY"
-  echo "  $(guard_line)"
+  guard_line | sed 's/^/  /'
   # shellcheck source=limits-cli.sh
   echo "  limits    $( set +u; . "$HERE/limits.sh" && . "$HERE/limits-cli.sh" && ch_lim_doctor 2>/dev/null)"
   exit 0

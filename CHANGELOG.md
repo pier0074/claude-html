@@ -5,6 +5,35 @@ fixes, a minor adds without breaking, a major needs something from you
 (usually `./install.sh` again). To update: `claude-html --update`; before
 3.1.0, `git checkout main && git pull && ./install.sh`.
 
+## 3.4.0 — 2026-11-24
+
+- **Windows you can read and copy.** Every text in the guard's window, the
+  stop window and the limits confirmation can be selected and copied with ⌘C.
+- **Found ▸ and Command ▸.** Arrows open a box under the row: each match with
+  40 characters around it and the secret in red, shown only when you open it;
+  the whole command, every line, exactly as Claude wrote it. Each box scrolls
+  and has a copy button. The stop window's Rule ▸ shows your rules as the conf
+  holds them; the confirmation's File ▸ shows the exact lines Apply writes.
+- **A countdown** beside OK: "Cancel in 0:59" down to 0:00, then the window
+  closes as Cancel ("closes in … — nothing changed" when confirming).
+- **How long the windows wait is a setting:** `CLAUDE_HTML_GUARD_WAIT`
+  (`45`, `45s`, `2m`, `1m30s`; 30 seconds to 60 minutes). The default is now
+  1 minute instead of 10. `claude-html --guard wait` shows it, `--guard wait 2m`
+  sets it, `--guard wait default` takes it out; a value that is not one is
+  ignored and said so in `--guard status` and `--doctor`. The guard's hooks
+  now have a 3660-second timeout so any wait works as soon as the conf is
+  saved; `./install.sh` (which an update runs) raises an older install's in
+  place.
+- **Nothing secret on a command line.** What the boxes show reaches the window
+  through private temp files, deleted as they are read.
+- **Linux:** a Details button opens what was found and the whole command in
+  the dialog tool's own text window; the question says how long it waits.
+- **The plan line** wraps between its parts, never inside one.
+- **README:** new screenshots, light or dark to match the reader, at a
+  reading size.
+- Fixed: a guard window that closed with nobody answering could let the
+  prompt through instead of stopping it.
+
 ## 3.3.0 — 2026-11-21
 
 - **Plan limits in Claude Code's status line.** Your 5-hour and weekly usage

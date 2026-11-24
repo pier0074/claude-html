@@ -160,25 +160,90 @@ done
 
 # ── the dialog ─────────────────────────────────────────────────────────
 # The exact command each desktop is given, never with a secret in it.
+DD="$T/dd"; mkdir -p "$DD"; printf 'f' > "$DD/found"; printf 'c' > "$DD/command"; printf 'd' > "$DD/details.txt"
 for d in osascript zenity yad kdialog xmessage; do
   CH_DIALOG=$d CH_HERE="$HERE" CH_DRY=1 ch_choose prompt Weather "GitHub token (1)" > "$T/dry.$d"
+  CH_DIALOG=$d CH_HERE="$HERE" CH_DRY=1 ch_choose bash Weather "MySQL password (1)" "mysql -u root -p*** db" "$DD" > "$T/drydet.$d"
 done
 NL='
 '
-TEXT="Your prompt has been interrupted${NL}Sensitive information detected${NL}${NL}Where:  your prompt in Claude Code  ·  project Weather${NL}Found:  GitHub token (1)"
+TEXT="Your prompt has been interrupted${NL}Sensitive information detected${NL}${NL}Where:  your prompt in Claude Code  ·  project Weather${NL}Found:  GitHub token (1)${NL}${NL}Closes after 1 minute — counts as Cancel."
+TEXTB="Claude's command has been interrupted${NL}Sensitive information detected${NL}${NL}Where:  a command from Claude  ·  project Weather${NL}Found:  MySQL password (1)${NL}Command:  mysql -u root -p*** db${NL}${NL}Details shows what was found and the whole command, on this screen only.${NL}Closes after 1 minute — counts as Cancel."
 CH4="'Cancel — do not send' 'FALSE' 'Allow once — it is sensitive, send it this time only' 'FALSE' 'Safe — it is not sensitive, send it and never ask again' 'FALSE' 'Stop — turn this check off'"
-check "macOS: a window of osascript's own, told the kind and the project only" \
-  "$(cat "$T/dry.osascript")" "'osascript' '-l' 'JavaScript' '$HERE/dialog.js' 'prompt' 'Weather' 'GitHub token (1)'"
-check "zenity: a radio list, Cancel picked, OK" \
+CH4B="'Cancel — do not run' 'FALSE' 'Allow once — it is sensitive, run it this time only' 'FALSE' 'Safe — it is not sensitive, run it and never ask again' 'FALSE' 'Stop — turn this check off'"
+check "macOS: a window of osascript's own, told the kind and the project only, and its time limit" \
+  "$(cat "$T/dry.osascript")" "'osascript' '-l' 'JavaScript' '$HERE/dialog.js' '--limit' '60' 'prompt' 'Weather' 'GitHub token (1)'"
+check "  with details: the private files' paths, never what they hold" \
+  "$(cat "$T/drydet.osascript")" "'osascript' '-l' 'JavaScript' '$HERE/dialog.js' '--limit' '60' '--box' 'Found:' '$DD/found' '--pre' 'Command:' '$DD/command' 'bash' 'Weather' 'MySQL password (1)' 'mysql -u root -p*** db'"
+check "  and the test's limit drives its countdown" \
+  "$(CLAUDE_HTML_GUARD_TEST_LIMIT=8 bash -c '. "$1/platform.sh"; CH_DIALOG=osascript CH_HERE="$1" CH_DRY=1 ch_choose prompt P F' _ "$HERE" | grep -c "'--limit' '8' ")" 1
+check "zenity: a radio list, Cancel picked, OK, the time limit said" \
   "$(cat "$T/dry.zenity")" "'zenity' '--list' '--radiolist' '--title=claude-html' '--no-markup' '--text=$TEXT' '--ok-label=OK' '--column= ' '--column=Choice' 'TRUE' $CH4"
+check "  with details: a Details button, and the file in zenity's own text window" \
+  "$(cat "$T/drydet.zenity")" "'zenity' '--list' '--radiolist' '--title=claude-html' '--no-markup' $(ch_quote "--text=$TEXTB") '--ok-label=OK' '--extra-button=Details' '--column= ' '--column=Choice' 'TRUE' $CH4B
+'zenity' '--text-info' '--title=claude-html' '--filename=$DD/details.txt' '--width=720' '--height=460'"
 check "yad: the same" \
   "$(cat "$T/dry.yad")" "'yad' '--list' '--radiolist' '--title=claude-html' '--text=$TEXT' '--print-column=2' '--separator=' '--button=OK:0' '--column= ' '--column=Choice' 'TRUE' $CH4"
+check "  with details: a Details button and its text window" \
+  "$(cat "$T/drydet.yad")" "'yad' '--list' '--radiolist' '--title=claude-html' $(ch_quote "--text=$TEXTB") '--print-column=2' '--separator=' '--button=Details:2' '--button=OK:0' '--column= ' '--column=Choice' 'TRUE' $CH4B
+'yad' '--text-info' '--title=claude-html' '--filename=$DD/details.txt' '--width=720' '--height=460' '--button=Back:0'"
 check "kdialog: a radio list, Cancel on" \
   "$(cat "$T/dry.kdialog")" "'kdialog' '--title' 'claude-html' '--ok-label' 'OK' '--radiolist' '$TEXT' 'cancel' 'Cancel — do not send' 'on' 'allow' 'Allow once — it is sensitive, send it this time only' 'off' 'safe' 'Safe — it is not sensitive, send it and never ask again' 'off' 'stop' 'Stop — turn this check off' 'off'"
+check "  with details: a fifth entry, and its text box" \
+  "$(cat "$T/drydet.kdialog" | tr '\n' '|' | sed "s/.*'stop' 'Stop — turn this check off' 'off' //")" \
+  "'details' 'Details — show what was found and the whole command' 'off'|'kdialog' '--title' 'claude-html' '--textbox' '$DD/details.txt' '720' '460'|"
 check "xmessage: four buttons, Cancel the default" \
   "$(cat "$T/dry.xmessage")" "'xmessage' '-center' '-title' 'claude-html' '-buttons' 'Cancel:1,Allow once:2,Safe:3,Stop:4' '-default' 'Cancel' '$TEXT'"
+check "  with details: a fifth button, and the file shown by xmessage itself" \
+  "$(cat "$T/drydet.xmessage" | grep -c "^'xmessage' '-center' '-title' 'claude-html' '-buttons' 'Cancel:1,Allow once:2,Safe:3,Stop:4,Details:5' '-default' 'Cancel' ") $(tail -1 "$T/drydet.xmessage")" \
+  "1 'xmessage' '-center' '-title' 'claude-html' '-buttons' 'Back:0' '-default' 'Back' '-file' '$DD/details.txt'"
 check "a command's dialog says run, not send" \
   "$(CH_DIALOG=zenity CH_DRY=1 ch_choose bash Weather "MySQL password (1)" | tr '\n' ' ' | grep -c "command has been interrupted.*'TRUE' 'Cancel — do not run' 'FALSE' 'Allow once — it is sensitive, run it this time only'")" 1
+check "the time limit in words" "$(ch_span 600)|$(ch_span 60)|$(ch_span 120)|$(ch_span 1)|$(ch_span 8)" \
+  "10 minutes|1 minute|2 minutes|1 second|8 seconds"
+# The countdown's words, worked out with no clock: whole seconds, never
+# below 0:00, the confirmation's own wording.
+check "the countdown's words" \
+  "$(node -e 'var c=require(process.argv[1]).countdown; console.log([c(600),c(599),c(61),c(60),c(9),c(0),c(-3),c(3600),c(4271),c(599,"confirm"),c(0,"confirm")].join("|"))' "$HERE/dialog.js")" \
+  "Cancel in 10:00|Cancel in 9:59|Cancel in 1:01|Cancel in 1:00|Cancel in 0:09|Cancel in 0:00|Cancel in 0:00|Cancel in 1:00:00|Cancel in 1:11:11|closes in 9:59 — nothing changed|closes in 0:00 — nothing changed"
+if [ "$HAVE_OSASCRIPT" = true ]; then
+  check "  the same under osascript, nothing shown" \
+    "$(osascript -l JavaScript "$HERE/dialog.js" countdown 599)|$(osascript -l JavaScript "$HERE/dialog.js" --limit 8 countdown 0 confirm)" \
+    "Cancel in 9:59|closes in 0:00 — nothing changed"
+fi
+
+# ── how long the windows wait: CLAUDE_HTML_GUARD_WAIT ───────────────
+# Parsed in one place, platform.sh's ch_wait_secs: the seconds, or 1 for
+# what is not a wait, 2 for one out of range.
+wsecs() { for v in "$@"; do ch_wait_secs "$v"; printf '%s:%s ' "$?" "$_WS"; done; }
+check "the wait: every form it accepts" "$(wsecs 45 45s 2m 1m30s 2M ' 2m ' 1m05s 0m30s)" \
+  "0:45 0:45 0:120 0:90 0:120 0:120 0:65 0:30 "
+check "  its bounds: 30 seconds and 60 minutes in, 29 seconds and 61 minutes out" \
+  "$(wsecs 30 30s 60m 3600 29 29s 61m 3601 999999)" "0:30 0:30 0:3600 0:3600 2: 2: 2: 2: 2: "
+check "  what is not a wait, and nothing at all" "$(wsecs abc 1m90s 5ms 1s30m -5 1.5m 2h m '' ' ')" \
+  "1: 1: 1: 1: 1: 1: 1: 1: 1: 1: "
+gwait() { env -u CLAUDE_HTML_GUARD_TEST_LIMIT "$@" bash -c '. "$1/platform.sh"; printf "%s|%s" "$CH_GUARD_LIMIT" "$CH_GUARD_WAIT_BAD"' _ "$HERE"; }
+check "the wait in force: a minute unset or empty, the setting, the default for a bad one, said" \
+  "$(gwait) $(gwait CLAUDE_HTML_GUARD_WAIT=) $(gwait CLAUDE_HTML_GUARD_WAIT=2m) $(gwait CLAUDE_HTML_GUARD_WAIT=abc) $(gwait CLAUDE_HTML_GUARD_WAIT=29s) $(gwait CLAUDE_HTML_GUARD_WAIT=61m)" \
+  "60| 60| 120| 60|abc 60|29s 60|61m"
+check "  the tests' own limit wins over it, without the floor" "$(gwait CLAUDE_HTML_GUARD_WAIT=2m CLAUDE_HTML_GUARD_TEST_LIMIT=8)" "8|"
+# What the windows are given, dry, by the setting alone.
+wdry() { env -u CLAUDE_HTML_GUARD_TEST_LIMIT CLAUDE_HTML_GUARD_WAIT="$1" bash -c '. "$1/platform.sh"; CH_HERE="$1" CH_DRY=1; '"$2" _ "$HERE"; }
+check "the setting reaches every window: the guard's, the stop window, the confirmation (macOS)" \
+  "$(wdry 45s 'CH_DIALOG=osascript ch_choose prompt P F; CH_DIALOG=osascript ch_choose_limit h k1 v1 k2 v2 c3 c4; CH_DIALOG=osascript ch_confirm t s "$(printf "k\tv")" Apply' | grep -c "'--limit' '45' ")" 3
+check "  and their words (Linux)" \
+  "$(wdry 1m30s 'CH_DIALOG=zenity ch_choose prompt P F; CH_DIALOG=zenity ch_choose_limit h k1 v1 k2 v2 c3 c4; CH_DIALOG=zenity ch_confirm t s "$(printf "k\tv")" Apply' | grep -c -e '^Closes after 90 seconds — counts as Cancel.' -e '^Closes after 90 seconds — nothing changed.')" 3
+check "  a bad one is not obeyed: the default minute" \
+  "$(wdry 9h 'CH_DIALOG=osascript ch_choose prompt P F' | grep -c "'--limit' '60' ")" 1
+# The countdown starts at the limit the window is given.
+check "the countdown starts at --limit" \
+  "$(node -e 'var d=require(process.argv[1]),o=d.options(["--limit","45","countdown","start"]);console.log(d.countdown(o.limit)+"|"+d.countdown(d.options(["--limit","3600"]).limit))' "$HERE/dialog.js")" \
+  "Cancel in 0:45|Cancel in 1:00:00"
+if [ "$HAVE_OSASCRIPT" = true ]; then
+  check "  the same under osascript, nothing shown" \
+    "$(osascript -l JavaScript "$HERE/dialog.js" --limit 45 countdown start)|$(osascript -l JavaScript "$HERE/dialog.js" --limit 90 countdown start confirm)" \
+    "Cancel in 0:45|closes in 1:30 — nothing changed"
+fi
 
 # Where the answer is kept while the dialog is up: a folder of its own,
 # made by mktemp, and gone after. No name next to it that another user of
@@ -259,6 +324,169 @@ check "a command, no answer in time: refused, Claude told to stop, not retry" \
 check "the dialog was never given a secret" "$(grep -cF -f "$T/probes.txt" "$T/stub.args")" 0
 check "nothing printed or kept holds a secret" "$(leaks)" 0
 
+# ── what the window is given, and what is left after it ───────────────
+# The boxes show the secret itself, on the owner's own screen. So it must
+# never be an argument of the window (any local process reads those), nor
+# in its environment, nor left on disk once the window has closed, nor in
+# anything kept. Stand-ins for osascript (a Mac, simulated) and zenity
+# (Linux) record what they were given: their arguments, their environment,
+# and the files they were pointed to, which are compared with what the
+# boxes must show, worked out on their own by guard.test.js.
+REC="$T/rec"; GT="$T/gtmp2"; mkdir -p "$T/binmac" "$T/binlin" "$GT"
+cat > "$T/binmac/osascript" <<'STUB'
+#!/bin/bash
+# Only the window: anything else asked of osascript is not here.
+case "$*" in *dialog.js*) ;; *) exit 1 ;; esac
+mkdir -p "$STUB_REC"; n=$(( $(cat "$STUB_REC/n" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$STUB_REC/n"
+printf '%s\n' "$@" > "$STUB_REC/argv.$n"; env > "$STUB_REC/env.$n"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --box|--pre)
+      k="${2%:}"; echo "$3" >> "$STUB_REC/files"
+      ls -ld "${3%/*}" "$3" 2>/dev/null | cut -c1-10 | tr '\n' ' ' >> "$STUB_REC/modes"
+      [ -f "$3" ] && cat "$3" > "$STUB_REC/content.$k"
+      # As the window does: read, then deleted at once.
+      [ -n "$STUB_KEEP" ] || rm -f "$3"
+      shift 3 ;;
+    *) shift ;;
+  esac
+done
+case "$STUB_ANSWER" in sleep) sleep 30 ;; fail) exit 3 ;; *) echo "$STUB_ANSWER" ;; esac
+STUB
+printf '#!/bin/sh\necho Aqua\n' > "$T/binmac/launchctl"
+cat > "$T/binlin/zenity" <<'STUB'
+#!/bin/sh
+mkdir -p "$STUB_REC"; n=$(( $(cat "$STUB_REC/n" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$STUB_REC/n"
+printf '%s\n' "$@" > "$STUB_REC/argv.$n"; env > "$STUB_REC/env.$n"
+for a in "$@"; do
+  case "$a" in --filename=*)
+    f="${a#--filename=}"; echo "$f" >> "$STUB_REC/files"
+    ls -ld "${f%/*}" "$f" 2>/dev/null | cut -c1-10 | tr '\n' ' ' >> "$STUB_REC/modes"
+    cat "$f" > "$STUB_REC/content.details" ;;
+  esac
+done
+[ "$1" = --text-info ] && exit 0
+# The first time, Details, when asked to: then the question again.
+if [ "$n" = 1 ] && [ -n "$STUB_DETAILS" ]; then echo Details; exit 1; fi
+case "$STUB_ANSWER" in
+  sleep) sleep 30 ;; fail) exit 3 ;;
+  *) for a in "$@"; do case "$a" in "$STUB_ANSWER"*) printf '%s\n' "$a"; exit 0 ;; esac; done; exit 1 ;;
+esac
+STUB
+chmod +x "$T/binmac/osascript" "$T/binmac/launchctl" "$T/binlin/zenity"
+win() {  # mac|linux answer kind note [env…]
+  local os="$1" a="$2" k="$3" f="$4"; shift 4
+  rm -rf "$REC"; mkdir -p "$REC"
+  if [ "$os" = mac ]; then set -- CLAUDE_HTML_UNAME=Darwin PATH="$T/binmac:$PATH" "$@"
+  else set -- CLAUDE_HTML_UNAME=Linux DISPLAY=:9 XDG_CURRENT_DESKTOP=GNOME PATH="$T/binlin:$PATH" "$@"; fi
+  env HOME="$H" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_REDACT_FILE="$LIST" CLAUDE_HTML_ENGINE=node \
+    SSH_CONNECTION= SSH_TTY= TMPDIR="$GT" STUB_REC="$REC" STUB_ANSWER="$a" STUB_DETAILS= STUB_KEEP= \
+    CLAUDE_HTML_GUARD_TEST_LIMIT=120 "$@" /bin/bash "$HERE/guard.sh" "$k" < "$f" 2>>"$LOG.err" | tee -a "$LOG"
+}
+# What must hold after every window: nothing of it left, and no secret
+# where it must not be.
+after() {
+  local gone=yes f
+  while IFS= read -r f; do if [ -e "$f" ] || [ -e "${f%/*}" ]; then gone=no; fi; done < <(cat "$REC/files" 2>/dev/null)
+  printf '%s tmp:%s argv:%s env:%s kept:%s' "$gone" "$(ls -A "$GT" | wc -l | tr -d ' ')" \
+    "$(cat "$REC"/argv.* 2>/dev/null | grep -cF -f "$T/probes.txt")" \
+    "$(cat "$REC"/env.* 2>/dev/null | grep -cF -f "$T/probes.txt")" "$(leaks)"
+}
+CLEAN="yes tmp:0 argv:0 env:0 kept:0"
+EXP="$T/expect"; mkdir -p "$EXP/heredoc" "$EXP/prompt"
+node "$HERE/tests/guard.test.js" expect "$T/note.bash_heredoc" bash "$EXP/heredoc"
+node "$HERE/tests/guard.test.js" expect "$T/note.secret" prompt "$EXP/prompt"
+
+reset
+R="$(win mac cancel bash "$T/note.bash_heredoc")"
+check "Mac, a long command, Cancel: refused" "$(printf '%s' "$R" | grep -c '"permissionDecision":"deny"')" 1
+check "  the window was given two private files, its time limit, and the first line masked" \
+  "$(grep -c '^--box$' "$REC/argv.1") $(grep -c '^--pre$' "$REC/argv.1") $(grep -cx -- '--limit' "$REC/argv.1") $(grep -c '^cat > deploy.sh <<.EOF. …$' "$REC/argv.1")" "1 1 1 1"
+check "  each readable by its owner only, in a folder of its own" "$(cat "$REC/modes")" "drwx------ -rw------- drwx------ -rw------- "
+check "  Found: each match with 40 characters around it, marked, one a line" \
+  "$(cmp -s "$REC/content.Found" "$EXP/heredoc/found" && echo same)" same
+check "  Command: the whole command, every line, as Claude wrote it" \
+  "$(cmp -s "$REC/content.Command" "$EXP/heredoc/command" && echo same) $(tr -d '\001\002' < "$REC/content.Command" | grep -c .)" "same 30"
+check "  never an argument, nor in its environment; nothing left, nothing kept" "$(after)" "$CLEAN"
+rm -f "$REC"/content.*
+reset; R="$(win mac allow bash "$T/note.bash_heredoc")"
+check "Mac, Allow: no decision; nothing left, nothing kept" "${R:-none} $(after)" "none $CLEAN"
+reset; R="$(win mac safe bash "$T/note.bash_heredoc")"
+check "Mac, Safe: recorded by fingerprint; nothing left, nothing kept" "${R:-none} $(grep -c '^safe:' "$LIST") $(after)" "none 1 $CLEAN"
+reset; R="$(win mac stop bash "$T/note.bash_heredoc")"
+check "Mac, Stop: the check off; nothing left, nothing kept" "${R:-none} $(grep -c '^CLAUDE_HTML_GUARD="off"$' "$CONFF") $(after)" "none 1 $CLEAN"
+reset; R="$(win mac timeout bash "$T/note.bash_heredoc")"
+check "Mac, closed by itself at 0:00: refused as nobody answered; nothing left" \
+  "$(printf '%s' "$R" | grep -c 'nobody answered within 2 minutes') $(after)" "1 $CLEAN"
+reset; R="$(win mac fail bash "$T/note.bash_heredoc")"
+check "Mac, the window failed: Claude Code's own dialog asks; nothing left" "$(printf '%s' "$R" | grep -c '"ask"') $(after)" "1 $CLEAN"
+reset; R="$(win mac cancel bash "$T/note.bash_heredoc" STUB_KEEP=1)"
+check "  a window that died before reading its files: they go with the hook all the same" "$(after)" "$CLEAN"
+reset; R="$(win mac sleep bash "$T/note.bash_heredoc" CLAUDE_HTML_GUARD_TEST_LIMIT=1)"
+check "  a window that never closed: closed from outside, refused, nothing left" \
+  "$(printf '%s' "$R" | grep -c 'nobody answered within 1 second') $(after)" "1 $CLEAN"
+check "  and it is not running any more" "$(pgrep -f "$T/binmac/osascript" | wc -l | tr -d ' ')" 0
+rm -f "$REC"/content.*
+reset; R="$(win mac cancel prompt "$T/note.secret")"
+check "Mac, a prompt: Found's box only, what was found in its context" \
+  "$(grep -c '^--box$' "$REC/argv.1") $(grep -c '^--pre$' "$REC/argv.1") $(cmp -s "$REC/content.Found" "$EXP/prompt/found" && echo same)" "1 0 same"
+check "  nothing left, nothing kept" "$(after)" "$CLEAN"
+rm -f "$REC"/content.*
+
+reset; R="$(win linux Cancel bash "$T/note.bash_heredoc" STUB_DETAILS=1)"
+check "Linux, Details then Cancel: the question, its text window, the question again; refused" \
+  "$(cat "$REC/n") $(grep -c '^--extra-button=Details$' "$REC/argv.1") $(head -1 "$REC/argv.2") $(grep -c '^--extra-button=Details$' "$REC/argv.3") $(printf '%s' "$R" | grep -c '"deny"')" \
+  "3 1 --text-info 1 1"
+check "  the text window read the private file: what was found, then the whole command" \
+  "$(cmp -s "$REC/content.details" "$EXP/heredoc/details.txt" && echo same) $(cat "$REC/modes")" "same drwx------ -rw------- "
+check "  the question's text: kinds, the first line masked, the time limit, never a secret" \
+  "$(grep -c '^Closes after 2 minutes — counts as Cancel.$' "$REC/argv.1") $(grep -c '^Command:  cat > deploy.sh' "$REC/argv.1")" "1 1"
+check "  never an argument, nor in its environment; nothing left, nothing kept" "$(after)" "$CLEAN"
+rm -f "$REC"/content.*
+reset; R="$(win linux Allow bash "$T/note.bash_heredoc")"
+check "Linux, Allow: no decision; nothing left" "${R:-none} $(after)" "none $CLEAN"
+reset; R="$(win linux sleep prompt "$T/note.secret" CLAUDE_HTML_GUARD_TEST_LIMIT=1)"
+check "Linux, nobody answers: closed, nothing left" "$(printf '%s' "$R" | grep -c 'nobody answered within 1 second') $(after)" "1 $CLEAN"
+reset; R="$(win linux fail prompt "$T/note.secret")"
+check "Linux, the dialog failed: in words; nothing left" "$(printf '%s' "$R" | grep -c 'Retype it without it') $(after)" "1 $CLEAN"
+rm -rf "$REC" "$EXP"
+
+# The setting, through the hook as Claude Code runs it, under each engine:
+# the conf's CLAUDE_HTML_GUARD_WAIT is the window's --limit and the words
+# when nobody answers. A stand-in osascript for the window; anything else
+# asked of osascript (the engine itself) goes to the real one.
+mkdir -p "$T/binmac2"; cp "$T/binmac/launchctl" "$T/binmac2/"
+sed 's|^case "\$\*" in \*dialog.js\*) ;; \*) exit 1 ;; esac$|case "$*" in *dialog.js*) ;; *) exec /usr/bin/osascript "$@" ;; esac|' "$T/binmac/osascript" > "$T/binmac2/osascript"
+chmod +x "$T/binmac2/osascript"
+for ENG in $ENGINES; do
+  reset; printf 'CLAUDE_HTML_GUARD_WAIT="45s"\n' >> "$CONFF"
+  R="$(win mac timeout bash "$T/note.bash_heredoc" PATH="$T/binmac2:$PATH" CLAUDE_HTML_ENGINE="$ENG" CLAUDE_HTML_GUARD_TEST_LIMIT=)"
+  check "$ENG: the conf's wait is the window's limit, and the words when nobody answers" \
+    "$(grep -A1 -x -- '--limit' "$REC/argv.1" | tail -1) $(printf '%s' "$R" | grep -c 'nobody answered within 45 seconds')" "45 1"
+  reset; printf 'CLAUDE_HTML_GUARD_WAIT="1m"\nCLAUDE_HTML_GUARD_WAIT="99"\n' >> "$CONFF"
+  R="$(win mac timeout prompt "$T/note.secret" PATH="$T/binmac2:$PATH" CLAUDE_HTML_ENGINE="$ENG" CLAUDE_HTML_GUARD_TEST_LIMIT=)"
+  check "  the conf's last line wins, as a shell reads it: 99 seconds" \
+    "$(grep -A1 -x -- '--limit' "$REC/argv.1" | tail -1) $(printf '%s' "$R" | grep -c 'nobody answered within 99 seconds')" "99 1"
+done
+reset
+
+# The window's answer comes once it has closed, up to an hour after what
+# it answers was put on record: it must still find it. Each engine runs
+# guard.js as the hook does.
+gj() { if [ "$1" = osascript ]; then shift; osascript -l JavaScript "$HERE/guard.js" "$@"; else shift; node "$HERE/guard.js" "$@"; fi; }
+age() { node -e 'var f=process.argv[1],s=JSON.parse(require("fs").readFileSync(f));s.pending.time-=process.argv[2]*1000;require("fs").writeFileSync(f,JSON.stringify(s))' "$STATE" "$1"; }
+mkdir -p "$(dirname "$STATE")" "$T/ddj"
+for ENG in $ENGINES; do
+  reset
+  gj "$ENG" prompt "$HERE" "$STATE" "$LIST" "$CONFF" dialog "$T/ddj" < "$T/note.secret" >/dev/null
+  age 3590
+  check "$ENG: an hour's window, unanswered: still stopped, not let through" \
+    "$(gj "$ENG" answer-prompt "$HERE" "$STATE" "$LIST" "$CONFF" timeout 3600 < "$T/note.secret" | grep -c 'nobody answered within 60 minutes')" 1
+  check "  and the words answer it, ten minutes from the window's closing" \
+    "$(gj "$ENG" prompt "$HERE" "$STATE" "$LIST" "$CONFF" < "$T/note.w_cancel" 2>/dev/null | grep -c 'Dropped. Nothing was sent.')" 1
+done
+reset
+
 # ── what safe and allow mean for the saved pages ─────────────────────
 # A safe value is shown in the pages; one allowed once stays masked. And
 # with safe lines in the list, both engines still write the same bytes,
@@ -315,7 +543,35 @@ check "--guard prompt: its one line in the conf" "$(grep -c '^CLAUDE_HTML_GUARD=
 cli --guard off >/dev/null
 check "--guard off: the same line" "$(grep -c '^CLAUDE_HTML_GUARD=' "$CONFF") $(grep -c '"off"' "$CONFF")" "1 1"
 check "--doctor has a guard line" "$(cli --doctor | grep -c '^  guard off · 1 safe value(s)')" 1
-check "--guard with anything else says how to use it" "$(cli --guard maybe) $(cli --guard maybe >/dev/null; echo $?)" "claude-html --guard on|prompt|off|status 2"
+check "--guard with anything else says how to use it" "$(cli --guard maybe) $(cli --guard maybe >/dev/null; echo $?)" "claude-html --guard on|prompt|off|status|wait 2"
+
+# --guard wait: shown, set through the conf writer after it is checked,
+# and taken out again.
+wcli() { env -u CLAUDE_HTML_GUARD_WAIT -u CLAUDE_HTML_GUARD_TEST_LIMIT HOME="$H" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_REDACT_FILE="$LIST" \
+           CLAUDE_HTML_NO_REGISTER=1 /bin/bash "$HERE/claude-html" "$@" 2>&1; }
+W="$(wcli --guard wait)"
+check "--guard wait: the wait, the default, and the range" \
+  "$(printf '%s\n' "$W" | grep -c "^The guard's windows wait 1 minute (the default), then close as Cancel.$") $(printf '%s\n' "$W" | grep -c 'from 30 seconds to 60 minutes, written 45, 45s, 2m or 1m30s')" "1 1"
+check "--guard wait 2m: set in the conf, the rest kept" \
+  "$(wcli --guard wait 2m | grep -c 'wait 2 minutes') $(grep -c '^CLAUDE_HTML_GUARD_WAIT="2m"$' "$CONFF") $(grep -c '^CLAUDE_HTML_ROOT=' "$CONFF")" "1 1 1"
+check "  then shown, from the conf" "$(wcli --guard wait | grep -c "^The guard's windows wait 2 minutes (CLAUDE_HTML_GUARD_WAIT in $CONFF), then close as Cancel.$")" 1
+check "  and in the guard's line" "$(wcli --guard status | grep -c '^guard off · .* · waits 2 minutes · ')" 1
+cp "$CONFF" "$T/conf.before"
+for v in 29s 61m 3601 abc 1m90s ""; do
+  R="$(wcli --guard wait "$v")"; rc=$?
+  [ -n "$v" ] || { R="$(wcli --guard wait 2m 3m)"; rc=$?; v="two words"; }
+  check "--guard wait $v: refused, the conf unchanged" \
+    "$rc $(printf '%s' "$R" | grep -c -e '^not a wait: ' -e '^out of range: ' -e '^claude-html --guard wait \[') $(cmp -s "$CONFF" "$T/conf.before" && echo same)" "2 1 same"
+done
+check "  out of range is said so" "$(wcli --guard wait 61m)" "out of range: 61m — from 30 seconds to 60 minutes, written 45, 45s, 2m or 1m30s; nothing was changed"
+printf 'CLAUDE_HTML_GUARD_WAIT="10 minutes"\n' >> "$CONFF"
+check "a bad wait in the conf: the default, and said where the guard is reported" \
+  "$(wcli --guard wait | grep -c "^The guard's windows wait 1 minute (the default)") $(wcli --guard status | grep -c '^  Ignored  CLAUDE_HTML_GUARD_WAIT="10 minutes" (in .*): not a wait, ') $(wcli --doctor | grep -c '^    Ignored  CLAUDE_HTML_GUARD_WAIT="10 minutes"')" "1 1 1"
+check "--guard wait default: every line of it out, the rest kept" \
+  "$(wcli --guard wait default | grep -c 'the default, 1 minute') $(grep -c 'CLAUDE_HTML_GUARD_WAIT' "$CONFF") $(grep -c '^CLAUDE_HTML_ROOT=' "$CONFF") $(wcli --guard wait | grep -c '(the default)')" "1 0 1 1"
+check "  the environment's wins, and is said to" \
+  "$(env CLAUDE_HTML_GUARD_WAIT=45 HOME="$H" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_REDACT_FILE="$LIST" /bin/bash "$HERE/claude-html" --guard wait 2m | grep -c 'environment wins over the conf, so here they wait 45 seconds')" 1
+wcli --guard wait default >/dev/null
 
 # ── beside the limits (limits.sh) ────────────────────────────────────
 # The same prompt hook stops a prompt by the owner's weekly rule before the
@@ -344,7 +600,17 @@ node "$HERE/settings-hooks.js" "$S" "$HERE" add >/dev/null
 node "$HERE/settings-hooks.js" "$S" "$HERE" add >/dev/null
 check "install adds the two guard hooks once, beside the user's" \
   "$(grep -c 'guard.sh' "$S") $(grep -c 'theirs.sh' "$S") $(grep -c '"matcher": "Bash"' "$S")" "2 1 1"
-check "  with a timeout past the dialog's ten minutes" "$(grep -A2 'guard.sh' "$S" | grep -c '"timeout": 660')" 2
+check "  with a timeout past the longest wait, 60 minutes" "$(grep -A2 'guard.sh' "$S" | grep -c '"timeout": 3660')" 2
+# An install from when the window waited ten minutes: its two at 660.
+node -e 'var fs=require("fs"),p=process.argv[1],s=JSON.parse(fs.readFileSync(p,"utf8"));
+  ["UserPromptSubmit","PreToolUse"].forEach(function(e){s.hooks[e].forEach(function(g){g.hooks.forEach(function(h){
+    if (/guard\.sh/.test(h.command)) h.timeout=660;});});});
+  fs.writeFileSync(p,JSON.stringify(s,null,2))' "$S"
+R="$(node "$HERE/settings-hooks.js" "$S" "$HERE" add)"
+check "an older install's 660 is set to 3660 where it stands, nothing added" \
+  "$(grep -c 'guard.sh' "$S") $(grep -A2 'guard.sh' "$S" | grep -c '"timeout": 3660') $(grep -c '"timeout": 660' "$S") $(grep -c 'theirs.sh' "$S")" "2 2 0 1"
+check "  and the installer says so" "$(printf '%s' "$R" | grep -c '"UserPromptSubmit timeout 3660","PreToolUse/Bash timeout 3660"')" 1
+check "  a second run finds nothing to do" "$(node "$HERE/settings-hooks.js" "$S" "$HERE" add | grep -c timeout)" 0
 node "$HERE/settings-hooks.js" "$S" "$HERE" add no-guard >/dev/null
 check "--no-guard leaves them out, and takes out ones already there" "$(grep -c 'guard.sh' "$S") $(grep -c 'theirs.sh' "$S")" "0 1"
 node "$HERE/settings-hooks.js" "$S" "$HERE" add >/dev/null

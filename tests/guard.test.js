@@ -29,6 +29,42 @@ if (args[0] === "anchors") {
   process.exit(0);
 }
 
+// What the window's boxes must show for a note, worked out here on its own
+// from what the rules find: each match with 40 characters on each side,
+// line breaks as ⏎, the match between \u0001 and \u0002; the command whole,
+// its matches marked; details.txt, the two for a Linux window, marked « ».
+//   node tests/guard.test.js expect <note file> prompt|bash <out dir>
+if (args[0] === "expect") {
+  var note = JSON.parse(fs.readFileSync(args[1], "utf8")), bash = args[2] === "bash", out = args[3];
+  var text = bash ? note.tool_input.command : note.prompt;
+  var src = fs.readFileSync(path.join(HERE, "redact.js"), "utf8");
+  var lib = new Function(src + "\nreturn [claudeHtmlRedactor];")();
+  var sure = {}; SURE.forEach(function (r) { sure[r] = true; });
+  var LABEL = JSON.parse(/var LABEL = (\{[\s\S]*?\});/.exec(fs.readFileSync(path.join(HERE, "guard.js"), "utf8"))[1]
+    .replace(/([{,]\s*)([a-z]+):/g, '$1"$2":').replace(/"(?:[^"\\]|\\.)*"/g, function (q) { return q; }));
+  var taken = [], lines = [];
+  lib[0]("", true, true, sure).find(text).forEach(function (m) {
+    var i = text.indexOf(m.value);
+    while (taken.some(function (t) { return i < t[1] && i + m.value.length > t[0]; })) i = text.indexOf(m.value, i + 1);
+    taken.push([i, i + m.value.length]);
+    var a = Math.max(0, i - 40), b = Math.min(text.length, i + m.value.length + 40);
+    var fl = function (x) { return x.split("\r\n").join("\n").split("\n").join(" \u23ce "); };
+    lines.push(LABEL[m.rule] + ":  " + (a > 0 ? "\u2026" : "") + fl(text.slice(a, i)) + "\u0001" + m.value + "\u0002" +
+      fl(text.slice(i + m.value.length, b)) + (b < text.length ? "\u2026" : ""));
+  });
+  fs.writeFileSync(path.join(out, "found"), lines.join("\n"));
+  var txt = "What was found (shown on this screen only, kept nowhere):\n\n" + lines.join("\n");
+  if (bash) {
+    taken.sort(function (x, y) { return x[0] - y[0]; });
+    var marked = "", at = 0;
+    taken.forEach(function (t) { marked += text.slice(at, t[0]) + "\u0001" + text.slice(t[0], t[1]) + "\u0002"; at = t[1]; });
+    fs.writeFileSync(path.join(out, "command"), marked + text.slice(at));
+    txt += "\n\n\nThe whole command, as Claude wrote it:\n\n" + text;
+  }
+  fs.writeFileSync(path.join(out, "details.txt"), txt.split("\u0001").join("\u00ab").split("\u0002").join("\u00bb") + "\n");
+  process.exit(0);
+}
+
 if (args[0] === "fixture") {
   var T = args[1];
   // One note per fake secret of a rule the guard uses: as a prompt, and as
@@ -70,6 +106,17 @@ if (args[0] === "fixture") {
     write_tool: JSON.stringify({ session_id: "sess-1", hook_event_name: "PreToolUse", tool_name: "Write",
       tool_input: { file_path: "/tmp/x", content: gh.text } })
   };
+  // A long command, as Claude writes one: a heredoc of thirty lines, a key
+  // in the middle, lines longer than any window.
+  var key = F.cases.filter(function (c) { return c.rule === "env-name"; })[2].secret;
+  var doc = ["cat > deploy.sh <<'EOF'", "#!/bin/bash", "set -euo pipefail",
+    "# Deploy the weather service: build it, push the image, restart the units, then check that it answers."];
+  for (var n = 1; doc.length < 14; n++) doc.push("echo \"step " + n + " of 26: preparing the release directory /srv/weather/releases/2026-11-24/build-" + n + "\"");
+  doc.push("export " + ["API", "_KEY"].join("") + "=" + key);
+  for (n = 1; doc.length < 28; n++) doc.push("curl -fsS -H \"X-Request: deploy-" + n + "\" https://weather.internal/api/v2/health/check?verbose=1&n=" + n);
+  doc.push("EOF", "chmod +x deploy.sh && ./deploy.sh");
+  notes.bash_heredoc = JSON.stringify({ session_id: "sess-1", hook_event_name: "PreToolUse", tool_name: "Bash",
+    permission_mode: "default", cwd: "/tmp/Weather", tool_input: { command: doc.join("\n") } });
   Object.keys(notes).forEach(function (k) { fs.writeFileSync(path.join(T, "note." + k), notes[k]); });
   fs.writeFileSync(path.join(T, "sure.txt"), SURE.join("\n") + "\n");
   process.exit(0);

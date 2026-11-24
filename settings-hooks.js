@@ -273,10 +273,24 @@ function run(argv) {
   });
 
   // The guard: before a prompt is sent, and before a Bash command runs. Its
-  // dialog waits up to ten minutes, and a hook Claude Code gives up on lets
-  // the prompt or the command through — its own default for a prompt hook
-  // is 30 seconds — so its timeout is ten minutes and a margin.
-  var guard = "bash " + quote(here + "/guard.sh");
+  // dialog waits CLAUDE_HTML_GUARD_WAIT, a minute unless the conf says
+  // otherwise, and at most an hour; a hook Claude Code gives up on lets the
+  // prompt or the command through — its own default for a prompt hook is 30
+  // seconds — so its timeout is the hour and a minute: any wait the conf
+  // can hold works the moment it is saved, with nothing reinstalled. One of
+  // an earlier install, with another timeout (660, for the ten minutes it
+  // once waited), is set to this one where it stands.
+  var guard = "bash " + quote(here + "/guard.sh"), GUARD_TIMEOUT = 3660;
+  function guardTimeouts(event, arg, matcher) {
+    var n = 0;
+    groups(event).forEach(function (g) {
+      if (matcher !== undefined && g.matcher !== matcher) return;
+      (g.hooks || []).forEach(function (h) {
+        if (isMine(h.command, "guard.sh", arg) && h.timeout !== GUARD_TIMEOUT) { h.timeout = GUARD_TIMEOUT; n++; }
+      });
+    });
+    return n;
+  }
   if (noGuard) {
     ["UserPromptSubmit", "PreToolUse"].forEach(function (event) {
       var keptGroups = [];
@@ -291,13 +305,17 @@ function run(argv) {
   } else if (!keepGuard || hadGuard) {
     if (!already("UserPromptSubmit", "guard.sh", "prompt")) {
       hooks.UserPromptSubmit = groups("UserPromptSubmit").concat([
-        { hooks: [{ type: "command", command: guard + " prompt", timeout: 660 }] }]);
+        { hooks: [{ type: "command", command: guard + " prompt", timeout: GUARD_TIMEOUT }] }]);
       added.push("UserPromptSubmit");
+    } else if (guardTimeouts("UserPromptSubmit", "prompt")) {
+      added.push("UserPromptSubmit timeout " + GUARD_TIMEOUT);
     }
     if (!already("PreToolUse", "guard.sh", "bash", "Bash")) {
       hooks.PreToolUse = groups("PreToolUse").concat([
-        { matcher: "Bash", hooks: [{ type: "command", command: guard + " bash", timeout: 660 }] }]);
+        { matcher: "Bash", hooks: [{ type: "command", command: guard + " bash", timeout: GUARD_TIMEOUT }] }]);
       added.push("PreToolUse/Bash");
+    } else if (guardTimeouts("PreToolUse", "bash", "Bash")) {
+      added.push("PreToolUse/Bash timeout " + GUARD_TIMEOUT);
     }
   }
 

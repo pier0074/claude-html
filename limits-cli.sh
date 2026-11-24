@@ -317,7 +317,13 @@ claude-html --limits notify $nn"
   fi
   ch_detect; CH_HERE="$HERE"
   local ans
-  ans="$(ch_confirm "Change claude-html limits?" "Asked by the Token usage page." "$rows" Apply)"
+  # The arrow on File: the very lines Apply writes, as ch_conf_set writes them.
+  local lines
+  lines="CLAUDE_HTML_LIMIT_RULES=$(ch_conf_value "$newrules")
+CLAUDE_HTML_BUDGET=$(ch_conf_value "$nb")
+CLAUDE_HTML_BUDGET_WARN=$(ch_conf_value "$nw")
+CLAUDE_HTML_LIMIT_NOTIFY=$(ch_conf_value "$nn")"
+  ans="$(ch_confirm "Change claude-html limits?" "Asked by the Token usage page." "$rows" Apply File: "$lines")"
   local rc=$?
   rm -rf "$ask"
   if [ $rc != 0 ]; then

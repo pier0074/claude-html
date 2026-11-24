@@ -6,21 +6,23 @@
 //   PreToolUse (Bash)  a command holding one is put to the user in Claude
 //                      Code's own permission dialog
 //
-//   osascript -l JavaScript guard.js prompt|bash <clone> <state> <list> <conf> [dialog]
-//   … answer-prompt|answer-bash <clone> <state> <list> <conf> cancel|allow|safe|stop
+//   osascript -l JavaScript guard.js prompt|bash <clone> <state> <list> <conf> [dialog <private folder>]
+//   … answer-prompt|answer-bash <clone> <state> <list> <conf> cancel|allow|safe|stop|timeout|"" <wait>
 //   node guard.js …
 //
 // With "dialog", someone is at the screen to answer: a match is put in
 // the pending state and {"choose": "<kinds>", …} returned (with, for a
-// command, its first line masked), guard.sh asks in a dialog, and the
+// command, its first line masked; what the window's boxes show is written
+// to files in the private folder, see details()), guard.sh asks in a dialog, and the
 // answer comes back as answer-…, with the same note. Allow, safe and stop
 // return no decision: what happens next is what would have happened
 // without the guard.
 //
 // Only the rules that are sure of themselves, from redact.js, and the
 // owner's own list. After a block, the very next prompt of the same session,
-// within ten minutes, may be one word, which is answered here and never
-// reaches Claude: cancel, allow, safe or stop.
+// within ten minutes of it (or of the window closing), may be one word,
+// which is answered here and never reaches Claude: cancel, allow, safe or
+// stop.
 //
 // It fails open: whatever goes wrong, it prints nothing, and the prompt or
 // the command goes ahead as if it were not here. The state it keeps holds
@@ -99,7 +101,12 @@ function guard(argv) {
   };
   var red = lib[0](read(LIST) || "", true, !JXA, SURE), fp = lib[1];
 
+  // What is pending lasts ten minutes for an answer in words. The window's
+  // answer comes once it has closed, <wait> seconds (argv[6], up to an
+  // hour) after the pending began: it must still find it, or the prompt
+  // would go through for want of it.
   var sid = String(note.session_id || ""), now = Date.now(), LIMIT = 10 * 60 * 1000;
+  if (/^answer-/.test(KIND)) LIMIT = Math.max(LIMIT, ((Number(argv[6]) || 0) + 60) * 1000);
   var st = null;
   try { st = JSON.parse(read(STATE) || "null"); } catch (e) { st = null; }
   // A state from another session, or too old, is no state.
@@ -166,9 +173,10 @@ function guard(argv) {
       "  allow   it is sensitive, send it this time only\n" +
       "  safe    it is not sensitive, send it and never ask again\n" +
       "  stop    turn this check off (claude-html --guard on turns it back on)";
-  // The dialog's limit, in words: 600 is "10 minutes".
+  // The dialog's limit, in words: 60 is "1 minute". The seconds come from
+  // guard.sh, which read the setting (platform.sh's ch_guard_wait).
   function span(secs) {
-    secs = Number(secs) || 600;
+    secs = Number(secs) || 60;
     return secs % 60 ? secs + " second" + (secs === 1 ? "" : "s")
                      : secs / 60 + " minute" + (secs === 60 ? "" : "s");
   }
@@ -197,6 +205,61 @@ function guard(argv) {
       l = l.slice(0, cut); more = true;
     }
     return l + (more ? " …" : "");
+  }
+  // What the dialog's boxes show, for the owner's eyes on his own screen
+  // only: each match with up to 40 characters on each side, the match
+  // itself between \u0001 and \u0002, one a line; and for a command, the
+  // command whole. Written to files in the folder guard.sh made private to
+  // its owner for this one window (argv[6]), never on a command line: the
+  // window reads them and deletes them, and guard.sh takes the folder away
+  // when the hook ends. details.txt is the same for a Linux window, the
+  // marks as « and ».
+  function places(text, found) {
+    var out = [];
+    found.forEach(function (m) {
+      var v = String(m.value || ""), from = 0, i = -1;
+      if (!v) return;
+      // The same value twice is two places; one inside another's is not.
+      for (;;) {
+        i = text.indexOf(v, from);
+        if (i < 0 || !out.some(function (p) { return i < p.b && i + v.length > p.a; })) break;
+        from = i + 1;
+      }
+      out.push({ rule: m.rule, a: i, b: i < 0 ? -1 : i + v.length, value: v });
+    });
+    return out;
+  }
+  function flat(s) { return s.replace(/\r?\n/g, " \u23ce ").replace(/[\u0000-\u001f\u007f]/g, " "); }
+  function cut(text, i, back) {   // a place to cut at, never inside a pair of surrogates
+    var c = text.charCodeAt(i);
+    return i > 0 && i < text.length && c >= 0xDC00 && c <= 0xDFFF ? i + (back ? -1 : 1) : i;
+  }
+  function context(text, p) {
+    var label = (LABEL[p.rule] || p.rule) + ":  ";
+    if (p.a < 0) return label + "\u0001" + flat(p.value) + "\u0002";
+    var a = cut(text, Math.max(0, p.a - 40), true), b = cut(text, Math.min(text.length, p.b + 40), false);
+    return label + (a > 0 ? "\u2026" : "") + flat(text.slice(a, p.a)) + "\u0001" + flat(text.slice(p.a, p.b)) + "\u0002" +
+      flat(text.slice(p.b, b)) + (b < text.length ? "\u2026" : "");
+  }
+  function details(text, found, isCommand) {
+    var dir = argv[6] || "";
+    if (!dir || !/^\//.test(dir)) return;
+    var ps = places(text, found);
+    var lines = ps.map(function (p) { return context(text, p); }).join("\n");
+    write(dir + "/found", lines);
+    var linux = "What was found (shown on this screen only, kept nowhere):\n\n" + lines;
+    if (isCommand) {
+      // The command as Claude wrote it, each place of a match marked.
+      var marked = "", at = 0;
+      ps.filter(function (p) { return p.a >= 0; }).sort(function (x, y) { return x.a - y.a; }).forEach(function (p) {
+        if (p.a < at) return;
+        marked += text.slice(at, p.a) + "\u0001" + text.slice(p.a, p.b) + "\u0002"; at = p.b;
+      });
+      marked += text.slice(at);
+      write(dir + "/command", marked);
+      linux += "\n\n\nThe whole command, as Claude wrote it:\n\n" + text;
+    }
+    write(dir + "/details.txt", linux.replace(/\u0001/g, "\u00ab").replace(/\u0002/g, "\u00bb") + "\n");
   }
   // The project, as the index names it: the last folder of where it runs.
   function project() {
@@ -234,6 +297,8 @@ function guard(argv) {
     if (ARG === "cancel") { save(); return bash ? refuse(kindsOf(pa)) : block("Dropped. Nothing was sent."); }
     // Nobody answered in time: Cancel, and the words still work after it.
     if (ARG === "timeout") {
+      // The ten minutes for words start now, when the window has closed.
+      pa.time = now;
       st.pending = pa;
       save();
       var late = "sensitive information was detected (" + kindsOf(pa) + ") and nobody answered within " + span(argv[6]) + ".";
@@ -248,6 +313,7 @@ function guard(argv) {
       });
     }
     // No answer at all: as if there were no dialog, the answer still open.
+    pa.time = now;
     st.pending = pa;
     save();
     return bash ? askOrRefuse(kindsOf(pa)) : block(TEXT.replace("%", kindsOf(pa)));
@@ -283,7 +349,7 @@ function guard(argv) {
     // hook while the dialog waits, what was found is still on record.
     pend(found);
     save();
-    if (ARG === "dialog") return JSON.stringify({ choose: summary(found), project: project() });
+    if (ARG === "dialog") { details(prompt, found, false); return JSON.stringify({ choose: summary(found), project: project() }); }
     return block(TEXT.replace("%", summary(found)));
   }
 
@@ -294,7 +360,10 @@ function guard(argv) {
     pend(hits);
     save();
     var kinds = summary(hits);
-    if (ARG === "dialog") return JSON.stringify({ choose: kinds, project: project(), command: firstLine(note.tool_input.command) });
+    if (ARG === "dialog") {
+      details(note.tool_input.command, hits, true);
+      return JSON.stringify({ choose: kinds, project: project(), command: firstLine(note.tool_input.command) });
+    }
     return askOrRefuse(kinds);
   }
   return "";

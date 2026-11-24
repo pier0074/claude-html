@@ -10,13 +10,30 @@ Every Claude Code conversation you have, kept forever and readable in your
 browser: searchable, diffed, costed, and resumable with one click. One-line
 install, nothing to add, and it builds itself while you work.
 
-![The index: every session, full-text search, cost and tokens, a resume button per row](docs/index-dark.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/index-dark.png">
+  <img src="docs/index-light.png" width="740" alt="The index: every session, full-text search, cost and tokens, a resume button per row">
+</picture>
 
-![A session: numbered prompts, labelled tool calls, real diffs, and what it cost](docs/session-dark.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/session-dark.png">
+  <img src="docs/session-light.png" width="740" alt="A session: numbered prompts, labelled tool calls, real diffs, and what it cost">
+</picture>
 
-![The token dashboard: by week, month or all time, stacked by model](docs/usage-dark.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/usage-dark.png">
+  <img src="docs/usage-light.png" width="740" alt="The token dashboard: by week, month or all time, stacked by model">
+</picture>
 
-![The same tokens by project](docs/usage-project-dark.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/usage-project-dark.png">
+  <img src="docs/usage-project-light.png" width="740" alt="The same tokens by project">
+</picture>
+
+<p>
+  <img src="docs/guard-dialog.png" width="400" align="top" alt="The guard's dialog: where, what was found, four choices">
+  <img src="docs/limits-stop.png" width="400" align="top" alt="The stop window: the week, the rule, four choices">
+</p>
 
 ## Why
 
@@ -57,7 +74,7 @@ git clone https://github.com/pier0074/claude-html ~/claude-html
 cd ~/claude-html && ./install.sh
 ```
 
-For a given release, add `--branch v3.3.0` to the clone;
+For a given release, add `--branch v3.4.0` to the clone;
 [CHANGELOG.md](CHANGELOG.md) says what each one brought.
 
 Nothing else to install. macOS uses its own `osascript`; Linux uses `node`,

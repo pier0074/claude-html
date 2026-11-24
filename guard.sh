@@ -61,9 +61,10 @@ if [ ! -f "$STATE" ] &&
 fi
 
 # The folder for the state, and nothing left in it from sessions long gone:
-# a state is no state after ten minutes.
+# a state is no state after ten minutes, but one behind a window still open
+# — up to the longest CLAUDE_HTML_GUARD_WAIT, an hour — is still answered.
 mkdir -p "$GUARD_DIR" 2>/dev/null
-find "$GUARD_DIR" -type f -mmin +60 -exec rm -f {} + 2>/dev/null
+find "$GUARD_DIR" -type f -mmin +75 -exec rm -f {} + 2>/dev/null
 
 # Which engine: picked once a day and remembered, since asking node for its
 # version on every prompt would cost more than the check itself.
@@ -89,7 +90,18 @@ fi
 # to ask about, and before anything is opened.
 CH_HERE="$HERE"; DIALOG=dialog
 ch_is_off "$CLAUDE_HTML_GUARD_DIALOG" && DIALOG=""
-OUT_JSON="$(printf '%s' "$NOTE" | ch_js "$HERE/guard.js" "$KIND" "$HERE" "$STATE" "$LIST" "$CONF" "$DIALOG" 2>/dev/null)" || exit 0
+# What the window's boxes show — what was found, in its context, and the
+# whole command — may be the secret itself. It goes to the window by files
+# in a folder made by mktemp, readable by its owner only, never as an
+# argument (any local process can read those); the window deletes each file
+# as it reads it, and the folder goes when this hook ends, however it ends.
+DDIR=""
+if [ -n "$DIALOG" ]; then
+  DDIR="$(mktemp -d "${TMPDIR:-/tmp}/chguard.XXXXXX" 2>/dev/null)" || DDIR=""
+  trap '[ -n "$DDIR" ] && rm -rf "$DDIR"' EXIT
+  trap 'exit 0' HUP INT TERM
+fi
+OUT_JSON="$(printf '%s' "$NOTE" | ch_js "$HERE/guard.js" "$KIND" "$HERE" "$STATE" "$LIST" "$CONF" "$DIALOG" "$DDIR" 2>/dev/null)" || exit 0
 case "$OUT_JSON" in
   '{"choose":'*)
     FOUND="$(printf '%s' "$OUT_JSON" | sed -n 's/^{"choose":"\([^"]*\)".*/\1/p')"
@@ -102,10 +114,12 @@ case "$OUT_JSON" in
         CMD="${OUT_JSON#*,\"command\":\"}"; CMD="${CMD%\"\}}"
         CMD="${CMD//\\\\/$'\001'}"; CMD="${CMD//\\\"/\"}"; CMD="${CMD//$'\001'/\\}" ;;
     esac
+    # Folders an earlier hook could not take away (killed outright) go too.
+    find "${TMPDIR:-/tmp}" -maxdepth 1 -type d -name 'chguard.*' -user "$(id -u)" -mmin +30 -exec rm -rf {} + 2>/dev/null
     ANS=""
     # No one to ask is no answer, which is the answer in words, as the
     # next prompt.
-    if ch_detect 2>/dev/null && ch_can_ask; then ANS="$(ch_choose "$KIND" "$PROJ" "$FOUND" "$CMD" 2>/dev/null)" || ANS=""; fi
+    if ch_detect 2>/dev/null && ch_can_ask; then ANS="$(ch_choose "$KIND" "$PROJ" "$FOUND" "$CMD" "$DDIR" 2>/dev/null)" || ANS=""; fi
     OUT_JSON="$(printf '%s' "$NOTE" | ch_js "$HERE/guard.js" "answer-$KIND" "$HERE" "$STATE" "$LIST" "$CONF" "$ANS" "$CH_GUARD_LIMIT" 2>/dev/null)" || exit 0 ;;
 esac
 # Only a decision is ever passed on: never an error, never anything else.

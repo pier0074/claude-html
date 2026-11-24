@@ -311,17 +311,62 @@ check "over ssh: in words" "$(dlg Cancel "fix the bug" SSH_CONNECTION="10.0.0.1 
 . "$HERE/platform.sh"
 check "macOS: osascript runs dialog.js with the rows and the last two choices" \
   "$(CH_DIALOG=osascript CH_HERE="$HERE" CH_DRY=1 ch_choose_limit "Weekly limit rule reached" "Used:" "81 % of the week  ·  resets Tue 08:00" "Rule:" "from Fri 20:00, stop at 80 %" "Allow until the reset — no more asking this week" "Stop — turn this rule off")" \
-  "'osascript' '-l' 'JavaScript' '$HERE/dialog.js' 'limits' 'Weekly limit rule reached' 'Used:' '81 % of the week  ·  resets Tue 08:00' 'Rule:' 'from Fri 20:00, stop at 80 %' 'Allow until the reset — no more asking this week' 'Stop — turn this rule off'"
+  "'osascript' '-l' 'JavaScript' '$HERE/dialog.js' '--limit' '60' 'limits' 'Weekly limit rule reached' 'Used:' '81 % of the week  ·  resets Tue 08:00' 'Rule:' 'from Fri 20:00, stop at 80 %' 'Allow until the reset — no more asking this week' 'Stop — turn this rule off'"
+check "  the rules box: in a private file, its path given, never its text" \
+  "$(CH_DIALOG=osascript CH_HERE="$HERE" CH_DRY=1 ch_choose_limit "Weekly limit rule reached" "Used:" "81 %" "Rule:" "r" "c3" "c4" "$(printf 'CLAUDE_HTML_LIMIT_RULES=x\nrules')")" \
+  "'osascript' '-l' 'JavaScript' '$HERE/dialog.js' '--box' 'Rule:' '${TMPDIR:-/tmp}/chguard.XXXXXX/box' '--limit' '60' 'limits' 'Weekly limit rule reached' 'Used:' '81 %' 'Rule:' 'r' 'c3' 'c4'"
+check "  on Linux, in the text, with the time limit" \
+  "$(CH_DIALOG=zenity CH_DRY=1 ch_choose_limit h k1 v1 k2 v2 c3 c4 "the rules here" | grep -c -e '^the rules here$' -e '^Closes after 1 minute — counts as Cancel.' )" 2
 check "kdialog: a radio list, Cancel on" \
   "$(CH_DIALOG=kdialog CH_DRY=1 ch_choose_limit "Weekly limit rule reached" "Used:" "81 %" "Rule:" "r" "c3" "c4" | grep -c "'cancel' 'Cancel — do not send' 'on' 'allow' 'Allow once — send this prompt only' 'off' 'until' 'c3' 'off' 'stop' 'c4' 'off'")" 1
 check "xmessage: four buttons, Cancel the default" \
   "$(CH_DIALOG=xmessage CH_DRY=1 ch_choose_limit h k1 v1 k2 v2 c3 c4 | grep -c "'-buttons' 'Cancel:1,Allow once:2,Until the reset:3,Stop:4' '-default' 'Cancel'")" 1
 if [ "$HAVE_OSASCRIPT" = true ]; then
   # A picture, and the window closes at once: nothing waits on anyone.
-  osascript -l JavaScript "$HERE/dialog.js" limits "Weekly limit rule reached" "Used:" "81 % of the week" "Rule:" "from Fri 20:00, stop at 80 %" c3 c4 "$T/stop.png" >/dev/null 2>&1
-  osascript -l JavaScript "$HERE/dialog.js" confirm "Change claude-html limits?" "Asked by the Token usage page." "$(printf 'Stop rules:\tfrom Fri 20:00, stop at 80 %%')" "$T/confirm.png" >/dev/null 2>&1
+  osascript -l JavaScript "$HERE/dialog.js" --limit 8 --snap "$T/stop.png" limits "Weekly limit rule reached" "Used:" "81 % of the week" "Rule:" "from Fri 20:00, stop at 80 %" c3 c4 >/dev/null 2>&1
+  osascript -l JavaScript "$HERE/dialog.js" --limit 8 --snap "$T/confirm.png" confirm "Change claude-html limits?" "Asked by the Token usage page." "$(printf 'Stop rules:\tfrom Fri 20:00, stop at 80 %%')" >/dev/null 2>&1
   check "macOS: both windows draw" "$(head -c 4 "$T/stop.png" | od -c | head -1 | grep -c 'P   N   G') $(head -c 4 "$T/confirm.png" | od -c | head -1 | grep -c 'P   N   G')" "1 1"
 fi
+
+# The Mac window's boxes, through a stand-in osascript on a simulated Mac:
+# the rules (or the budget) as the conf holds them, and for the
+# confirmation the very lines Apply writes; each in a private file, its
+# path the only argument, the file and its folder gone once it closes.
+mkdir -p "$T/mac" "$T/mtmp"
+cat > "$T/mac/osascript" <<'STUB'
+#!/bin/bash
+case "$*" in *dialog.js*) ;; *) exit 1 ;; esac
+printf '%s\n' "$@" > "$STUB_REC.argv"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --box|--pre) echo "$3" > "$STUB_REC.file"; ls -ld "${3%/*}" "$3" | cut -c1-10 | tr '\n' ' ' > "$STUB_REC.modes"
+                 cat "$3" > "$STUB_REC.content"; rm -f "$3"; shift 3 ;;
+    *) shift ;;
+  esac
+done
+echo "$STUB_ANSWER"
+STUB
+printf '#!/bin/sh\necho Aqua\n' > "$T/mac/launchctl"; chmod +x "$T/mac/osascript" "$T/mac/launchctl"
+macdlg() {   # answer prompt
+  note "$2" | env -i PATH="$T/mac:$T/stub:$PATH" HOME="$H" TZ="$TZ" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_TEST_NOW="$NOW" \
+    CLAUDE_HTML_REDACT_FILE="$T/none" CLAUDE_HTML_UNAME=Darwin TMPDIR="$T/mtmp" STUB_REC="$T/mrec" STUB_ANSWER="$1" \
+    CLAUDE_HTML_GUARD_TEST_LIMIT=120 /bin/bash "$HERE/guard.sh" prompt
+}
+conf "$RULES"; fig "$NOW" 81; rm -f "$MARKS" "$T"/mrec.*; rm -rf "$H/.claude/.claude-html-guard"
+check "Mac stop window, Cancel: dropped" "$(macdlg cancel "fix the bug" | reason)" "block: Dropped. Nothing was sent."
+check "  the arrow on Rule: opens every rule, the one reached marked, as the conf holds them" \
+  "$(cat "$T/mrec.content")" 'CLAUDE_HTML_LIMIT_RULES="fri 20:00 80% · sat 00:00 90%"
+in ~/.claude/claude-html.conf
+
+  1  from Fri 20:00, stop at 80 %   ← reached
+  2  from Sat 00:00, stop at 90 %
+
+claude-html --limits remove 1   takes this rule out'
+check "  given by its path, in a private file and folder, both gone after" \
+  "$(grep -cx -- '--box' "$T/mrec.argv") $(grep -cx 'Rule:' "$T/mrec.argv") $(cat "$T/mrec.modes")$([ -e "$(dirname "$(cat "$T/mrec.file")")" ] && echo left || echo gone) $(ls -A "$T/mtmp" | wc -l | tr -d ' ')" \
+  "1 2 drwx------ -rw------- gone 0"
+check "  and its countdown is the test's limit" "$(grep -A1 -x -- '--limit' "$T/mrec.argv" | tail -1)" 120
+conf "$RULES"
 
 # The budget, for API use: stopped at 100 %, not before, not on a plan.
 conf 'CLAUDE_HTML_BUDGET="50 week"' 'CLAUDE_HTML_WEEK_RESET="tue 07:00 UTC"'
@@ -522,6 +567,18 @@ check "  listing every value, the new rule marked" \
   "$(printf '%s\n' "$D" | grep -c '^Stop rules:  from Fri 20:00, stop at 80 %$') $(printf '%s\n' "$D" | grep -c '^      from Sun 12:00, stop at 95 %   (new)$') $(printf '%s\n' "$D" | grep -c '^Budget:  \$20 per day, for API use$') $(printf '%s\n' "$D" | grep -c '^Budget warnings:  at 70 % and 90 %, for API use$') $(printf '%s\n' "$D" | grep -c '^Notification:  on$') $(printf '%s\n' "$D" | grep -c '^File:  ~/.claude/claude-html.conf')" \
   "1 1 1 1 1 1"
 check "  and nothing written while it was only shown" "$(cmp -s "$CONFF" "$T/conf.before" && echo same)" same
+rm -f "$T"/mrec.*
+check "on a Mac: the window, Cancel; nothing changed" \
+  "$(cli --limits-apply "v1/fri-2000-80.sun-1200-95/20-day/70-90/on" CLAUDE_HTML_UNAME=Darwin PATH="$T/mac:$T/stub:$PATH" TMPDIR="$T/mtmp" STUB_REC="$T/mrec" STUB_ANSWER=cancel) $(cmp -s "$CONFF" "$T/conf.before" && echo same)" \
+  "Nothing was changed. same"
+check "  the arrow on File: opens the very lines Apply writes" "$(cat "$T/mrec.content")" \
+  'CLAUDE_HTML_LIMIT_RULES="fri 20:00 80% · sun 12:00 95%"
+CLAUDE_HTML_BUDGET="20 day"
+CLAUDE_HTML_BUDGET_WARN="70 90"
+CLAUDE_HTML_LIMIT_NOTIFY="on"'
+check "  by a private file, gone after; the window counts down the same limit" \
+  "$(grep -c -x 'File:' "$T/mrec.argv") $(cat "$T/mrec.modes")$(ls -A "$T/mtmp" | wc -l | tr -d ' ') $(grep -A1 -x -- '--limit' "$T/mrec.argv" | tail -1)" \
+  "1 drwx------ -rw------- 0 2"
 # A folder with the stand-in zenity alone: the rebuild after Apply needs
 # the real engines.
 mkdir -p "$T/zen"; cp "$T/stub/zenity" "$T/zen/"

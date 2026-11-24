@@ -79,6 +79,16 @@ check "a later bare install leaves them out, the guard off" \
 check "  and keeps --out and --root" "$(conf_get CLAUDE_HTML_ROOT) | $(conf_get CLAUDE_HTML_OUT)" "$ROOT | $PAGES"
 clean_env bash "$C/claude-html" --guard on >/dev/null 2>&1
 install
+check "  each with the hour and a minute any wait fits in" "$(grep -A2 'guard.sh' "$H/.claude/settings.json" | grep -c '"timeout": 3660')" 2
+# An install from when the window waited ten minutes: its two at 660.
+node -e 'var fs=require("fs"),p=process.argv[1],s=JSON.parse(fs.readFileSync(p,"utf8"));
+  ["UserPromptSubmit","PreToolUse"].forEach(function(e){s.hooks[e].forEach(function(g){g.hooks.forEach(function(h){
+    if (/guard\.sh/.test(h.command)) h.timeout=660;});});});
+  fs.writeFileSync(p,JSON.stringify(s,null,2))' "$H/.claude/settings.json"
+install
+check "an older install's 660 is set to 3660 by the next install, in place, not doubled" \
+  "$(grep -c 'guard.sh' "$H/.claude/settings.json") $(grep -A2 'guard.sh' "$H/.claude/settings.json" | grep -c '"timeout": 3660') $(grep -c '"timeout": 660' "$H/.claude/settings.json")" "2 2 0"
+check "  and it says so" "$(grep -c 'hooks:    UserPromptSubmit timeout 3660, PreToolUse/Bash timeout 3660' "$T/install.out")" 1
 check "turned on again, the next install puts the hooks back, once" "$(grep -c 'guard.sh' "$H/.claude/settings.json")" 2
 check "installs from a path with a space" "$?" 0
 check "  writes the projects given" "$(conf_get CLAUDE_HTML_ROOT)" "$ROOT"
@@ -186,6 +196,13 @@ check "  another clone's hooks, and a gone one's, are replaced as a set by this 
   "$(grep -cF "$OLD/" "$S2") $(grep -cF "$GONE/" "$S2") $(grep -cF "$C/" "$S2")" "0 0 7"
 check "  and the installer says so" "$(printf '%s' "$R" | grep -c 'replaced 5 hook(s) of')" 1
 check "  counting the user's as theirs" "$(printf '%s' "$R" | sed -n 's/.*"theirs":\([0-9]*\).*/\1/p')" 3
+node -e 'var fs=require("fs"),p=process.argv[1],s=JSON.parse(fs.readFileSync(p,"utf8"));
+  ["UserPromptSubmit","PreToolUse"].forEach(function(e){s.hooks[e].forEach(function(g){g.hooks.forEach(function(h){
+    if (/claude-html\/guard\.sh/.test(h.command)) h.timeout=660;});});});
+  fs.writeFileSync(p,JSON.stringify(s,null,2))' "$S2"
+sh_js add >/dev/null
+check "  under this engine too, a 660 of this clone's becomes 3660 in place" \
+  "$(grep -cF "$C/guard.sh" "$S2") $(grep -A2 -F "$C/guard.sh" "$S2" | grep -c '"timeout": 3660') $(grep -c '"timeout": 660' "$S2") $(theirs3)" "2 2 0 1 1 1"
 sh_js add no-guard >/dev/null
 check "--no-guard takes out this clone's guard only" \
   "$(grep -cF "$C/guard.sh" "$S2") $(theirs3)" "0 1 1 1"
@@ -267,6 +284,7 @@ mkdir -p "$H/.claude/.claude-html-guard"; : > "$H/.claude/.claude-html-guard/ses
 : > "$H/.claude/claude-html.archives"
 clean_env bash "$C/install.sh" --uninstall > "$T/install.out" 2>&1
 check "  and uninstalling takes its own away" "$([ -L "$H/.local/bin/claude-html" ] && echo there || echo gone)" gone
+check "  and the guard's hooks, the timeout upgraded or not" "$(grep -c 'guard.sh' "$H/.claude/settings.json")" 0
 check "  and its own state in ~/.claude, leaving the conf and the archive list" \
   "$(ls -A "$H/.claude" | grep -c "^\.claude-html") $(exists "$CONF") $(exists "$H/.claude/claude-html.archives")" "0 yes yes"
 

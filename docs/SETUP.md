@@ -285,7 +285,27 @@ passwords in URLs, after `-u`, `sshpass -p`, `mysql -p`, names in capitals,
 On a match it stops and asks. With someone at the screen, in a window,
 which for a command also shows its first line, masked:
 
-![The guard's dialog: where, what was found, four choices](guard-dialog.png)
+<img src="guard-dialog.png" width="440" alt="The guard's dialog: where, what was found, four choices">
+
+Every text in the window can be selected and copied with ⌘C. **Found ▸**
+and, for a command, **Command ▸** are disclosure arrows, closed until you
+click them; the window grows to fit and shrinks back when closed:
+
+- **Found ▸** shows each match on its own line: the rule, the matched text
+  in **bold red**, 40 characters on each side (line breaks shown as ⏎).
+  This is the secret itself, on your screen, only once you open it.
+- **Command ▸** shows the whole command, every line, exactly as Claude
+  wrote it, unmasked; long lines scroll sideways rather than wrap.
+
+Each box scrolls past a fixed height, and its **copy** button puts its whole
+text on the clipboard. Neither ever travels on a command line (other local
+processes can read those): the hook writes them to files in a folder made
+by `mktemp -d`, readable by you only; the window deletes each file as it
+reads it, and the folder goes when the hook ends, however it ends. The
+guard's state still holds fingerprints only.
+
+Bottom left, beside OK, **Cancel in 0:59** counts down the wait: a minute
+unless `CLAUDE_HTML_GUARD_WAIT` says otherwise (see the settings below).
 
 | Answer | Prompt | Command |
 | ------ | ------ | ------- |
@@ -294,11 +314,12 @@ which for a command also shows its first line, masked:
 | **Safe** | sent, never asked about again, and shown in saved pages | the same |
 | **Stop** | sent, and the guard turned off | the same |
 
-It waits ten minutes. Then it closes, as Cancel, and the terminal says so.
+At 0:00 the window closes by itself, as Cancel, and the terminal says so.
 
 With nobody to ask — over ssh, no desktop, `CLAUDE_HTML_GUARD_DIALOG=off`,
 or the dialog failed — the prompt is stopped and the answer is typed as the
-very next prompt, in the same session, within ten minutes:
+very next prompt, in the same session, within ten minutes (of the block,
+or of the window closing unanswered):
 
 ```text
 ⚠ claude-html: your prompt has been interrupted — sensitive information detected (GitHub token (1)).
@@ -318,10 +339,14 @@ allow = run once); with permissions bypassed it is refused instead.
 | ------- | ---------- | ------- |
 | `CLAUDE_HTML_GUARD` | `on` (prompts and commands), `prompt` (prompts only), `off` | `on` |
 | `CLAUDE_HTML_GUARD_DIALOG` | `off` always asks in words, as the next prompt | `on` |
+| `CLAUDE_HTML_GUARD_WAIT` | how long its window, the limits' stop window and their confirmation wait before closing as Cancel, and where their countdown starts: `45`, `45s`, `2m`, `1m30s`, from 30 seconds to 60 minutes. A value that is not one is not obeyed: the default applies, and `--guard status`, `--guard wait` and `--doctor` say it was ignored | `1m` |
 
 ```bash
 claude-html --guard status   # the mode, the hooks, the safe values by rule and date
 claude-html --guard prompt   # on, off, prompt: one line in the conf
+claude-html --guard wait     # how long the windows wait, from where, and the range
+claude-html --guard wait 2m  # set it (checked first: a bad value changes nothing)
+claude-html --guard wait default   # its line out of the conf: a minute again
 ```
 
 **What Safe keeps**: a line `safe:<salt>:<hash>   # github, 2026-11-19` in
@@ -337,10 +362,21 @@ documentation says of every blocked prompt.
 
 **If Claude Code gives up on the hook**, it sends the prompt or runs the
 command. Its hooks' default time for a prompt is 30 seconds, so the
-installer sets 660 for the guard's two: past the dialog's ten minutes.
+installer sets 3660 for the guard's two: past the longest wait, 60
+minutes, so a wait changed in the conf works at once, with nothing
+reinstalled. An install from before, with 660, is set to 3660 where it
+stands by the next `./install.sh` (an update runs it).
 
 On Linux the dialog is zenity's, kdialog's, yad's or xmessage's, so its
-look is the desktop's; their own Cancel button is the Cancel choice.
+look is the desktop's; their own Cancel button is the Cancel choice. None
+of them has disclosure boxes or a live countdown, and each takes its text
+as an argument, where a secret must not go. So the question names the kinds
+and the masked first line only, says "Closes after 1 minute — counts as
+Cancel" (or the wait you set), and offers **Details** (a button; a fifth entry in kdialog's
+list): it opens the tool's own text window (`zenity --text-info`, `yad
+--text-info`, `kdialog --textbox`, `xmessage -file`) on the private file —
+what was found, marked `«…»`, then the whole command — selectable there,
+and then the question again, within the same wait.
 
 ## Limits and budget
 
@@ -392,7 +428,7 @@ CLAUDE_HTML_LIMIT_RULES="fri 20:00 80% · sat 00:00 90%"   # or joined by commas
 The stop is gentle: only a **new prompt** waits, in the guard's own window,
 Cancel picked already:
 
-![The stop window: the week, the rule, four choices](limits-stop.png)
+<img src="limits-stop.png" width="440" alt="The stop window: the week, the rule, four choices">
 
 | Answer | What happens |
 | ------ | ------------ |
@@ -401,7 +437,9 @@ Cancel picked already:
 | **Allow until the reset** | no more asking until the week's `resets_at` |
 | **Stop** | sent, and that rule taken out of the conf (`claude-html --limits add …` brings it back) |
 
-As the guard's: ten minutes, then Cancel; with nobody at the screen the
+Its **Rule ▸** (or **Budget ▸**) arrow opens your rules as the conf holds
+them, the one reached marked, and the command that takes it out. As the
+guard's: a countdown, `CLAUDE_HTML_GUARD_WAIT` (a minute), then Cancel; with nobody at the screen the
 answer is the next prompt, one word, `cancel`, `allow`, `until` or `stop`.
 Figures more than six hours old, or none yet, never stop anything: the
 window and `claude-html --limits` say "no recent usage values". A rule
@@ -453,7 +491,9 @@ section with the same settings. The page never writes a file: **copy
 command** gives the change as `claude-html --limits` lines, and **apply**
 (where the helper app or the Linux link handler is) opens a
 `claude-html://limits/…` link, which asks in a window of its own, listing
-every value it will write, Cancel the default. Only Apply writes the conf
+every value it will write, Cancel the default; its **File ▸** arrow shows
+the exact conf lines Apply writes, and "closes in 0:59 — nothing changed"
+counts down beside the buttons (on Linux the lines are in the question). Only Apply writes the conf
 and rebuilds the pages. The link holds the values in a fixed form and
 nothing else, at most 160 characters; the helper, `handler.sh` and the
 command each refuse anything else. Without a window to ask in (no desktop),
@@ -621,7 +661,7 @@ Knobs the tests set; nothing needs them day to day.
 | `CLAUDE_HTML_TRASH` | a folder `--delete` moves into instead of the Trash |
 | `CLAUDE_HTML_TRANSCRIPT` | the transcript a detached save was handed (set by the hook itself) |
 | `CLAUDE_HTML_DETACHED` | marks the detached copy of a session-end save (set by the hook itself) |
-| `CLAUDE_HTML_GUARD_TEST_LIMIT` | seconds the guard's dialog (and the stop and confirmation windows) waits, instead of ten minutes |
+| `CLAUDE_HTML_GUARD_TEST_LIMIT` | seconds the guard's dialog (and the stop and confirmation windows) waits, over `CLAUDE_HTML_GUARD_WAIT` and without its 30-second floor; the windows' countdown counts it |
 | `CLAUDE_HTML_TEST_NOW` | the time, in epoch seconds, that the limits take for now |
 | `CLAUDE_HTML_STATUSLINE_TEST_LIMIT` | seconds the status line waits for the one it wraps, instead of three |
 | `CLAUDE_HTML_UPDATE_REMOTE` | the release repository, a URL or a path, instead of GitHub's |

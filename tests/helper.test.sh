@@ -109,6 +109,43 @@ check "  a second window within a minute is refused" \
   "an update window was opened less than a minute ago; nothing was opened 1"
 check "  and can be run" "$([ -x "$L" ] && echo yes)" yes
 
+
+# ── the windows, for real ────────────────────────────────────────────
+# Each one shown, then closed by itself: a test's limit of a few seconds,
+# and a hard stop past it, so none can stay on the screen of whoever runs
+# the suite.
+realwin() {   # seconds args…
+  local lim="$1"; shift
+  osascript -l JavaScript "$HERE/dialog.js" "$@" 2>/dev/null & local p=$!
+  ( sleep "$lim"; kill "$p" 2>/dev/null ) >/dev/null 2>&1 & local w=$!
+  wait "$p"; local rc=$?; kill "$w" 2>/dev/null; wait "$w" 2>/dev/null
+  return $rc
+}
+box() {   # name text: a private file, as guard.sh makes them
+  (umask 077; printf '%s' "$2" > "$T/$1")
+}
+box found "$(printf 'GitHub token:  …deploy with \001%s\002 and …' "not-a-secret-value")"
+box command "$(printf 'echo one\necho two')"
+OUTS="$(realwin 20 --limit 10 --box Found: "$T/found" --pre Command: "$T/command" --selftest "$T/selftest" bash Weather "GitHub token (1)" "echo one …")"
+check "the guard's window: it ran, and read and deleted its private files before drawing" \
+  "$OUTS $([ -e "$T/found" ] || [ -e "$T/command" ] && echo left || echo gone)" "cancel gone"
+check "  a selected title, ⌘C: copied, through the Edit menu the window installs" \
+  "$(grep '^cmd-c=' "$T/selftest")" "cmd-c=Claude's command has been interrupted"
+check "  Found ▸ opens a box and the window grows" "$(grep '^open=' "$T/selftest")" "open=1 grew=1"
+check "  its copy button copies the box's whole text, unmarked, and says so" "$(grep '^copy=' "$T/selftest")" "copy=same title=copied"
+check "  closed again, the window is as it was" "$(grep '^closed=' "$T/selftest")" "closed=1 back=1"
+check "  and the clipboard holds none of the test's text" "$(pbpaste 2>/dev/null | grep -c "interrupted\|nothing copied\|not-a-secret-value")" 0
+check "the countdown closes the window at 0:00, as no answer" \
+  "$(realwin 15 --limit 2 prompt P "GitHub token (1)") $(realwin 15 --limit 2 limits h k1 v1 k2 v2 c3 c4) $(realwin 15 --limit 2 confirm T S "$(printf 'A:\tb')")" \
+  "timeout timeout timeout"
+box rule "CLAUDE_HTML_LIMIT_RULES=\"fri 20:00 80%\""
+box lines "CLAUDE_HTML_LIMIT_NOTIFY=\"on\""
+realwin 15 --limit 8 --box Rule: "$T/rule" --open Rule: --snap "$T/stop.png" limits "Weekly limit rule reached" "Used:" "81 %" "Rule:" "from Fri 20:00, stop at 80 %" c3 c4 >/dev/null
+realwin 15 --limit 8 --box File: "$T/lines" --open File: --snap "$T/confirm.png" confirm "Change claude-html limits?" "Asked by the Token usage page." "$(printf 'File:\t~/.claude/claude-html.conf')" >/dev/null
+check "the stop and confirmation windows draw, their box open" \
+  "$(head -c 4 "$T/stop.png" | od -c | head -1 | grep -c 'P   N   G') $(head -c 4 "$T/confirm.png" | od -c | head -1 | grep -c 'P   N   G') $(ls "$T/rule" "$T/lines" 2>/dev/null | wc -l | tr -d ' ')" "1 1 0"
+check "no window of a test is left running" "$(pgrep -f "$HERE/dialog.js" | wc -l | tr -d ' ')" 0
+
 echo
 echo "  $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

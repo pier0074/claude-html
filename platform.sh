@@ -449,23 +449,100 @@ ch_can_ask() {
   esac
 }
 
+# How long the windows wait — the guard's, the stop window, the limits'
+# confirmation — before they close as Cancel: CLAUDE_HTML_GUARD_WAIT, read
+# here and nowhere else (the JavaScript is handed the seconds). Written 45,
+# 45s, 2m or 1m30s, from 30 seconds to 60 minutes; the hooks' own timeout,
+# 3660, is past the longest. Into _WS, in seconds; returns 1 for what is
+# not a wait, 2 for one out of range. No command is started: the hook runs
+# this on every prompt that holds something.
+CH_WAIT_DEFAULT=60; CH_WAIT_MIN=30; CH_WAIT_MAX=3600
+ch_wait_secs() {   # text
+  _WS=""; _wt="$1"
+  _wt="${_wt#"${_wt%%[![:space:]]*}"}"; _wt="${_wt%"${_wt##*[![:space:]]}"}"
+  _wm=0; _wx=0
+  case "$_wt" in
+    ''|*[!0-9mMsS]*) return 1 ;;
+    [0-9]*[mM][0-9]*[sS]) _wm="${_wt%%[mM]*}"; _wx="${_wt#*[mM]}"; _wx="${_wx%[sS]}" ;;
+    [0-9]*[mM]) _wm="${_wt%[mM]}" ;;
+    [0-9]*[sS]) _wx="${_wt%[sS]}" ;;
+    *) _wx="$_wt" ;;
+  esac
+  for _wd in "$_wm" "$_wx"; do
+    case "$_wd" in ''|*[!0-9]*) return 1 ;; esac
+    [ "${#_wd}" -le 5 ] || return 2
+  done
+  # Without their leading zeros, which arithmetic would read as octal.
+  while :; do case "$_wm" in 0?*) _wm="${_wm#0}" ;; *) break ;; esac; done
+  while :; do case "$_wx" in 0?*) _wx="${_wx#0}" ;; *) break ;; esac; done
+  # 1m30s, never 1m90s.
+  case "$_wt" in *[mM]*[sS]) [ "$_wx" -lt 60 ] || return 1 ;; esac
+  _wv=$((_wm * 60 + _wx))
+  [ "$_wv" -ge "$CH_WAIT_MIN" ] && [ "$_wv" -le "$CH_WAIT_MAX" ] || return 2
+  _WS="$_wv"
+}
+# The wait in force, into CH_GUARD_LIMIT: the setting, or the default when
+# it is not set, or not a wait — then CH_GUARD_WAIT_BAD holds what it said,
+# for --guard status and --doctor to report. CLAUDE_HTML_GUARD_TEST_LIMIT,
+# whole seconds, wins over both, without the bounds: the tests' own.
+ch_guard_wait() {
+  CH_GUARD_LIMIT="$CH_WAIT_DEFAULT"; CH_GUARD_WAIT_BAD=""
+  if [ -n "${CLAUDE_HTML_GUARD_WAIT:-}" ]; then
+    if ch_wait_secs "$CLAUDE_HTML_GUARD_WAIT"; then CH_GUARD_LIMIT="$_WS"
+    else CH_GUARD_WAIT_BAD="$CLAUDE_HTML_GUARD_WAIT"; fi
+  fi
+  case "${CLAUDE_HTML_GUARD_TEST_LIMIT:-}" in ''|*[!0-9]*) ;; *) CH_GUARD_LIMIT="$CLAUDE_HTML_GUARD_TEST_LIMIT" ;; esac
+}
+
+# The windows' time limit, in words: 60 is "1 minute".
+ch_span() {
+  _s="${1:-$CH_WAIT_DEFAULT}"
+  if [ $((_s % 60)) = 0 ]; then
+    [ "$_s" = 60 ] && echo "1 minute" || echo "$((_s / 60)) minutes"
+  else
+    [ "$_s" = 1 ] && echo "1 second" || echo "$_s seconds"
+  fi
+}
+
+# A text for a window's box, in a file of its own in a folder made by
+# mktemp, both readable by their owner only: the window is never given it
+# as an argument. Prints the file's path; the caller removes its folder.
+# CH_DRY makes nothing and prints where it would be.
+ch_box_file() {   # text
+  if [ -n "${CH_DRY:-}" ]; then printf '%s/chguard.XXXXXX/box' "${TMPDIR:-/tmp}"; return 0; fi
+  _bd="$(mktemp -d "${TMPDIR:-/tmp}/chguard.XXXXXX")" || return 1
+  ( umask 077; printf '%s' "$1" > "$_bd/box" ) || { rm -rf "$_bd"; return 1; }
+  printf '%s/box' "$_bd"
+}
+
 # Four choices, Cancel picked already, and one button, OK: Return is OK,
-# Escape and any failure are Cancel. It waits CH_GUARD_LIMIT seconds, ten
-# minutes, well inside the hooks' own timeout; past it the window closes
+# Escape and any failure are Cancel. It waits CH_GUARD_LIMIT seconds (see
+# ch_guard_wait), well inside the hooks' own timeout; past it the window closes
 # and the answer is "timeout". Prints cancel, allow, safe, stop, timeout, or
-# nothing when no dialog could be shown. It names the kinds of secret,
-# never one; for a command, it shows its first line, masked. CH_DRY prints
-# the command instead, for the tests.
-#   ch_choose prompt|bash <project> <found> [<command>]
-CH_GUARD_LIMIT="${CLAUDE_HTML_GUARD_TEST_LIMIT:-600}"
+# nothing when no dialog could be shown. Its arguments name the kinds of
+# secret, never one; for a command, its first line, masked.
+#
+# What was found, in its context, and the whole command are in files in
+# <private dir> (guard.js writes them): found, command and details.txt.
+# The Mac window shows them in boxes under disclosure arrows, closed until
+# clicked. zenity, yad, kdialog and xmessage take their text as arguments,
+# where a secret must never go, so there it is a Details button (a fifth
+# choice for kdialog) that opens the file in the tool's own text window,
+# then the question again, within the same time limit.
+#
+# CH_DRY prints the command instead, and the details window's on a second
+# line, for the tests.
+#   ch_choose prompt|bash <project> <found> [<command>] [<private dir>]
+ch_guard_wait
 ch_choose() {
-  _kind="$1"; _proj="$2"; _found="$3"; _cmd="${4:-}"
+  _kind="$1"; _proj="$2"; _found="$3"; _cmd="${4:-}"; _dd="${5:-}"
   if [ "$_kind" = bash ]; then
     _verb=run; _head="Claude's command has been interrupted"; _where="a command from Claude"
   else
     _verb=send; _head="Your prompt has been interrupted"; _where="your prompt in Claude Code"
   fi
   [ -n "$_proj" ] && _where="$_where  ·  project $_proj"
+  _det=""; [ -n "$_dd" ] && [ -f "$_dd/details.txt" ] && _det="$_dd/details.txt"
   _c1="Cancel — do not $_verb"
   _c2="Allow once — it is sensitive, $_verb it this time only"
   _c3="Safe — it is not sensitive, $_verb it and never ask again"
@@ -477,28 +554,50 @@ Where:  $_where
 Found:  $_found"
   [ -n "$_cmd" ] && _text="$_text
 Command:  $_cmd"
+  _text="$_text
+"
+  [ -n "$_det" ] && _text="$_text
+Details shows what was found and the whole command, on this screen only."
+  _text="$_text
+Closes after $(ch_span "$CH_GUARD_LIMIT") — counts as Cancel."
   case "$CH_DIALOG" in
     # A window of osascript's own, whichever engine does the data work:
-    # AppleScript's dialogs have no radio buttons.
-    osascript) set -- osascript -l JavaScript "$CH_HERE/dialog.js" "$_kind" "$_proj" "$_found"
+    # AppleScript's dialogs have no radio buttons. It counts down itself.
+    osascript) set -- osascript -l JavaScript "$CH_HERE/dialog.js" --limit "$CH_GUARD_LIMIT"
+               if [ -n "$_dd" ] && [ -f "$_dd/found" ]; then set -- "$@" --box Found: "$_dd/found"; fi
+               if [ -n "$_dd" ] && [ -f "$_dd/command" ]; then set -- "$@" --pre Command: "$_dd/command"; fi
+               set -- "$@" "$_kind" "$_proj" "$_found"
                [ -z "$_cmd" ] || set -- "$@" "$_cmd" ;;
     # zenity, yad and kdialog keep a Cancel button of their own, which
     # answers as the Cancel choice does. Their look is the desktop's.
     zenity) set -- zenity --list --radiolist --title=claude-html --no-markup --text="$_text" \
-              --ok-label=OK --column=" " --column=Choice \
+              --ok-label=OK ${_det:+"--extra-button=Details"} --column=" " --column=Choice \
               TRUE "$_c1" FALSE "$_c2" FALSE "$_c3" FALSE "$_c4" ;;
     yad) set -- yad --list --radiolist --title=claude-html --text="$(printf "%s" "$_text" | sed -e "s/&/\\&amp;/g" -e "s/</\\&lt;/g" -e "s/>/\\&gt;/g")" --print-column=2 --separator= \
-           --button=OK:0 --column=" " --column=Choice TRUE "$_c1" FALSE "$_c2" FALSE "$_c3" FALSE "$_c4" ;;
+           ${_det:+"--button=Details:2"} --button=OK:0 --column=" " --column=Choice TRUE "$_c1" FALSE "$_c2" FALSE "$_c3" FALSE "$_c4" ;;
     kdialog) set -- kdialog --title claude-html --ok-label OK --radiolist "$(printf "%s" "$_text" | sed -e "s/</‹/g" -e "s/>/›/g")" \
-               cancel "$_c1" on allow "$_c2" off safe "$_c3" off stop "$_c4" off ;;
+               cancel "$_c1" on allow "$_c2" off safe "$_c3" off stop "$_c4" off \
+               ${_det:+details} ${_det:+"Details — show what was found and the whole command"} ${_det:+off} ;;
     # No radio buttons: four buttons, Cancel the default.
     xmessage) set -- xmessage -center -title claude-html \
-                -buttons "Cancel:1,Allow once:2,Safe:3,Stop:4" -default Cancel "$_text" ;;
+                -buttons "Cancel:1,Allow once:2,Safe:3,Stop:4${_det:+,Details:5}" -default Cancel "$_text" ;;
     *) return 1 ;;
   esac
-  if [ -n "${CH_DRY:-}" ]; then ch_quote_args "$@"; echo; return 0; fi
-  ch_dialog_wait "$@" || return 1
-  if [ "$_ans" = timeout ]; then echo timeout; return 0; fi
+  if [ -n "${CH_DRY:-}" ]; then ch_quote_args "$@"; echo; [ -z "$_det" ] || ch_details "$_det"; return 0; fi
+  # What this window will not read is not left waiting beside it.
+  if [ -n "$_dd" ]; then
+    if [ "$CH_DIALOG" = osascript ]; then rm -f "$_dd/details.txt"; else rm -f "$_dd/found" "$_dd/command"; fi
+  fi
+  _end=$(( $(date +%s) + CH_GUARD_LIMIT ))
+  while :; do
+    _left=$(( _end - $(date +%s) )); [ "$_left" -gt 0 ] || { echo timeout; return 0; }
+    ch_dialog_wait "$_left" "$@" || return 1
+    if [ "$_ans" = timeout ]; then echo timeout; return 0; fi
+    [ -n "$_det" ] && ch_details_asked || break
+    _left=$(( _end - $(date +%s) )); [ "$_left" -gt 0 ] || { echo timeout; return 0; }
+    ch_details "$_det" "$_left"
+    if [ "$_ans" = timeout ]; then echo timeout; return 0; fi
+  done
   if [ "$CH_DIALOG" = xmessage ]; then
     case "$_rc" in 1) _ans=cancel ;; 2) _ans=allow ;; 3) _ans=safe ;; 4) _ans=stop ;; *) _ans="" ;; esac
   fi
@@ -512,11 +611,43 @@ Command:  $_cmd"
   return 0
 }
 
-# A dialog run with the guard's time limit: its output into _ans (or
-# "timeout" when it was closed for want of an answer) and its status into
-# _rc. Both files made by mktemp, in a folder of their own: a name another
-# user of a shared /tmp could guess is one they could make first.
+# Whether the answer was "show me the details", each tool its own way.
+ch_details_asked() {
+  case "$CH_DIALOG" in
+    zenity) [ "$_ans" = Details ] ;;
+    yad) [ "$_rc" = 2 ] ;;
+    kdialog) [ "$_ans" = details ] ;;
+    xmessage) [ "$_rc" = 5 ] ;;
+    *) return 1 ;;
+  esac
+}
+
+# The details, in the tool's own text window, from the private file: the
+# tool reads the file, nothing of it is an argument.
+#   ch_details <file> [<seconds left>]
+ch_details() {
+  _dl="${2:-$CH_GUARD_LIMIT}"
+  case "$CH_DIALOG" in
+    zenity) set -- zenity --text-info --title=claude-html --filename="$1" --width=720 --height=460 ;;
+    yad) set -- yad --text-info --title=claude-html --filename="$1" --width=720 --height=460 --button=Back:0 ;;
+    kdialog) set -- kdialog --title claude-html --textbox "$1" 720 460 ;;
+    xmessage) set -- xmessage -center -title claude-html -buttons Back:0 -default Back -file "$1" ;;
+    *) return 1 ;;
+  esac
+  if [ -n "${CH_DRY:-}" ]; then ch_quote_args "$@"; echo; return 0; fi
+  ch_dialog_wait "$_dl" "$@"
+}
+
+# A dialog run with a time limit: its output into _ans (or "timeout" when
+# it was closed for want of an answer) and its status into _rc. Both files
+# made by mktemp, in a folder of their own: a name another user of a shared
+# /tmp could guess is one they could make first. The Mac window counts
+# down and closes itself at the limit; it is closed from here only a few
+# seconds after, should it not have.
+#   ch_dialog_wait <seconds> <command…>
 ch_dialog_wait() {
+  _lim="$1"; shift
+  [ "$CH_DIALOG" = osascript ] && _lim=$((_lim + 5))
   _dir="$(mktemp -d "${TMPDIR:-/tmp}/chguard.XXXXXX")" || return 1
   _out="$_dir/answer"; _late="$_dir/late"
   "$@" >"$_out" 2>/dev/null &
@@ -524,7 +655,7 @@ ch_dialog_wait() {
   # Past the limit it is closed, and that is noted, so the answer is known
   # to be "nobody", not "Cancel".
   ( _n=0
-    while [ "$_n" -lt $((CH_GUARD_LIMIT * 10)) ]; do
+    while [ "$_n" -lt $((_lim * 10)) ]; do
       sleep 0.1; kill -0 "$_pid" 2>/dev/null || exit 0; _n=$((_n + 1))
     done
     : > "$_late"; kill "$_pid" ) >/dev/null 2>&1 &
@@ -539,18 +670,32 @@ ch_dialog_wait() {
 
 # The stop window of a limit rule or the API budget: the guard's window,
 # its four choices Cancel, Allow once, Allow until the reset and Stop, the
-# first picked already, one OK, the same time limit. Prints cancel, allow,
-# until, stop, timeout, or nothing when no dialog could be shown.
-#   ch_choose_limit <head> <key1> <value1> <key2> <value2> <choice3> <choice4>
+# first picked already, one OK, the same time limit. <box> is what the
+# second row's arrow opens on a Mac (the rules or the budget as the conf
+# holds them); nothing secret, so elsewhere it is in the text. Prints
+# cancel, allow, until, stop, timeout, or nothing when no dialog could be shown.
+#   ch_choose_limit <head> <key1> <value1> <key2> <value2> <choice3> <choice4> [<box>]
 ch_choose_limit() {
-  _c1="Cancel — do not send"; _c2="Allow once — send this prompt only"; _c3="$6"; _c4="$7"
+  _c1="Cancel — do not send"; _c2="Allow once — send this prompt only"; _c3="$6"; _c4="$7"; _box="${8:-}"; _k2="$4"
   _text="Your prompt has been interrupted
 $1
 
 $2  $3
-$4  $5"
+$4  $5
+"
+  [ -n "$_box" ] && _text="$_text
+$_box
+"
+  _text="$_text
+Closes after $(ch_span "$CH_GUARD_LIMIT") — counts as Cancel."
+  _bf=""
   case "$CH_DIALOG" in
-    osascript) set -- osascript -l JavaScript "$CH_HERE/dialog.js" limits "$@" ;;
+    osascript) set -- --limit "$CH_GUARD_LIMIT" limits "$1" "$2" "$3" "$4" "$5" "$6" "$7"
+               if [ -n "$_box" ]; then
+                 _bf="$(ch_box_file "$_box")" || _bf=""
+                 [ -z "$_bf" ] || set -- --box "$_k2" "$_bf" "$@"
+               fi
+               set -- osascript -l JavaScript "$CH_HERE/dialog.js" "$@" ;;
     zenity) set -- zenity --list --radiolist --title=claude-html --no-markup --text="$_text" \
               --ok-label=OK --column=" " --column=Choice \
               TRUE "$_c1" FALSE "$_c2" FALSE "$_c3" FALSE "$_c4" ;;
@@ -563,7 +708,9 @@ $4  $5"
     *) return 1 ;;
   esac
   if [ -n "${CH_DRY:-}" ]; then ch_quote_args "$@"; echo; return 0; fi
-  ch_dialog_wait "$@" || return 1
+  ch_dialog_wait "$CH_GUARD_LIMIT" "$@"; _st=$?
+  [ -z "$_bf" ] || rm -rf "${_bf%/box}"
+  [ "$_st" = 0 ] || return 1
   if [ "$_ans" = timeout ]; then echo timeout; return 0; fi
   if [ "$CH_DIALOG" = xmessage ]; then
     case "$_rc" in 1) _ans=cancel ;; 2) _ans=allow ;; 3) _ans=until ;; 4) _ans=stop ;; *) _ans="" ;; esac
@@ -577,16 +724,32 @@ $4  $5"
 
 # Asks before something is changed, Cancel the default, in this desktop's
 # own way: a window of osascript's on a Mac, zenity, kdialog, yad or
-# xmessage elsewhere. Prints apply, cancel or timeout; returns 1 when no
-# dialog can be shown here at all.
-#   ch_confirm <title> <subtitle> <rows: key<TAB>value per line> <button>
+# xmessage elsewhere. <box key> and <box text>: on a Mac, an arrow on that
+# row opens the text in a box (the exact lines that will be written);
+# elsewhere the text is in the question. Prints apply, cancel or timeout;
+# returns 1 when no dialog can be shown here at all.
+#   ch_confirm <title> <subtitle> <rows: key<TAB>value per line> <button> [<box key> <box text>]
 ch_confirm() {
+  _bk="${5:-}"; _box="${6:-}"
   _text="$1
 $2
 
-$(printf '%s\n' "$3" | awk -F'\t' '{ if ($1 != "") printf "%s  %s\n", $1, $2; else printf "      %s\n", $2 }')"
+$(printf '%s\n' "$3" | awk -F'\t' '{ if ($1 != "") printf "%s  %s\n", $1, $2; else printf "      %s\n", $2 }')
+"
+  [ -n "$_box" ] && _text="$_text
+Written to the file:
+$_box
+"
+  _text="$_text
+Closes after $(ch_span "$CH_GUARD_LIMIT") — nothing changed."
+  _bf=""
   case "$CH_DIALOG" in
-    osascript) set -- osascript -l JavaScript "$CH_HERE/dialog.js" confirm "$1" "$2" "$3" ;;
+    osascript) set -- --limit "$CH_GUARD_LIMIT" confirm "$1" "$2" "$3"
+               if [ -n "$_box" ] && [ -n "$_bk" ]; then
+                 _bf="$(ch_box_file "$_box")" || _bf=""
+                 [ -z "$_bf" ] || set -- --box "$_bk" "$_bf" "$@"
+               fi
+               set -- osascript -l JavaScript "$CH_HERE/dialog.js" "$@" ;;
     zenity) set -- zenity --question --no-markup --default-cancel --title=claude-html \
               --ok-label="$4" --cancel-label=Cancel --text="$_text" ;;
     kdialog) set -- kdialog --title claude-html --continue-label "$4" \
@@ -597,7 +760,9 @@ $(printf '%s\n' "$3" | awk -F'\t' '{ if ($1 != "") printf "%s  %s\n", $1, $2; el
     *) return 1 ;;
   esac
   if [ -n "${CH_DRY:-}" ]; then ch_quote_args "$@"; echo; return 0; fi
-  ch_dialog_wait "$@" || { echo cancel; return 0; }
+  ch_dialog_wait "$CH_GUARD_LIMIT" "$@"; _st=$?
+  [ -z "$_bf" ] || rm -rf "${_bf%/box}"
+  [ "$_st" = 0 ] || { echo cancel; return 0; }
   if [ "$_ans" = timeout ]; then echo timeout; return 0; fi
   if [ "$CH_DIALOG" = osascript ]; then
     [ "$_ans" = apply ] && echo apply || echo cancel

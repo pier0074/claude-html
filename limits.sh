@@ -697,7 +697,8 @@ ch_lim_prompt() {   # note clone
   fi
 
   # ── is anything reached ──
-  local kind="" head k1 v1 k2 v2 c3 c4 text
+  local kind="" head k1 v1 k2 v2 c3 c4 text box conf="$CONF"
+  case "$conf" in "$HOME"/*) conf="~/${conf#"$HOME"/}" ;; esac
   if [ "$CH_LIM_N" -gt 0 ] && ch_lim_fresh && ch_lim_week && ch_lim_rule_starts && ch_lim_hit &&
      ! [ "${M_allow:-0}" -gt "$CH_NOW" ] 2>/dev/null; then
     kind=rule
@@ -708,6 +709,22 @@ ch_lim_prompt() {   # note clone
     k2="Rule:"; v2="from ${CH_LIM_RL[$i]}, stop at ${CH_LIM_RP[$i]} %"
     c3="Allow until the reset — no more asking this week"; c4="Stop — turn this rule off"
     prule="${CH_LIM_RT[$i]}"
+    # What the arrow on the rule opens: every rule, this one marked, as
+    # the conf holds them.
+    ch_lim_rules_text
+    box="CLAUDE_HTML_LIMIT_RULES=\"$_RTXT\"
+in $conf
+"
+    local j=1
+    while [ $j -le "$CH_LIM_N" ]; do
+      box="$box
+  $j  from ${CH_LIM_RL[$j]}, stop at ${CH_LIM_RP[$j]} %"
+      [ $j = "$i" ] && box="$box   ← reached"
+      j=$((j + 1))
+    done
+    box="$box
+
+claude-html --limits remove $i   takes this rule out"
     text="⚠ claude-html: your prompt has been interrupted — weekly limit rule reached ($_RND % of the week, resets $_LBL; rule: from ${CH_LIM_RL[$i]}, stop at ${CH_LIM_RP[$i]} %).
   Nothing was sent. Answer:
 
@@ -725,6 +742,12 @@ ch_lim_prompt() {   # note clone
       k1="Spent:"; v1="$_MON of \$$CH_LIM_BA $_PW  ·  resets $_LBL"
       k2="Budget:"; v2="\$$CH_LIM_BA per $CH_LIM_BP, for API use"
       c3="Allow until the reset — no more asking $_PW"; c4="Stop — turn the budget off"
+      box="CLAUDE_HTML_BUDGET=\"$CH_LIM_BA $CH_LIM_BP\"
+in $conf
+
+$_MON spent $_PW, for API use; the period resets $_LBL.
+
+claude-html --limits budget off   turns the budget off"
       text="⚠ claude-html: your prompt has been interrupted — API budget reached ($_MON of \$$CH_LIM_BA $_PW, resets $_LBL).
   Nothing was sent. Answer:
 
@@ -744,7 +767,7 @@ ch_lim_prompt() {   # note clone
   if ! ch_is_off "${CLAUDE_HTML_GUARD_DIALOG:-on}" && . "$here/platform.sh" 2>/dev/null; then
     CH_HERE="$here"
     if ch_detect 2>/dev/null && ch_can_ask; then
-      ans="$(ch_choose_limit "$head" "$k1" "$v1" "$k2" "$v2" "$c3" "$c4" 2>/dev/null)" || ans=""
+      ans="$(ch_choose_limit "$head" "$k1" "$v1" "$k2" "$v2" "$c3" "$c4" "$box" 2>/dev/null)" || ans=""
     fi
   fi
   case "$ans" in
@@ -759,11 +782,12 @@ ch_lim_prompt() {   # note clone
       if [ "$kind" = budget ]; then ch_conf_set CLAUDE_HTML_BUDGET off
       else ch_lim_conf_rules_without "$prule"; fi ;;
     timeout)
-      local lim="${CH_GUARD_LIMIT:-600}" span
-      if [ $((lim % 60)) = 0 ]; then span="$((lim / 60)) minute"; [ "$lim" = 60 ] || span="${span}s"
-      else span="$lim second"; [ "$lim" = 1 ] || span="${span}s"; fi
+      # The words answer it for ten minutes from now, the window closed:
+      # it may have waited up to an hour (CLAUDE_HTML_GUARD_WAIT).
+      ch_lim_now
+      printf '%s %s %s\n' "$CH_NOW" "$kind" "${prule// /_}" > "$pend"
       ch_lim_lower "$head"
-      ch_lim_block "⏸ claude-html: ${_lc/api/API} and nobody answered within $span.
+      ch_lim_block "⏸ claude-html: ${_lc/api/API} and nobody answered within $(ch_span "$CH_GUARD_LIMIT").
   Nothing was sent. Answer:  cancel · allow · until · stop" ;;
     *) ch_lim_block "$text" ;;
   esac

@@ -591,6 +591,30 @@ check "xfce, no dialog tool: refused, the commands said, nothing written" \
 check "headless: the same" "$(lapply headless 0 | grep -c '^no way to ask you first here')" 1
 check "ubuntu, Apply: written" "$(lapply ubuntu 0 | tail -1) $(grep -c '^CLAUDE_HTML_LIMIT_RULES="fri 20:00 80% · sat 00:00 90%"$' "$LCONF")" "Applied. 1"
 cp "$T/lconf.before" "$LCONF"
+check "  the question lists the very lines it writes, and how long it waits" \
+  "$(lapply ubuntu 1 >/dev/null; log ubuntu | grep -c -e '^Written to the file:$' -e '^CLAUDE_HTML_LIMIT_RULES="fri 20:00 80% · sat 00:00 90%"$' -e '^CLAUDE_HTML_LIMIT_NOTIFY="' -e '^Closes after 1 minute — nothing changed.\]')" 4
+cp "$T/lconf.before" "$LCONF"; printf 'CLAUDE_HTML_GUARD_WAIT="1m30s"\n' >> "$LCONF"
+check "  as long as the conf's CLAUDE_HTML_GUARD_WAIT says" \
+  "$(lapply ubuntu 1 >/dev/null; log ubuntu | grep -c '^Closes after 90 seconds — nothing changed.\]')" 1
+cp "$T/lconf.before" "$LCONF"; printf 'CLAUDE_HTML_GUARD_WAIT="2 hours"\n' >> "$LCONF"
+check "  and a minute when it says what is not a wait" \
+  "$(lapply ubuntu 1 >/dev/null; log ubuntu | grep -c '^Closes after 1 minute — nothing changed.\]')" 1
+cp "$T/lconf.before" "$LCONF"
+# The guard's question on each desktop, dry: what was found and the whole
+# command are never in the question (an argument, which any local process
+# can read), only in a private file its own text window reads.
+GD="$T/guard-details"; mkdir -p "$GD"; : > "$GD/found"; : > "$GD/command"; : > "$GD/details.txt"
+gdry() { inenv "$1" CH_DRY=1 bash -c '. "$0/platform.sh"; ch_detect; CH_HERE="$0"; ch_choose bash Weather "MySQL password (1)" "mysql -u root -p*** db" "$1"' "$HERE" "$GD"; }
+check "ubuntu: zenity, a Details button, then zenity's text window on the private file" \
+  "$(gdry ubuntu | grep -c -e "^Closes after 1 minute — counts as Cancel.' '--ok-label=OK' '--extra-button=Details' " -e "^'zenity' '--text-info' '--title=claude-html' '--filename=$GD/details.txt' '--width=720' '--height=460'$")" 2
+check "  the guard's question says the wait set: 45 seconds" \
+  "$(inenv ubuntu CLAUDE_HTML_GUARD_WAIT=45 CH_DRY=1 bash -c '. "$0/platform.sh"; ch_detect; ch_choose prompt P "GitHub token (1)"' "$HERE" | grep -c '^Closes after 45 seconds — counts as Cancel.')" 1
+check "kde: kdialog, a fifth entry, then its text box" \
+  "$(gdry kde | grep -c -e "'details' 'Details — show what was found and the whole command' 'off'$" -e "^'kdialog' '--title' 'claude-html' '--textbox' '$GD/details.txt' '720' '460'$")" 2
+check "bare wm: xmessage, a Details button, then the file shown by xmessage" \
+  "$(gdry bare | grep -c -e "'Cancel:1,Allow once:2,Safe:3,Stop:4,Details:5'" -e "^'xmessage' '-center' '-title' 'claude-html' '-buttons' 'Back:0' '-default' 'Back' '-file' '$GD/details.txt'$")" 2
+check "  without details (none written), no Details at all" \
+  "$(inenv ubuntu CH_DRY=1 bash -c '. "$0/platform.sh"; ch_detect; ch_choose prompt P "GitHub token (1)"' "$HERE" | grep -c 'Details')" 0
 # The banner, where the desktop has notify-send; none headless.
 stub "$T/env/ubuntu/bin" notify-send
 check "notify-send: the banner on a Linux desktop" \

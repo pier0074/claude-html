@@ -46,6 +46,16 @@ ch_conf_set() {   # key value
   fi
 }
 
+# A line of the conf taken out, every line that sets the key, so the
+# default applies again: the rest as it was, copied back as ch_conf_set does.
+ch_conf_unset() {   # key
+  [ -f "$CONF" ] || return 0
+  grep -Eq "^[[:space:]]*(export[[:space:]]+)?$1=" "$CONF" || return 0
+  local tmp="$CONF.tmp.$$"
+  KEY="$1" awk '$0 !~ "^[[:space:]]*(export[[:space:]]+)?" ENVIRON["KEY"] "="' "$CONF" > "$tmp" &&
+    cat "$tmp" > "$CONF"; rm -f "$tmp"
+}
+
 CONF="${CLAUDE_HTML_CONF:-$HOME/.claude/claude-html.conf}"
 # Taken before the conf is read, because reading it overwrites them.
 _conf_env_root="${CLAUDE_HTML_ROOT:-}"
@@ -56,6 +66,7 @@ _conf_env_redact="${CLAUDE_HTML_REDACT:-}"
 _conf_env_redact_file="${CLAUDE_HTML_REDACT_FILE:-}"
 _conf_env_guard="${CLAUDE_HTML_GUARD:-}"
 _conf_env_guard_dialog="${CLAUDE_HTML_GUARD_DIALOG:-}"
+_conf_env_guard_wait="${CLAUDE_HTML_GUARD_WAIT:-}"
 _conf_env_update="${CLAUDE_HTML_UPDATE_CHECK:-}"
 # The limits' settings (limits.sh reads them): taken whole, set or not, so
 # one set to nothing in the environment still wins over the conf.
@@ -90,10 +101,16 @@ CLAUDE_HTML_GUARD="${_conf_env_guard:-${CLAUDE_HTML_GUARD:-on}}"
 # Whether it asks in a dialog when someone is at the screen, or always in
 # words, as the next prompt.
 CLAUDE_HTML_GUARD_DIALOG="${_conf_env_guard_dialog:-${CLAUDE_HTML_GUARD_DIALOG:-on}}"
+# How long its windows wait (platform.sh reads it, in ch_guard_wait), and
+# where that came from, for claude-html --guard wait.
+CLAUDE_HTML_GUARD_WAIT="${_conf_env_guard_wait:-${CLAUDE_HTML_GUARD_WAIT:-}}"
+if [ -n "$_conf_env_guard_wait" ]; then CH_GUARD_WAIT_FROM=environment
+elif [ -n "$CLAUDE_HTML_GUARD_WAIT" ]; then CH_GUARD_WAIT_FROM=conf
+else CH_GUARD_WAIT_FROM=default; fi
 # The daily look for a new release, and its notice: on, or off. Exported:
 # the build reads it to decide whether the index mentions one.
 export CLAUDE_HTML_UPDATE_CHECK="${_conf_env_update:-${CLAUDE_HTML_UPDATE_CHECK:-on}}"
 for _conf_lk in CLAUDE_HTML_LIMITS CLAUDE_HTML_LIMIT_RULES CLAUDE_HTML_BUDGET CLAUDE_HTML_BUDGET_WARN CLAUDE_HTML_LIMIT_NOTIFY; do
   eval "[ -z \"\$_conf_env_has_$_conf_lk\" ] || $_conf_lk=\"\$_conf_env_val_$_conf_lk\"; unset _conf_env_has_$_conf_lk _conf_env_val_$_conf_lk"
 done
-unset _conf_lk _conf_env_update _conf_env_root _conf_env_out _conf_env_week _conf_env_engine _conf_env_redact _conf_env_redact_file _conf_env_guard _conf_env_guard_dialog
+unset _conf_lk _conf_env_update _conf_env_root _conf_env_out _conf_env_week _conf_env_engine _conf_env_redact _conf_env_redact_file _conf_env_guard _conf_env_guard_dialog _conf_env_guard_wait

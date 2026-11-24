@@ -1,7 +1,7 @@
 // The documentation keeps up with the code: every CLAUDE_HTML_ variable
 // the scripts read is in docs/SETUP.md, SETUP.md names none they do not,
-// and every relative link in the three documents reaches a file and, where
-// it names one, a heading that exists.
+// and every relative link in the three documents (a picture in HTML too)
+// reaches a file and, where it names one, a heading that exists.
 //
 //   node tests/docs.test.js
 "use strict";
@@ -75,17 +75,26 @@ function stripCode(text) {
 var docs = ["README.md", "CHANGELOG.md", "docs/SETUP.md", "docs/DETAILS.md"], bad = [], total = 0;
 docs.forEach(function (d) {
   var text = fs.readFileSync(path.join(HERE, d), "utf8"), re = /!?\[[^\]]*\]\(([^)\s]+)\)/g, m;
-  var body = stripCode(text);
-  while ((m = re.exec(body)) !== null) {
-    var target = m[1];
-    if (/^(https?:|mailto:)/.test(target)) continue;
+  var body = stripCode(text), targets = [];
+  while ((m = re.exec(body)) !== null) targets.push(m[1]);
+  // A picture written in HTML, to give it a width or a dark variant: its
+  // src, and each file of a srcset.
+  var tag = /<(?:img|source)\b[^>]*>/gi, attr = /\b(src|srcset)\s*=\s*"([^"]*)"/gi, a;
+  while ((m = tag.exec(body)) !== null) {
+    while ((a = attr.exec(m[0])) !== null) {
+      if (a[1].toLowerCase() === "src") targets.push(a[2]);
+      else a[2].split(",").forEach(function (c) { if (c.trim()) targets.push(c.trim().split(/\s+/)[0]); });
+    }
+  }
+  targets.forEach(function (target) {
+    if (/^(https?:|mailto:)/.test(target)) return;
     total++;
     var hash = target.indexOf("#"), file = hash > -1 ? target.slice(0, hash) : target;
     var anchor = hash > -1 ? target.slice(hash + 1) : "";
     var p = file ? path.resolve(path.dirname(path.join(HERE, d)), file) : path.join(HERE, d);
-    if (!fs.existsSync(p)) { bad.push(d + " → " + target + " (no such file)"); continue; }
+    if (!fs.existsSync(p)) { bad.push(d + " → " + target + " (no such file)"); return; }
     if (anchor && !anchors(fs.readFileSync(p, "utf8"))[anchor]) bad.push(d + " → " + target + " (no such heading)");
-  }
+  });
 });
 check("every relative link in README, SETUP and DETAILS resolves (" + total + ")", !bad.length, bad.join("\n        "));
 check("SETUP.md is linked from the README and DETAILS",

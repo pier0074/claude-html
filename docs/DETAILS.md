@@ -692,6 +692,22 @@ nobody can see a dialog, and the settings are in
 prompt history and its transcript: its documentation says so of every
 prompt a hook blocks.
 
+**What the window is given.** On a Mac the window is `dialog.js`, run by
+`osascript`. Its arguments carry the kinds found, the project and the
+command's first line, masked — nothing secret, since any local process can
+read another's arguments. What its **Found ▸** and **Command ▸** boxes show
+(each match in its context, the whole command) is written by `guard.js` to
+files in a folder `guard.sh` makes with `mktemp -d` (mode 700, files 600);
+the window reads each and deletes it before it draws anything, and the
+folder is removed when the hook exits, however it exits (one left by a hook
+killed outright is swept after 30 minutes). On Linux the same file is
+opened by the dialog tool's own text window behind **Details**. Nothing of
+it reaches a log, the state or a page. The window counts down with a timer
+in its own run loop and closes itself at 0:00; the hook closes it from
+outside five seconds later should it not have. ⌘C works because the window
+installs a minimal main menu (Edit: Copy, Select All), without which an
+application started by `osascript` has nowhere to send it.
+
 ### Plan limits and the stop rules
 
 How the figures travel, from Claude Code to the pages and the stop:
