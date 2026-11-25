@@ -40,6 +40,11 @@ install, nothing to add, and it builds itself while you work.
   <img src="docs/img/settings-changes-light.png" width="740" alt="Three changes made on the Settings page, gathered in the bar at its foot: copy command, apply, discard">
 </picture>
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/settings-statusline-dark.png">
+  <img src="docs/img/settings-statusline-light.png" width="740" alt="The status line's options: each item on or off and in order, the form, the width, the bar, and a preview of the line, normal and condensed">
+</picture>
+
 <p>
   <img src="docs/img/guard-dialog.png" width="400" align="top" alt="The guard's dialog: where, what was found, four choices">
   <img src="docs/img/limits-stop.png" width="400" align="top" alt="The stop window: the week, the rule, four choices">
@@ -79,6 +84,11 @@ no dependencies, and not one byte of your conversations leaves your machine.
 - **Plan limits** — your 5-hour and weekly usage on Claude Code's status line
   and the pages; your own stop rules ("from Fri 20:00, stop at 80 %") ask
   before a new prompt, and an API budget warns at 80 and 95 %
+- **Status line** — choose what it shows (the windows, costs, context, the
+  agent, project and branch, the stop rule, the budget), in which order, and
+  how: it condenses itself to fit the terminal
+- **Updates** — a daily look for a new release, and, if you turn it on, its
+  install by itself between saves (never a major release)
 
 ## Install
 
@@ -87,7 +97,7 @@ git clone https://github.com/pier0074/claude-html ~/claude-html
 cd ~/claude-html && ./install.sh
 ```
 
-For a given release, add `--branch v3.6.4` to the clone;
+For a given release, add `--branch v3.7.0` to the clone;
 [CHANGELOG.md](CHANGELOG.md) says what each one brought.
 
 Nothing else to install. macOS uses its own `osascript`; Linux uses `node`,

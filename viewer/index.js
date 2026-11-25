@@ -63,6 +63,13 @@
       (mac ? '<a class="go" href="claude-html://update" title="run the update in a terminal">run</a>' : "");
     up.hidden = false;
   }
+  // Updated by itself (CLAUDE_HTML_AUTO_UPDATE): said for a day after.
+  var ud = document.getElementById("updated"), U = data.updated;
+  if (ud && U && /^\d+\.\d+\.\d+$/.test(U.to || "") && Date.now() / 1000 - U.at < 86400) {
+    ud.innerHTML = "updated to " + esc(U.to) + " by itself, " + esc(stamp(U.at)) +
+      " · what changed: <code>CHANGELOG.md</code> in the clone · <code>claude-html --update status</code>";
+    ud.hidden = false;
+  }
   // How to reopen a conversation, said plainly. Every build that carries
   // "actions" also wrote a launcher per conversation into resume/.
   var launch = document.getElementById("launch");

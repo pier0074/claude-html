@@ -23,14 +23,16 @@
     (/^\d+\.\d+\.\d+$/.test(VERSION) ? "v" + VERSION : "main") + "/docs/SETUP.md#";
 
   // ── what is pending ────────────────────────────────────────────────
-  // By key: {op: "set"|"unset", value}; and the safe values to forget.
-  var pending = {}, forget = false, typed = {};
+  // By key: {op: "set"|"unset", value}; and the safe values to forget:
+  // all of them, or by id.
+  var pending = {}, forget = false, forgetIds = {}, typed = {};
   function cur(key) { return V[key] || { v: "", src: "default" }; }
   function forced(key) { return cur(key).src === "environment"; }
   function changes() {
     var out = [];
     S.list.forEach(function (s) { if (pending[s.key]) out.push({ key: s.key, op: pending[s.key].op, value: pending[s.key].value }); });
     if (forget) out.push({ op: "forget" });
+    else Object.keys(forgetIds).forEach(function (id) { out.push({ op: "forget1", value: id }); });
     return out;
   }
   // A value given for a key: a change, or none when it is what is there.
@@ -63,9 +65,11 @@
   function key(s) {
     return '<div class="sk"><span class="sl">' + esc(s.label) + '</span><code class="sn">' + esc(s.key) + "</code></div>";
   }
+  // A colour of the status line's from an earlier 3.7.0: on is level, off auto.
+  var OLD = { CLAUDE_HTML_STATUSLINE_COLOR: { on: "level", off: "auto" } };
   function shown(s) {
     var c = cur(s.key);
-    if (s.kind === "enum") return c.v ? c.v.toLowerCase() : s.def;
+    if (s.kind === "enum") { var v = c.v ? c.v.toLowerCase() : s.def; return OLD[s.key] && OLD[s.key][v] || v; }
     return c.v;
   }
   function wasLine(s) {
@@ -82,22 +86,25 @@
   }
   function control(s) {
     var dis = forced(s.key) ? " disabled" : "", p = pending[s.key];
+    if (s.kind === "items" && SLJ && !dis) return itemsList();
     if (s.kind === "enum") {
       var on = p && p.op === "set" ? p.value : p && p.op === "unset" ? s.def : shown(s);
-      return '<span class="seg" role="group" aria-label="' + esc(s.label) + '">' + s.values.map(function (v) {
+      // The status line's colours: a dot of each fixed one before its name.
+      var sw = s.key === "CLAUDE_HTML_STATUSLINE_COLOR";
+      return '<span class="seg' + (sw ? " colors" : "") + '" role="group" aria-label="' + esc(s.label) + '">' + s.values.map(function (v) {
         return '<button data-k="' + esc(s.key) + '" data-v="' + esc(v) + '"' + (v === on ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') +
-          dis + ">" + esc(v) + "</button>";
+          dis + ">" + (sw && v !== "auto" && v !== "level" ? '<i class="sw sl-' + v + '" aria-hidden="true"></i>' : "") + esc(v) + "</button>";
       }).join("") + "</span>";
     }
     var val = typed.hasOwnProperty(s.key) ? typed[s.key] : cur(s.key).v;
-    var cls = (s.kind === "duration" || s.kind === "week" ? "short" : "") + (p && p.op === "bad" ? " bad" : "");
+    var cls = (s.kind === "duration" || s.kind === "week" || s.kind === "number" ? "short" : "") + (p && p.op === "bad" ? " bad" : "");
     return '<input type="text" data-k="' + esc(s.key) + '" value="' + esc(val) + '" placeholder="' + esc(s.def) + '"' +
       (cls ? ' class="' + cls.trim() + '"' : "") + ' spellcheck="false" autocomplete="off" aria-label="' + esc(s.label) + '"' + dis + ">";
   }
   function row(s, extra) {
     var c = cur(s.key), p = pending[s.key], h = "";
     var src = p && p.op !== "bad" ? "changed" : c.src;
-    h += '<div class="srow' + (p && p.op !== "bad" ? " changed" : "") + '" data-row="' + esc(s.key) + '">' + key(s) + '<div class="sv"><div class="sc">';
+    h += '<div class="srow' + (p && p.op !== "bad" ? " changed" : "") + (s.key === "CLAUDE_HTML_STATUSLINE_COLOR" ? " wide" : "") + '" data-row="' + esc(s.key) + '">' + key(s) + '<div class="sv"><div class="sc">';
     if (s.flags.ro) {
       h += '<code class="val">' + esc(c.v || s.def) + "</code>";
     } else {
@@ -130,6 +137,91 @@
   }
   function inGroup(g) { return S.list.filter(function (s) { return s.group === g && !s.flags.hidden; }); }
 
+  // ── the status line: its items, and a preview ─────────────────────
+  // build/statusline.js draws the line as statusline.sh does, from the
+  // latest figures this page was built with, or sample ones.
+  var SLJ = typeof claudeHtmlStatusline === "function" ? claudeHtmlStatusline() : null;
+  var ITEM_WORDS = { five: "5-hour window", week: "week", session: "this session's cost", today: "today's cost, all sessions",
+    ctx: "context used", model: "Agent", project: "project · git branch", stop: "active stop rule", budget: "budget, when one is set" };
+  // A setting as it would be with what is pending: its conf value, "" for the default.
+  function eff(k) {
+    var p = pending[k];
+    if (p && p.op === "set") return p.value;
+    if (p && p.op === "unset") return "";
+    return cur(k).v;
+  }
+  function slSettings() {
+    return SLJ.settings({ items: eff("CLAUDE_HTML_STATUSLINE_ITEMS"), form: eff("CLAUDE_HTML_STATUSLINE_FORM"),
+      width: eff("CLAUDE_HTML_STATUSLINE_WIDTH"), bar: eff("CLAUDE_HTML_STATUSLINE_BAR"),
+      from: eff("CLAUDE_HTML_STATUSLINE_BAR_FROM"), color: eff("CLAUDE_HTML_STATUSLINE_COLOR") });
+  }
+  function slList() { var st = slSettings(); return (st.items || SLJ.DEFAULT).slice(); }
+  function itemClick(item, what) {
+    var l = slList(), i = l.indexOf(item);
+    if (what === "toggle") { if (i > -1) l.splice(i, 1); else l.push(item); }
+    else if (what === "up" && i > 0) { l.splice(i, 1); l.splice(i - 1, 0, item); }
+    else if (what === "down" && i > -1 && i < l.length - 1) { l.splice(i, 1); l.splice(i + 1, 0, item); }
+    var v = l.length ? l.join(" ") : "none";
+    if (v === S.byKey.CLAUDE_HTML_STATUSLINE_ITEMS.def) useDefault("CLAUDE_HTML_STATUSLINE_ITEMS");
+    else propose("CLAUDE_HTML_STATUSLINE_ITEMS", v);
+    draw();
+  }
+  function hm(d) { return (d.getHours() < 10 ? "0" : "") + d.getHours() + ":" + (d.getMinutes() < 10 ? "0" : "") + d.getMinutes(); }
+  var WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  // The figures: the plan's latest as the build saw them, else samples.
+  function slData() {
+    var L = data.limits || {}, P = L.plan || {}, now = L.now || Math.round(Date.now() / 1000), d = {};
+    function lbl(secs, day) { var t = new Date(secs * 1000), n = new Date(now * 1000);
+      return !day && t.toDateString() === n.toDateString() ? hm(t) : WD[t.getDay()] + " " + hm(t); }
+    d.mode = "plan";
+    d.five = P.five && P.five.reset > now ? { tenths: Math.floor(P.five.pct * 10), label: lbl(P.five.reset) } : { tenths: 624, label: "16:30" };
+    d.week = P.week ? { tenths: Math.floor(P.week.pct * 10), label: lbl(P.week.reset, true) } : { tenths: 230, label: "Tue 08:00" };
+    var c = L.rules && L.rules.length && CHPlan.current ? CHPlan.current(L) : null;
+    d.stop = c ? { pct: c.rule.pct, from: c.rule.day.charAt(0).toUpperCase() + c.rule.day.slice(1) + " " + c.rule.time,
+                   hit: c.force && d.week.tenths >= c.rule.pct * 10 } : { pct: 80, from: "Fri 20:00", hit: false };
+    d.session = "$1.12"; d.today = "$8.40"; d.ctx = 410;
+    d.model = { id: "claude-opus-5-5", name: "Opus 5.5" };
+    d.project = { name: "Trading", branch: "v2" };
+    return d;
+  }
+  function slBudget() {
+    var B = (data.limits || {}).budget;
+    if (!B) return null;
+    var word = B.period === "day" ? "today" : B.period === "month" ? "month" : "week", micro = data.spend ? data.spend.micro : 0;
+    var t = Math.floor(micro * 1000 / (B.cents * 10000));
+    return { mode: "budget", session: "$1.12", today: "$8.40", ctx: 410, model: { id: "claude-opus-5-5" }, project: { name: "Trading", branch: "v2" },
+             budget: { known: !!data.spend, period: word, spent: CH.fmtMoney ? CH.fmtMoney(micro) : "$" + (micro / 1e6).toFixed(2),
+                       spentMicro: micro, amount: String(B.amount), tenths: t, unit: B.period, label: B.end ? WD[new Date(B.end * 1000).getDay()] + " " + hm(new Date(B.end * 1000)) : "" } };
+  }
+  // The items: each on or off, those on in their order, moved up or down.
+  function itemsList() {
+    var l = slList(), all = l.concat(SLJ.ITEMS.filter(function (i) { return l.indexOf(i) < 0; }));
+    return '<ol class="sli" aria-label="items">' + all.map(function (i) {
+      var on = l.indexOf(i) > -1, at = l.indexOf(i);
+      return '<li class="' + (on ? "on" : "off") + '"><button class="sltog" data-sli="' + i + '" data-do="toggle" aria-pressed="' + on + '">' +
+        (on ? "on" : "off") + '</button><span class="sln">' + esc(ITEM_WORDS[i]) + '</span><code class="slk">' + i + "</code>" +
+        (on ? '<span class="slm"><button class="lnk" data-sli="' + i + '" data-do="up"' + (at === 0 ? " disabled" : "") + ' title="earlier: condensed later">↑</button>' +
+              '<button class="lnk" data-sli="' + i + '" data-do="down"' + (at === l.length - 1 ? " disabled" : "") + ' title="later: condensed sooner">↓</button></span>' : "") + "</li>";
+    }).join("") + "</ol>";
+  }
+  function statusGroup() {
+    var h = "", sI = S.byKey.CLAUDE_HTML_STATUSLINE_ITEMS;
+    if (!SLJ) return inGroup("statusline").map(function (s) { return row(s); }).join("");
+    h += row(sI, '<p class="sh">with the default, this session\'s cost also shows for API use, as before; listed, it shows always. ' +
+      "In a terminal: " + code("claude-html --config set STATUSLINE_ITEMS=\"five week ctx model\"") + "</p>");
+    ["CLAUDE_HTML_STATUSLINE_FORM", "CLAUDE_HTML_STATUSLINE_WIDTH", "CLAUDE_HTML_STATUSLINE_BAR",
+     "CLAUDE_HTML_STATUSLINE_BAR_FROM", "CLAUDE_HTML_STATUSLINE_COLOR"].forEach(function (k) { h += row(S.byKey[k]); });
+    var st = slSettings(), r = SLJ.render(st, slData()), b = slBudget(), rb = b ? SLJ.render(st, b) : null;
+    function term(html, label) { return '<div class="slp"><span class="slpl">' + esc(label) + '</span><code class="term' + (st.color ? "" : " plain") + '">' + html + "</code></div>"; }
+    var fits = st.form === "auto" ? "as it fits " + st.width + " columns" : st.form;
+    h += '<div class="srow slrow" id="slpreview"><div class="sk"><span class="sl">Preview</span><code class="sn">with these choices</code></div><div class="sv">' +
+      term(r.html, fits) + term(r.normalHtml, "normal") + term(r.condensedHtml, "condensed") +
+      (rb ? term(rb.html, "API use, " + fits) : "") +
+      '<p class="sh">' + (data.limits && data.limits.plan ? "the latest figures Claude Code gave, as of the build" : "sample figures") +
+      "; the agent, project and costs are samples. The line runs after every reply; Claude Code says the terminal's width, and a line wider than it less 4 is condensed (auto) or cut.</p></div></div>";
+    return h;
+  }
+
   // ── each group, with what it adds ──────────────────────────────────
   var EXTRA = {
     where: function () {
@@ -155,34 +247,58 @@
       var R = data.redact || {};
       var list = !R.exists ? "no list there yet" : (R.own || 0) + " entr" + (R.own === 1 ? "y" : "ies") + " in the list" +
         (R.ignored ? " · " + R.ignored + " line(s) it cannot use: claude-html --doctor says which" : "");
+      // Edit: the list in the text editor, by the settings link (asked in a
+      // window first: what it holds would then be on the screen) or by the
+      // command. Never its contents here.
+      var edit = (data.actions ? ' <a class="go" href="' + esc("claude-html://settings/v1/" + (/^[0-9a-f]{16}$/.test(FP) ? FP : "none") + "/edit-list") +
+        '" title="opens it in your text editor, after asking in a window">edit</a>' : "") + " " + copy("claude-html --config edit-list", "copy command");
       return row(S.byKey.CLAUDE_HTML_REDACT) + row(S.byKey.CLAUDE_HTML_REDACT_FILE,
-        '<p class="sx">' + esc(list) + " (what it says is never shown)</p>");
+        '<p class="sx">' + esc(list) + " (what it says is never shown)</p>" + '<p class="sx">' + edit.replace(/^ /, "") + "</p>" +
+        (R.exists ? "" : '<p class="sh">edit makes it first, with a few lines that say what goes in it</p>'));
     },
     guard: function () {
       var R = data.redact || {}, H = data.hooks || {}, n = R.safe || 0, h = "";
       inGroup("guard").forEach(function (s) { h += row(s); });
       var g = shown(S.byKey.CLAUDE_HTML_GUARD);
       var miss = g !== "off" && data.hooks && !(H.guardPrompt && (g === "prompt" || H.guardBash));
+      // Each safe value: its kind and its date, and an id the command
+      // derives again; never the value, nor its salt or fingerprint.
+      var SL = R.safeList || [], nf = Object.keys(forgetIds).length;
+      var lines = SL.map(function (e) {
+        var gone = forget || forgetIds[e.id];
+        return '<li' + (gone ? ' class="gone"' : "") + '><span class="sk2">' + esc(e.kind || "kind unknown") + "</span>" +
+          '<span class="sdt">' + esc(e.date || "") + '</span><code class="sid" title="its id: claude-html --config forget-safe ' + esc(e.id) + '">' + esc(e.id) + "</code>" +
+          (forget ? "" : ' <button class="lnk" data-forget="' + esc(e.id) + '">' + (forgetIds[e.id] ? "keep" : "forget") + "</button>") + "</li>";
+      }).join("");
+      var said = n + " safe value" + (n === 1 ? "" : "s") + (forget ? " · all to forget" : nf ? " · " + nf + " to forget" : "");
       h += info("Safe values", "in the own list",
-        '<div class="sc"><span>' + n + " safe value" + (n === 1 ? "" : "s") + "</span>" +
+        '<div class="sc">' + (SL.length ? '<details class="safe"' + (nf || forget || safeOpen ? " open" : "") + '><summary>' + esc(said) + "</summary><ul>" + lines + "</ul></details>"
+          : "<span>" + esc(said) + "</span>") +
         (n ? ' <button class="cp danger' + (forget ? " on" : "") + '" id="forget">' + (forget ? "forget them all · undo" : "forget them all") + "</button>" : "") +
-        '</div><p class="sh">values you answered Safe for: never asked about again. Forgetting them takes out the safe: lines only; your own entries stay.</p>' +
+        '</div><p class="sh">values you answered Safe for: never asked about again. Each is kept as a fingerprint only, so only what it was and when shows here. ' +
+        "Forgetting takes out safe: lines only; your own entries stay.</p>" +
         (miss ? '<p class="sw">the guard\'s hooks are not in settings.json, so nothing is checked: ' + code("./install.sh") + " in the clone adds them</p>" : ""),
-        forget ? badge("changed") : "");
+        forget || nf ? badge("changed") : "");
       return h;
     },
+    // The panel is the one place its four settings are changed; each of its
+    // rows says where its value comes from, as every other row does.
     limits: function () {
       var h = row(S.byKey.CLAUDE_HTML_LIMITS);
       h += '<div id="limits"></div>';
-      S.list.filter(function (s) { return s.flags.panel; }).forEach(function (s) {
-        var c = cur(s.key);
-        h += '<div class="srow">' + key(s) + '<div class="sv"><div class="sc"><code class="val">' + esc(c.v || s.def) + "</code>" +
-          ' <span class="sh">set in the panel above</span></div><p class="sh">' + esc(s.help) + "</p>" + envNote(s) + "</div>" + meta(s, c.src) + "</div>";
-      });
+      var env = S.list.filter(function (s) { return s.flags.panel && forced(s.key); });
+      if (env.length) h += '<p class="senv">' + esc(env.map(function (s) { return s.key; }).join(", ")) +
+        " set in the environment this page was built in, which wins over the conf: a change in the panel would do nothing while it is set.</p>";
       return h;
     },
+    statusline: function () { return statusGroup(); },
     updates: function () {
       var U = data.update || {}, h = row(S.byKey.CLAUDE_HTML_UPDATE_CHECK);
+      var A = U.updated ? "installed " + U.updated.to + " by itself, " + when(U.updated.at) :
+        U.deferred ? U.deferred + " put off: a save was running; the next one tries again" :
+        U.failed ? U.failed + " failed and was rolled back; tried again a day later" :
+        U.held ? U.held + " is a major release: claude-html --update installs it" : "";
+      h += row(S.byKey.CLAUDE_HTML_AUTO_UPDATE, A ? '<p class="sx">last: ' + esc(A) + "</p>" : "");
       var line = "installed " + esc(U.installed || "?") + " · " + (U.newest ? "newest " + esc(U.newest) + (U.checked ? ", seen " + esc(when(U.checked)) : "")
         : "no check has run yet");
       var act = U.notice ? " " + copy("claude-html --update") + (data.actions ? ' <a class="go" href="claude-html://update" title="run the update in a terminal">run</a>' : "") : "";
@@ -261,8 +377,10 @@
   GROUPS.splice(GROUPS.map(function (g) { return g.id; }).indexOf("view"), 0, { id: "claude", title: "Claude Code side" });
   GROUPS.push({ id: "about", title: "About this machine" });
 
-  var root = document.getElementById("groups"), limEl = null;
+  var root = document.getElementById("groups"), limEl = null, safeOpen = false;
   function draw() {
+    var so = root.querySelector("details.safe");
+    if (so) safeOpen = so.open;
     var focus = document.activeElement && root.contains(document.activeElement) && document.activeElement.tagName === "INPUT" ?
       [document.activeElement.getAttribute("data-k"), document.activeElement.selectionStart] : null;
     var h = "";
@@ -275,7 +393,13 @@
     // change elsewhere on the page.
     var lim = document.getElementById("limits");
     if (lim && typeof CHPlan !== "undefined") {
-      if (!limEl) { limEl = lim; CHPlan.panel(limEl, limitsData(), { actions: !!data.actions, open: true }); limEl.hidden = false; }
+      if (!limEl) {
+        limEl = lim;
+        CHPlan.panel(limEl, limitsData(), { actions: !!data.actions, open: true, meta: function (k) {
+          var s = S.byKey[k]; return s ? meta(s, cur(k).src) : "";
+        } });
+        limEl.hidden = false;
+      }
       else lim.parentNode.replaceChild(limEl, lim);
     }
     if (focus) {
@@ -318,7 +442,7 @@
     document.getElementById("bh").textContent = hint;
   }
   document.getElementById("bdiscard").addEventListener("click", function () {
-    pending = {}; forget = false; typed = {}; draw();
+    pending = {}; forget = false; forgetIds = {}; typed = {}; draw();
   });
   document.getElementById("bapply").addEventListener("click", function (e) {
     if (this.classList.contains("off")) e.preventDefault();
@@ -333,7 +457,13 @@
     } else if (t.hasAttribute("data-def")) {
       useDefault(t.getAttribute("data-def")); draw();
     } else if (t.id === "forget") {
-      forget = !forget; draw();
+      forget = !forget; forgetIds = {}; draw();
+    } else if (t.hasAttribute("data-forget")) {
+      var id = t.getAttribute("data-forget");
+      if (forgetIds[id]) delete forgetIds[id]; else forgetIds[id] = 1;
+      draw();
+    } else if (t.hasAttribute("data-sli")) {
+      itemClick(t.getAttribute("data-sli"), t.getAttribute("data-do"));
     } else if (t.id === "reset") {
       var n = CH.forgetPrefs();
       draw();

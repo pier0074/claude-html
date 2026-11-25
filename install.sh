@@ -115,7 +115,8 @@ if [ "$UNINSTALL" = 1 ]; then
   n=0
   for f in .claude-html.update .claude-html.guard .claude-html.guard-engine .claude-html-guard \
            .claude-html-update.command .claude-html-update.sh \
-           .claude-html.limits .claude-html.limits-marks .claude-html.spend .claude-html-limits-ask; do
+           .claude-html.limits .claude-html.limits-marks .claude-html.spend .claude-html-limits-ask \
+           .claude-html.today .claude-html.autoupdate.log .claude-html-settings-ask; do
     [ -e "$HOME/.claude/$f" ] && rm -rf "${HOME:?}/.claude/$f" && n=$((n + 1))
   done
   [ "$n" = 0 ] || say "removed $n file(s) of its own state from ~/.claude"

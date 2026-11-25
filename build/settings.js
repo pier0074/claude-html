@@ -10,7 +10,8 @@
 //   S.linkFor(fp, changes)   the claude-html://settings link, or null if too long
 //   S.commandFor(changes)    the same as claude-html --config lines
 //
-// A change is {key, op: "set"|"unset"|"forget", value}. The grammar of the
+// A change is {key, op: "set"|"unset"|"forget"|"forget1"|"edit", value}:
+// forget1 forgets the safe value whose id is value, edit opens the own list. The grammar of the
 // link is lib/settings.sh's; parseReset is the dashboard's own reader of
 // CLAUDE_HTML_WEEK_RESET (viewer.js), handed in rather than copied.
 function claudeHtmlSettings(tsv, parseReset) {
@@ -90,6 +91,22 @@ function claudeHtmlSettings(tsv, parseReset) {
       var why = pathWhy(v);
       return why ? { ok: false, why: why } : { ok: true, value: v };
     }
+    if (s.kind === "number") {
+      var lo = +s.values[0].split("..")[0], hi = +s.values[0].split("..")[1];
+      if (!/^\d{1,4}$/.test(v) || +v < lo || +v > hi) return { ok: false, why: "a whole number, from " + lo + " to " + hi };
+      return String(+v) === s.def ? { ok: true, unset: true, value: "" } : { ok: true, value: String(+v) };
+    }
+    if (s.kind === "items") {
+      var words = v.toLowerCase().replace(/,/g, " ").split(/\s+/).filter(Boolean), out = [];
+      if (words.join(" ") === "none") return { ok: true, value: "none" };
+      for (var i = 0; i < words.length; i++) {
+        if (s.values.indexOf(words[i]) < 0) return { ok: false, why: words[i] + " is not one of " + s.values.join(", ") };
+        if (out.indexOf(words[i]) > -1) return { ok: false, why: words[i] + " given twice" };
+        out.push(words[i]);
+      }
+      if (!out.length) return { ok: false, why: "one or more of " + s.values.join(", ") + ", or none" };
+      return out.join(" ") === s.def ? { ok: true, unset: true, value: "" } : { ok: true, value: out.join(" ") };
+    }
     return { ok: false, why: "set in the Limits & budget panel" };
   }
 
@@ -103,6 +120,8 @@ function claudeHtmlSettings(tsv, parseReset) {
   function linkFor(fp, changes) {
     var items = changes.map(function (c) {
       if (c.op === "forget") return "forget-safe";
+      if (c.op === "forget1") return /^[0-9a-f]{8}$/.test(c.value || "") ? "forget-safe=" + c.value : "forget-safe=x";
+      if (c.op === "edit") return "edit-list";
       var n = byKey[c.key] ? byKey[c.key].name : c.key;
       return c.op === "unset" ? n : n + "=" + enc(c.value);
     });
@@ -112,10 +131,12 @@ function claudeHtmlSettings(tsv, parseReset) {
   }
   function shq(s) { return /^[A-Za-z0-9._~\/:@%+=,-]+$/.test(s) ? s : "'" + s.replace(/'/g, "'\\''") + "'"; }
   function commandFor(changes) {
-    var sets = [], unsets = [], forget = false;
+    var sets = [], unsets = [], forget = false, ids = [], edit = false;
     changes.forEach(function (c) {
       var n = byKey[c.key] ? byKey[c.key].name : c.key;
       if (c.op === "forget") forget = true;
+      else if (c.op === "forget1") ids.push(c.value);
+      else if (c.op === "edit") edit = true;
       else if (c.op === "unset") unsets.push(n);
       else sets.push(shq(n + "=" + c.value));
     });
@@ -123,6 +144,8 @@ function claudeHtmlSettings(tsv, parseReset) {
     if (sets.length) out.push("claude-html --config set " + sets.join(" "));
     if (unsets.length) out.push("claude-html --config unset " + unsets.join(" "));
     if (forget) out.push("claude-html --config forget-safe");
+    if (ids.length) out.push("claude-html --config forget-safe " + ids.join(" "));
+    if (edit) out.push("claude-html --config edit-list");
     return out.join("\n");
   }
 

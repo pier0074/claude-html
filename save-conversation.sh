@@ -134,7 +134,16 @@ HERE_P="$(cd -P "$HERE" && pwd)"
 if { [ "$MODE" = try ] || [ -n "${CLAUDE_HTML_DETACHED:-}" ]; } && [ -f "$HERE/lib/update.sh" ]; then
   "${BASH:-bash}" "$HERE/lib/update.sh" "$HERE_P" --daily </dev/null >/dev/null 2>&1 || true
 fi
+# And once this save is over and has let go of the lock, the automatic
+# update when one is due (CLAUDE_HTML_AUTO_UPDATE): update.sh decides from
+# the state alone and, if so, starts it detached, from a copy of itself.
+# Only from a save nobody waits on, as the daily check.
+auto_update() {
+  { [ "$MODE" = try ] || [ -n "${CLAUDE_HTML_DETACHED:-}" ]; } && [ -f "$HERE/lib/update.sh" ] || return 0
+  "${BASH:-bash}" "$HERE/lib/update.sh" "$HERE_P" --auto-maybe </dev/null >/dev/null 2>&1 || true
+}
 if [[ "$(pwd)" != "$ROOT" && "$(pwd)" != "$ROOT"/* ]]; then
+  auto_update
   exit 0
 fi
 
@@ -215,7 +224,7 @@ write_status() {
 
 ARCHIVE_TMP="$(mktemp -d "${TMPDIR:-/tmp}/dbarchive.XXXXXX")"
 ARCHIVER="$ARCHIVE_TMP/archive.js"
-trap 'rm -rf "$ARCHIVE_TMP"; write_status; rebuild_pages; release_lock' EXIT
+trap 'rm -rf "$ARCHIVE_TMP"; write_status; rebuild_pages; release_lock; auto_update' EXIT
 cat > "$ARCHIVER" <<'ARCHIVEREOF'
 function run(argv) {
   var path = argv[0], sid = argv[1], project = argv[2];

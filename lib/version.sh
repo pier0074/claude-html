@@ -12,7 +12,10 @@
 CH_RELEASE_URL="https://github.com/pier0074/claude-html"
 # What the daily check last saw: when (seconds), the newest release, which
 # clone it was for (its physical path) and the newest one Claude Code has
-# already been told about.
+# already been told about. And the automatic update's (update.sh --auto):
+# the release it installed and when (said for a day), the one it put off
+# for a save that was running, the one that failed and when (tried again a
+# day later), and the major release it leaves to the owner.
 CH_UPDATE_STATE="$HOME/.claude/.claude-html.update"
 
 # The archive format this release writes, in one place: the save hands it
@@ -54,9 +57,12 @@ ch_ver_gt() {
   [ $((10#$a3)) -gt $((10#$b3)) ]
 }
 
-# The state, into CH_UP_CHECKED, CH_UP_NEWEST, CH_UP_HERE and CH_UP_TOLD.
+# The state, into CH_UP_CHECKED, CH_UP_NEWEST, CH_UP_HERE and CH_UP_TOLD,
+# and CH_UP_AUTO, CH_UP_AUTOAT, CH_UP_DEFERRED, CH_UP_FAILED,
+# CH_UP_FAILEDAT and CH_UP_HELD.
 ch_update_read() {
   CH_UP_CHECKED=0; CH_UP_NEWEST=""; CH_UP_HERE=""; CH_UP_TOLD=""
+  CH_UP_AUTO=""; CH_UP_AUTOAT=0; CH_UP_DEFERRED=""; CH_UP_FAILED=""; CH_UP_FAILEDAT=0; CH_UP_HELD=""
   [ -f "$CH_UPDATE_STATE" ] || return 1
   local k v
   while IFS='=' read -r k v || [ -n "$k" ]; do
@@ -65,6 +71,12 @@ ch_update_read() {
       newest) ch_is_ver "$v" && CH_UP_NEWEST="$v" ;;
       here) CH_UP_HERE="$v" ;;
       told) ch_is_ver "$v" && CH_UP_TOLD="$v" ;;
+      auto) ch_is_ver "$v" && CH_UP_AUTO="$v" ;;
+      autoat) case "$v" in ''|*[!0-9]*) ;; *) CH_UP_AUTOAT="$v" ;; esac ;;
+      deferred) ch_is_ver "$v" && CH_UP_DEFERRED="$v" ;;
+      failed) ch_is_ver "$v" && CH_UP_FAILED="$v" ;;
+      failedat) case "$v" in ''|*[!0-9]*) ;; *) CH_UP_FAILEDAT="$v" ;; esac ;;
+      held) ch_is_ver "$v" && CH_UP_HELD="$v" ;;
     esac
   done < "$CH_UPDATE_STATE"
   return 0
@@ -73,8 +85,14 @@ ch_update_read() {
 ch_update_write() {
   mkdir -p "${CH_UPDATE_STATE%/*}" 2>/dev/null
   local tmp="$CH_UPDATE_STATE.tmp.$$"
-  printf 'checked=%s\nnewest=%s\nhere=%s\ntold=%s\n' \
-    "$CH_UP_CHECKED" "$CH_UP_NEWEST" "$CH_UP_HERE" "$CH_UP_TOLD" > "$tmp" 2>/dev/null &&
+  { printf 'checked=%s\nnewest=%s\nhere=%s\ntold=%s\n' \
+      "$CH_UP_CHECKED" "$CH_UP_NEWEST" "$CH_UP_HERE" "$CH_UP_TOLD"
+    # The automatic update's, only when there is something to keep.
+    [ -z "${CH_UP_AUTO:-}" ] || printf 'auto=%s\nautoat=%s\n' "$CH_UP_AUTO" "${CH_UP_AUTOAT:-0}"
+    [ -z "${CH_UP_DEFERRED:-}" ] || printf 'deferred=%s\n' "$CH_UP_DEFERRED"
+    [ -z "${CH_UP_FAILED:-}" ] || printf 'failed=%s\nfailedat=%s\n' "$CH_UP_FAILED" "${CH_UP_FAILEDAT:-0}"
+    [ -z "${CH_UP_HELD:-}" ] || printf 'held=%s\n' "$CH_UP_HELD"
+  } > "$tmp" 2>/dev/null &&
     mv -f "$tmp" "$CH_UPDATE_STATE" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 1; }
 }
 
@@ -97,6 +115,33 @@ ch_update_setting() {
         CH_UP_SETTING="$v" ;;
     esac
   done < "$conf"
+}
+# CLAUDE_HTML_AUTO_UPDATE the same way, into CH_UP_AUTO_SETTING: off
+# unless it says on.
+ch_update_auto_setting() {
+  if [ -n "${CLAUDE_HTML_AUTO_UPDATE+x}" ]; then CH_UP_AUTO_SETTING="$CLAUDE_HTML_AUTO_UPDATE"; return 0; fi
+  CH_UP_AUTO_SETTING=off
+  local conf="${CLAUDE_HTML_CONF:-$HOME/.claude/claude-html.conf}" line v
+  [ -f "$conf" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line#"${line%%[![:space:]]*}"}"; line="${line#export }"
+    case "$line" in
+      CLAUDE_HTML_AUTO_UPDATE=*)
+        v="${line#CLAUDE_HTML_AUTO_UPDATE=}"; v="${v%%#*}"
+        v="${v%"${v##*[![:space:]]}"}"; v="${v#\"}"; v="${v%\"}"; v="${v#\'}"; v="${v%\'}"
+        CH_UP_AUTO_SETTING="$v" ;;
+    esac
+  done < "$conf"
+}
+ch_update_auto_on() {
+  ch_update_auto_setting
+  case "$CH_UP_AUTO_SETTING" in [Oo][Nn]|1|[Yy][Ee][Ss]|[Tt][Rr][Uu][Ee]) return 0 ;; esac
+  return 1
+}
+# Whether going from $2 to $1 is a major release: its first number higher.
+ch_ver_major_gt() {
+  ch_is_ver "$1" && ch_is_ver "$2" || return 1
+  [ $((10#${1%%.*})) -gt $((10#${2%%.*})) ]
 }
 ch_update_is_off() {
   case "$1" in [Oo][Ff][Ff]|0|[Nn][Oo]|[Ff][Aa][Ll][Ss][Ee]) return 0 ;; esac

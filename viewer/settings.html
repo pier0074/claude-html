@@ -88,6 +88,43 @@ gap:6px 10px;font-size:12.5px}
 .sbar pre{margin:0;flex-basis:100%;font-size:11px;color:var(--dim);white-space:pre-wrap;word-break:break-all}
 /* As wide as the other pages; with the room, the field on the left and
    what it means beside it, so a setting takes two or three lines, not six. */
+/* The guard's safe values, one a line: what each was, when, its id. */
+details.safe summary{cursor:pointer;color:var(--fg)}
+details.safe ul{list-style:none;margin:6px 0 2px;padding:0;font-size:11.5px}
+details.safe li{display:flex;gap:10px;align-items:baseline;padding:2px 0;border-bottom:1px dotted var(--line)}
+details.safe li:last-child{border-bottom:0}
+details.safe .sk2{min-width:120px} details.safe .sdt{color:var(--dim);min-width:80px}
+details.safe .sid{font-size:10.5px;color:var(--dim)}
+details.safe li.gone .sk2,details.safe li.gone .sdt{text-decoration:line-through;color:var(--schg)}
+/* The status line's items, in order, each on or off. */
+ol.sli{list-style:none;margin:2px 0 0;padding:0;font-size:11.5px;max-width:420px;flex-basis:100%}
+ol.sli li{display:flex;align-items:center;gap:8px;padding:2px 0}
+ol.sli li.off .sln{color:var(--dim)}
+ol.sli .slk{font-size:10px;color:var(--dim)}
+ol.sli .slm{margin-left:auto;display:flex;gap:8px}
+ol.sli .slm button[disabled]{opacity:.3;cursor:default}
+button.sltog{background:var(--code);color:var(--dim);border:1px solid var(--line);border-radius:4px;font:inherit;font-size:10.5px;
+padding:0 6px;min-width:30px;cursor:pointer}
+ol.sli li.on button.sltog{color:var(--sok);border-color:var(--sok)}
+.slp{display:flex;flex-direction:column;gap:2px;margin:0 0 8px}
+.slpl{font-size:10.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
+code.term{display:block;background:#1d1f21;color:#d8d8d8;border-radius:5px;padding:6px 10px;font-size:11px;
+white-space:pre;overflow-x:auto;max-width:100%}
+code.term .sl-g{color:#5fbf6f} code.term .sl-a{color:#ffaf00} code.term .sl-r{color:#e05252} code.term .sl-d{color:#8a8a8a}
+/* The terminal's basic colours, as a dark terminal draws them; the dots
+   on the Colours buttons the same. */
+.sl-green{color:#4ec95b} .sl-cyan{color:#3fc6d6} .sl-blue{color:#5c8cf0} .sl-magenta{color:#d36ad8}
+.sl-yellow{color:#e2c541} .sl-red{color:#e05252} .sl-grey{color:#8f8f8f}
+.seg.colors button{padding:3px 8px;white-space:nowrap}
+.seg.colors i.sw{display:inline-block;width:8px;height:8px;border-radius:50%;background:currentColor;margin-right:5px;vertical-align:0}
+.seg.colors button i.sw{color:inherit}
+.seg.colors button i.sl-green{color:#3aa84a} .seg.colors button i.sl-cyan{color:#1fa5b5} .seg.colors button i.sl-blue{color:#3a6fd8}
+.seg.colors button i.sl-magenta{color:#b84abd} .seg.colors button i.sl-yellow{color:#c9a80f} .seg.colors button i.sl-red{color:#d23f3f}
+.seg.colors button i.sl-grey{color:#8f8f8f}
+.srow.wide .sv{display:block}
+.lim .lm{flex:0 0 150px;display:flex;justify-content:flex-end}
+.srow.slrow>.sv{grid-column:2/span 2;display:block}
+.lim .lm .sm{gap:5px}
 @media(min-width:1180px){
 .srow{grid-template-columns:220px minmax(0,1fr) 150px}
 .sv{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);column-gap:28px;align-content:start}
@@ -95,11 +132,15 @@ gap:6px 10px;font-size:12.5px}
 .sv>.sc{grid-column:1;grid-row:1/span 8;align-self:start}
 .sv>:nth-child(2){margin-top:0}
 .sv>.sc input[type=text]{width:100%}
+#limits .lim .lk{flex:0 0 220px}
 }
 @media(max-width:760px){
 main.st{padding:20px 16px 160px}
 .srow{grid-template-columns:minmax(0,1fr);margin-left:-13px}
 #limits .lim .lk{flex:none}
+.srow.slrow>.sv{grid-column:auto}
+.seg.colors{flex-wrap:wrap}
+.lim .lm{flex:none;justify-content:flex-start}
 .sm{flex-direction:row;justify-content:flex-start;align-items:center;text-align:left;gap:10px}
 .sbar .in{padding:10px 16px}
 }
@@ -123,4 +164,5 @@ main.st{padding:20px 16px 160px}
 <script>/*{{viewer}}*/</script>
 <script>/*{{plan}}*/</script>
 <script>/*{{settings}}*/</script>
+<script>/*{{statusline}}*/</script>
 <script>/*{{page}}*/</script>

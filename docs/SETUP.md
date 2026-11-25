@@ -59,14 +59,27 @@ or dark, and fits a phone.
 
 What it shows besides the settings: the engine in use; the price file's
 newest `checked` date; how many entries your own list of secrets has —
-**never what it says**; how many safe values the guard keeps, with **forget
-them all**; the installed and newest release; Claude Code's side, read
+**never what it says** — with **edit**, which opens it in your text editor
+(after asking in a window, since what it holds would then be on the
+screen; made first, with a few lines of help, if it is not there); the
+safe values the guard keeps, in a list that folds out — each one's kind,
+date and id, with **forget** beside it, and **forget them all**; a
+**preview** of the [status line](#status-line) as the choices above it
+would draw it, normal and condensed; the installed and newest release, and
+what the automatic update last did; Claude Code's side, read
 only — `cleanupPeriodDays` and which of claude-html's hooks are in
 `~/.claude/settings.json`, with the `./install.sh` that fixes them (the page
 never writes that file); and, last, what `--doctor` would say of this
 machine. `CLAUDE_HTML_OUT` and `CLAUDE_HTML_ROOT` are shown with the
 `./install.sh --out`/`--root` command that changes them, not a field. The
-Limits & budget section is the Token usage page's own panel.
+Limits & budget section is the Token usage page's own panel, the one place
+its four settings are changed, each of its rows with its source badge and
+its link here.
+
+**A safe value's id** is the first 8 hex digits of a SHA-256 of its
+line's salt and fingerprint, which the page and the command each work
+out: the page never carries the salt or the fingerprint, so nothing on it
+helps to guess the value, and the link names the id alone.
 
 A setting set in the environment says so: the conf cannot change it while
 that variable is set, so its field is off.
@@ -96,7 +109,9 @@ why:
 ```text
 claude-html://settings/v1/<fingerprint>/<change>[/<change>…]      24 changes at most
   fingerprint   none, or the first 16 hex digits of the conf's md5
-  change        KEY=VALUE · KEY (back to its default) · forget-safe
+  change        KEY=VALUE · KEY (back to its default) · forget-safe (all of them)
+                · forget-safe=ID (one, 8 of 0-9 a-f; as many as there are)
+                · edit-list (alone: the own list in the text editor, asked first)
   KEY           the setting's name without CLAUDE_HTML_, one the page can change
   VALUE         A-Z a-z 0-9 . _ ~ - and %XX (UTF-8), no control character
 ```
@@ -111,6 +126,9 @@ claude-html --config                          # every setting: value, where from
 claude-html --config set GUARD_WAIT=2m WEEK_RESET="tue 07:00 UTC"
 claude-html --config unset GUARD_WAIT         # back to the default
 claude-html --config forget-safe              # the guard's safe values; your own entries stay
+claude-html --config safe                     # each safe value: its id, kind and date
+claude-html --config forget-safe 1f3a9c0e     # that one (several ids: those)
+claude-html --config edit-list                # the own list in your text editor, made if missing
 ```
 
 A key is written with or without `CLAUDE_HTML_`, in any case. Every value
@@ -419,6 +437,19 @@ unless `CLAUDE_HTML_GUARD_WAIT` says otherwise (see the settings below).
 
 At 0:00 the window closes by itself, as Cancel, and the terminal says so.
 
+**What Claude is told** when a command is refused or put to you: the kind
+of secret, and how to speak of the command afterwards — it may quote it,
+in its reply, in a sub-agent's report or in a command it proposes later,
+but with each sensitive value written as `***`, never the value. It is
+handed the command already masked, as the pages mask it (every rule and
+your own list; each value the guard found is then taken out wherever it
+still stands, and if one were left, no command is given at all). Masked
+first, then shortened: up to about 2000 characters it is whole; past that,
+its first 300 characters, 80 on either side of each `***`, and its last
+300, windows that meet joined, each gap `[...]`, the edges moved to a space
+or a line break nearby so no word is cut. A prompt that is stopped is never
+put in what Claude Code is told, masked or not.
+
 With nobody to ask — over ssh, no desktop, `CLAUDE_HTML_GUARD_DIALOG=off`,
 or the dialog failed — the prompt is stopped and the answer is typed as the
 very next prompt, in the same session, within ten minutes (of the block,
@@ -454,9 +485,12 @@ claude-html --guard wait default   # its line out of the conf: a minute again
 
 **What Safe keeps**: a line `safe:<salt>:<hash>   # github, 2026-11-19` in
 your own list — a salted SHA-256 of the value, never the value. To forget
-one, delete its line; to forget them all, `claude-html --config forget-safe`
-or the Settings page's **forget them all**, which take out the `safe:` lines
-and nothing else. A plain line or `/regex/` of your own list still masks
+one, `claude-html --config safe` lists them with an id each and
+`claude-html --config forget-safe <id>` takes that line out, as the
+Settings page's **forget** beside it does (a line written before the kind
+and date were, shows as "kind unknown"); to forget them all,
+`claude-html --config forget-safe` or **forget them all**, which take out
+the `safe:` lines and nothing else. A plain line or `/regex/` of your own list still masks
 what it matches, safe or not.
 
 **What it cannot do**: see what a tool prints (it checks what goes in, not
@@ -612,6 +646,70 @@ next refresh can pass a level by a few percent; other sessions running at
 the same time count toward the API budget once they end; nothing here
 stops work already running.
 
+## Status line
+
+claude-html's status line, under Claude Code's input box, after every
+reply. What it shows, in which order and how, is yours to choose; the
+defaults draw the line it always drew:
+
+```text
+plan · 5 h ██████░░░░ 62 % ↻16:30 · week ██░░░░░░░░ 23 % ↻Tue 08:00 · stop at 80 % from Fri 20:00
+```
+
+| Setting | What it is | Default |
+| ------- | ---------- | ------- |
+| `CLAUDE_HTML_STATUSLINE_ITEMS` | the items, in order, from `five week session today ctx model project stop budget`, or `none` | `five week stop budget` |
+| `CLAUDE_HTML_STATUSLINE_FORM` | `auto`, `normal` or `condensed` | `auto` |
+| `CLAUDE_HTML_STATUSLINE_WIDTH` | the most columns the line may take, from 20 to 400 | `100` |
+| `CLAUDE_HTML_STATUSLINE_BAR` | a bar's blocks: `5`, `10` or `20` | `10` |
+| `CLAUDE_HTML_STATUSLINE_BAR_FROM` | a bar only from this percentage on, the number alone below it; `0`: always | `0` |
+| `CLAUDE_HTML_STATUSLINE_COLOR` | the figures' colour: `auto` (none: the terminal's own text colour), `level` (green, amber from 80 %, red from 95 %), or `green`, `cyan`, `blue`, `magenta`, `yellow`, `red`, `grey` — the terminal's basic colours, which follow its theme, light or dark. `on` and `off`, from an earlier 3.7.0 build, still read as `level` and `auto` | `level` |
+
+Each item has a normal and a condensed form:
+
+| Item | Normal | Condensed |
+| ---- | ------ | --------- |
+| `five`, the 5-hour window | `5 h ██████░░░░ 62 % ↻16:30` | `5h:62% ↻16:30` |
+| `week` | `week ██░░░░░░░░ 23 % ↻Tue 08:00` | `wk:23% ↻Tu08` |
+| `session`, this session's cost | `this session $1.12` | `ses$1.12` |
+| `today`, today's cost across sessions | `today $8.40` | `today$8.40` |
+| `ctx`, the context used | `ctx 41 %` | `ctx41%` |
+| `model`, the agent | `Opus 5.5` | `Op5.5` |
+| `project`, and its git branch | `Trading · v2` | `Tr.v2` |
+| `stop`, the stop rule that matters now | `stop at 80 % from Fri 20:00` | `stop80%` |
+| `budget`, for API use, when one is set | `week $38.20 of $50 ███████▌░░ 76 % ↻Tue 08:00` | `$38/50` |
+
+**auto** draws every item in its normal form, then, while the line is
+wider than the width, condenses them one by one from the last listed (the
+first listed is condensed last), then leaves out its first word (`plan`,
+`budget`); **condensed** draws them all condensed, without that word.
+Claude Code tells the command the terminal's width (in `COLUMNS`, as its
+[status line documentation](https://code.claude.com/docs/en/statusline)
+says) and cuts with `…` a line wider than that less 4 columns: the width
+used is then the smaller of the two. A `padding` set in Claude Code's
+`statusLine` takes room too, which the command is not told.
+
+What each item reads: the 5-hour window and the week are Claude Code's
+`rate_limits` (Pro, Max and Ultra plans); this session's cost is its
+`cost.total_cost_usd`; today's cost adds up the sessions the status line
+has seen today, each from what it had cost when the day began, kept in
+`~/.claude/.claude-html.today`; the context is `context_window.used_percentage`;
+the agent is `model.id` (`claude-opus-5-5` is Opus 5.5), or its
+`display_name`, cut short, for one it does not know; the project is the
+last folder of `workspace.project_dir`, the branch read from the
+repository's `HEAD` file (no git is run). The plan's items show with the
+plan's figures, the budget's for API use; an item with nothing to show
+is left out. With the default items, this session's cost also follows the
+budget for API use, and is the line's one item with neither, as before;
+listed, it shows always.
+
+After an [automatic update](#updating), `updated to X.Y.Z` (`↑X.Y.Z`
+condensed) ends the line for a day.
+
+It stays bash and its builtins: one `date` in the common case, one more
+for today's cost. The Settings page's **Status line** group has each item
+on or off, moved up or down, the other choices, and the preview.
+
 ## Page defaults
 
 What each page starts with, until a browser remembers a click of its own.
@@ -682,6 +780,9 @@ installer says so if it is under a year. Uninstalling leaves it as it is.
 | `claude-html --config` | every [setting](#the-settings-page): its value, where it comes from, its default |
 | `claude-html --config set KEY=VALUE …` / `unset KEY …` | change settings, every value checked first; then rebuild |
 | `claude-html --config forget-safe` | forget the guard's safe values; your own entries stay |
+| `claude-html --config safe` | the guard's safe values: an id, the kind and the date each, never the value |
+| `claude-html --config forget-safe <id> …` | forget those safe values, by the ids `safe` gives |
+| `claude-html --config edit-list` | open your own list in the text editor, made with a few lines of help if missing |
 | `claude-html --settings-apply <payload>` | what the Settings page's **apply** link reaches: asks in a window, then writes, rebuilds and names the page |
 | `claude-html --delete <full id>` | the index's bin: move a conversation to the Trash, after asking |
 | `claude-html --delete-plan <full id>` | say what `--delete` would move, and move nothing |
@@ -756,10 +857,31 @@ Claude. `--doctor` shows what it last saw.
 | Setting | What it is | Default |
 | ------- | ---------- | ------- |
 | `CLAUDE_HTML_UPDATE_CHECK` | `off` (or `0`, `no`, `false`) stops the daily check and its notice; `claude-html --update` by hand still works | `on` |
+| `CLAUDE_HTML_AUTO_UPDATE` | `on`: a newer release the daily check finds is installed by itself, as `claude-html --update` installs it — never a major release, never a development checkout | `off` |
 
 ```bash
 claude-html --update off    # one line in the conf; on turns it back on
+claude-html --config set AUTO_UPDATE=on
 ```
+
+**Automatic updates**, when on, need the daily check on too (it is what
+finds a release). When a save is over — one Claude Code does not wait on:
+the copy the reply's hook detaches, or the session end's — and has let go
+of the lock the saves share, it looks at what the daily check saw, with no
+network. A newer release is then installed, detached, from a copy of the
+update script outside the clone, exactly as `claude-html --update` does it:
+the changelog, the move, the release's own `./install.sh`, a build; a
+failure goes back to where it was and runs its install again. It takes the
+saves' lock without waiting: a save running puts it off until the next
+save is over. Never installed by itself: a **major** release (a higher
+first number), which is announced as ever for you to install by hand; a
+clone whose HEAD is not exactly a release tag on the release line, or that
+has a `dev/` folder — a development checkout. A failed one is tried again a
+day later, not after every reply. What it did goes to
+`~/.claude/.claude-html.autoupdate.log`; after it, the index and the
+[status line](#status-line) say `updated to X.Y.Z` for a day, and the
+Settings page's Updates group what it last did. Nothing is scheduled: no
+cron, launchd or systemd timer, only the saves you already make.
 
 ## The cache
 

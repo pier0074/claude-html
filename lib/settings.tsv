@@ -4,7 +4,9 @@
 #   key  group  label  kind  values  default  anchor  flags  help
 # A field with nothing in it is written -.
 # kind: enum (one of values, |-separated), path, duration (CLAUDE_HTML_GUARD_WAIT's),
-#   week (CLAUDE_HTML_WEEK_RESET's), rules, budget, warn (the limits'), text.
+#   week (CLAUDE_HTML_WEEK_RESET's), rules, budget, warn (the limits'), text,
+#   items (a list of values, in order, each once), number (a whole number,
+#   values min..max).
 # default: the value for an enum, else what applies, in words. anchor: its section in docs/SETUP.md.
 # flags, comma-separated: ro (set by ./install.sh only), env (read from the environment only),
 #   hidden (not on the page), panel (set in the Limits & budget panel), low:<value> (that value
@@ -36,6 +38,14 @@ CLAUDE_HTML_BUDGET_WARN	limits	Budget warnings	warn	-	80 95	limits-and-budget	pa
 CLAUDE_HTML_LIMIT_NOTIFY	limits	Banner	enum	on|off	off	limits-and-budget	panel	a desktop banner for rule announcements and budget warnings
 @updates	Updates
 CLAUDE_HTML_UPDATE_CHECK	updates	Daily check	enum	on|off	on	updating	-	asks the release repository for its tags once a day, and says when a newer release is out
+CLAUDE_HTML_AUTO_UPDATE	updates	Automatic updates	enum	on|off	off	updating	-	on: a newer release the daily check finds is installed by itself, after a save, when no save runs; never a major release, never a development checkout
+@statusline	Status line
+CLAUDE_HTML_STATUSLINE_ITEMS	statusline	Items	items	five|week|session|today|ctx|model|project|stop|budget	five week stop budget	status-line	-	what the line shows, in order; the first listed is the last condensed
+CLAUDE_HTML_STATUSLINE_FORM	statusline	Form	enum	auto|normal|condensed	auto	status-line	-	auto: normal, the items condensed from the last listed until the line fits the width
+CLAUDE_HTML_STATUSLINE_WIDTH	statusline	Width	number	20..400	100	status-line	-	the most columns the line may take, or the terminal's width less 4 when Claude Code says it is narrower
+CLAUDE_HTML_STATUSLINE_BAR	statusline	Bar	enum	5|10|20	10	status-line	-	how many blocks a bar has
+CLAUDE_HTML_STATUSLINE_BAR_FROM	statusline	Bar from	number	0..100	0	status-line	-	a bar only from this percentage on, the number alone below it; 0: always
+CLAUDE_HTML_STATUSLINE_COLOR	statusline	Colours	enum	auto|level|green|cyan|blue|magenta|yellow|red|grey	level	status-line	-	the figures' colour: auto, the terminal's own; level, green, then amber from 80 % and red from 95 %; or one of the terminal's colours
 @view	Page defaults
 CLAUDE_HTML_VIEW_THEME	view	Theme	enum	auto|light|dark	auto	page-defaults	-	every page: auto follows the system
 CLAUDE_HTML_VIEW_GROUP	view	Index	enum	date|project	date	page-defaults	-	the index in date order, or grouped by project

@@ -72,7 +72,7 @@ check "guard.sh's quick look holds every text a rule of redact.js starts at" \
 for ENG in $ENGINES; do
   reset
   # ── every rule it is sure of, as a prompt and as a command ──────────
-  n=0; np=0; nb=0; nl=0
+  n=0; np=0; nb=0; nl=0; nt=0; npl=0; nbl=0
   while IFS= read -r line; do
     n=$((n + 1))
     printf '%s' "$line" | node -e 'var o=JSON.parse(require("fs").readFileSync(0,"utf8"));
@@ -85,7 +85,14 @@ for ENG in $ENGINES; do
     rm -f "$STATE"
     B="$(hook bash "$T/b.json")"
     case "$B" in *'"permissionDecision":"ask"'*) nb=$((nb + 1)) ;; esac
+    # The reason Claude reads: how to speak of the command, and the command
+    # masked, its value as ***; never a probe, there or in a prompt's block.
+    case "$B" in *"write each sensitive value as *** — never the value itself. The command, masked: "*'***'*) nt=$((nt + 1)) ;; esac
+    printf '%s' "$R" | grep -qF -f "$T/probes.txt" && npl=$((npl + 1))
+    printf '%s' "$B" | grep -qF -f "$T/probes.txt" && nbl=$((nbl + 1))
   done < "$T/cases.jsonl"
+  check "$ENG:   telling Claude to write each value as ***, and giving it the command masked" "$nt" "$n"
+  check "$ENG:   the prompt's block never holds the prompt's secret, the command's reason never the command's" "$npl $nbl" "0 0"
   check "$ENG: each of $n secrets of the rules it is sure of stops the prompt" "$np" "$n"
   check "$ENG:   with the message and its four answers" "$nl" "$n"
   check "$ENG:   and asks before the command runs" "$nb" "$n"
@@ -163,6 +170,8 @@ for ENG in $ENGINES; do
   B="$(hook bash "$T/note.bash_bypass")"
   check "$ENG: with permissions bypassed, it is refused, Claude told how to do without" \
     "$(printf '%s' "$B" | grep -c '"permissionDecision":"deny".*~/.my.cnf, an environment variable or a credential helper')" 1
+  check "$ENG:   and how to speak of it: each value as ***, the command masked" \
+    "$(printf '%s' "$B" | grep -c 'credential helper instead. If you mention this command in your reply, in a report or in a command you propose later, write each sensitive value as \*\*\* — never the value itself. The command, masked: ')" 1
   check "$ENG:   and the user told about safe and stop" "$(printf '%s' "$B" | grep -c '"systemMessage":".*`safe`')" 1
   check "$ENG: a clean command says nothing" "$(hook bash "$T/note.bash_clean")" ""
   check "$ENG: another tool says nothing" "$(hook bash "$T/note.write_tool")" ""
@@ -522,6 +531,48 @@ for ENG in $ENGINES; do
     "$(gj "$ENG" answer-prompt "$HERE" "$STATE" "$LIST" "$CONFF" timeout 3600 < "$T/note.secret" | grep -c 'nobody answered within 60 minutes')" 1
   check "  and the words answer it, ten minutes from the window's closing" \
     "$(gj "$ENG" prompt "$HERE" "$STATE" "$LIST" "$CONFF" < "$T/note.w_cancel" 2>/dev/null | grep -c 'Dropped. Nothing was sent.')" 1
+  # A command's window: Cancel, nobody answering, no answer at all - each
+  # reason Claude reads says how to speak of it, and holds it masked only.
+  for a in cancel timeout ""; do
+    reset
+    gj "$ENG" bash "$HERE" "$STATE" "$LIST" "$CONFF" dialog "$T/ddj" < "$T/note.bash_mysql" >/dev/null
+    R="$(gj "$ENG" answer-bash "$HERE" "$STATE" "$LIST" "$CONFF" "$a" 60 < "$T/note.bash_mysql")"
+    check "$ENG: a command's window, answer \"$a\": the reason says each value is written ***, and gives the command masked" \
+      "$(printf '%s' "$R" | grep -c '"permissionDecisionReason":"[^"]*write each sensitive value as \*\*\* — never the value itself. The command, masked: [^"]*\*\*\*') $(printf '%s' "$R" | grep -cF -f "$T/probes.txt")" "1 0"
+  done
+  # Long: masked first, then cut to its start, each *** with what is
+  # around it, and its end, the gaps [...]. The notes are made from the
+  # mysql one, its password a probe; only counts and shapes are printed.
+  node -e '
+    var fs=require("fs"), o=JSON.parse(fs.readFileSync(process.argv[1],"utf8")), c=o.tool_input.command, d=process.argv[2];
+    function fill(n, w) { var s=""; while (s.length < n) s += (w||"word") + (s.length % 70 > 60 ? "\n" : " "); return s; }
+    function note(f, cmd) { o.tool_input.command=cmd; fs.writeFileSync(d+"/"+f, JSON.stringify(o)); }
+    note("long.heredoc", "cat > deploy.sh <<\u0027EOF\u0027\n" + fill(1200, "step") + "\n" + c + "\n" + fill(1200, "more") + "\nEOF\nchmod +x deploy.sh && ./deploy.sh");
+    note("long.far", fill(1000) + "\n" + c + "\n" + fill(1000) + "\n" + c + "\n" + fill(1000));
+    note("long.near", fill(1000) + "\n" + c + " ; " + c + "\n" + fill(1000));
+    note("short", "echo hi && " + c);' "$T/note.bash_mysql" "$T"
+  shape_of() {   # what the masked command in the reason is: its windows, *** count, ends
+    node -e 'var r=JSON.parse(require("fs").readFileSync(0,"utf8")).hookSpecificOutput.permissionDecisionReason;
+      var m=r.split("The command, masked: ")[1]||""; var p=m.split(" [...] ");
+      console.log(p.length + " windows, " + (m.match(/\*\*\*/g)||[]).length + " masked, " + (m.length <= 2100 ? "short" : "long") +
+        (/^cat > deploy\.sh/.test(m) ? ", from its start" : "") + (/\.\/deploy\.sh$/.test(m) ? ", to its end" : "") +
+        (p.some(function(x){return /mysql/.test(x) && /\*\*\*/.test(x) && x.length > 150;}) ? ", a *** with its context" : "") +
+        (p.every(function(x){return !/^\S{1,3} | \S{1,3}$/.test("");}) ? "" : ""))'; }
+  for f in short long.heredoc long.far long.near; do
+    reset; R="$(gj "$ENG" bash "$HERE" "$STATE" "$LIST" "$CONFF" < "$T/$f")"
+    eval "SH_${f//./_}=\"\$(printf '%s' \"\$R\" | shape_of)\""
+    eval "PR_${f//./_}=\"\$(printf '%s' \"\$R\" | grep -cF -f \"\$T/probes.txt\")\""
+  done
+  check "$ENG: a short command comes back whole" "$SH_short" "1 windows, 1 masked, short"
+  check "$ENG: a long heredoc with a key in the middle: its start, the *** in its line, its end" "$SH_long_heredoc" \
+    "3 windows, 1 masked, short, from its start, to its end, a *** with its context"
+  check "$ENG: two values far apart: a window each" "$SH_long_far" "4 windows, 2 masked, short, a *** with its context"
+  check "$ENG: two close together: one window" "$SH_long_near" "3 windows, 2 masked, short, a *** with its context"
+  check "$ENG:   and no probe in any of them" "$PR_short$PR_long_heredoc$PR_long_far$PR_long_near" "0000"
+  P="$(gj "$ENG" bash "$HERE" "$STATE" "$LIST" "$CONFF" < "$T/long.heredoc" | node -e '
+    var m=JSON.parse(require("fs").readFileSync(0,"utf8")).hookSpecificOutput.permissionDecisionReason.split("The command, masked: ")[1];
+    console.log(m.split(" [...] ").every(function(x){ return /^(cat|step|more|mysql|[A-Za-z])/.test(x) && /(step|more|deploy\.sh|\*\*\*|[A-Za-z0-9;])$/.test(x) && !/^(tep|ep|p|ore|re|e) /.test(x); }))')"
+  check "$ENG:   each window ends on a whole word" "$P" true
 done
 reset
 

@@ -192,7 +192,7 @@ for arg in "$@"; do
     --redact-archives) REDACTARCHIVES=1 ;;
     --guard) GUARD=1 ;;
     --limits|--limits-apply) echo "claude-html $arg comes first: claude-html --limits [status|add|remove|rules|budget|notify|on|off]" >&2; exit 2 ;;
-    --config|--settings-apply) echo "claude-html $arg comes first: claude-html --config [set KEY=VALUE…|unset KEY…|forget-safe]" >&2; exit 2 ;;
+    --config|--settings-apply) echo "claude-html $arg comes first: claude-html --config [set KEY=VALUE…|unset KEY…|safe|forget-safe [ID…]|edit-list]" >&2; exit 2 ;;
     --yes|-y) YES=true ;;
     -h|--help)
       echo "claude-html            rebuild what changed, open the index"
@@ -217,6 +217,7 @@ for arg in "$@"; do
       echo "claude-html --limits notify on|off | on|off"
       echo "claude-html --config               every setting: its value, where it comes from, its default"
       echo "claude-html --config set KEY=VALUE … | unset KEY … | forget-safe   (KEY with or without CLAUDE_HTML_)"
+      echo "claude-html --config safe | forget-safe [ID…] | edit-list   the guard's safe values, by id; the own list in your editor"
       exit 0 ;;
     *) if [ -n "$GUARD" ] && [ -z "$GUARDARG" ]; then GUARDARG="$arg"
        elif [ -n "$GUARD" ] && [ "$GUARDARG" = wait ]; then
@@ -333,7 +334,7 @@ if [ -n "$GUARD" ]; then
       # The safe values by rule and date: what a line says after its #.
       _safe="$(grep '^[[:space:]]*safe:' "$GUARD_LIST" 2>/dev/null | sed -n 's/^[^#]*#[[:space:]]*//p')"
       [ -z "$_safe" ] || ch_dl safe "$_safe"
-      [ "$(guard_safe)" = 0 ] || ch_dl "" "to forget one, delete its line in $GUARD_LIST" ;;
+      [ "$(guard_safe)" = 0 ] || ch_dl "" "to forget one: claude-html --config safe gives each an id, claude-html --config forget-safe ID forgets it" ;;
     *) echo "claude-html --guard on|prompt|off|status|wait" >&2; exit 2 ;;
   esac
   exit 0

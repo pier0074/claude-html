@@ -1049,7 +1049,7 @@ function run(argv) {
   // Every placeholder is filled in one pass. Replacing them one after another
   // would let a conversation that quotes a placeholder — this project's own
   // sessions do — have a later replacement land inside its own data.
-  var PLACEHOLDER = /\/\*\{\{(css|data|viewer|page|index|usage|prices|plan|settings|root)\}\}\*\//g;
+  var PLACEHOLDER = /\/\*\{\{(css|data|viewer|page|index|usage|prices|plan|settings|statusline|root)\}\}\*\//g;
 
   function fill(template, parts) {
     return template.replace(PLACEHOLDER, function (m, key) {
@@ -1166,9 +1166,25 @@ function run(argv) {
       return /^\{/.test(r) ? JSON.parse(r) : { unreadable: true };
     } catch (e) { return null; }
   }
+  // The guard's safe values one by one, as lib/settings.sh's
+  // ch_set_safe_rows gives them: an id (the first 8 hex digits of
+  // fingerprint("safe-id", salt:fingerprint), never the salt nor the
+  // fingerprint), the kind and the date the guard wrote after the #.
+  function safeList(r) {
+    var out = [];
+    (read(REDACT_LIST) || "").split("\n").forEach(function (line) {
+      var t = line.replace(/^\s+/, ""), m = /^safe:([0-9a-f]{16}):([0-9a-f]{32})(\s|$)/.exec(t);
+      if (!m) return;
+      var note = t.indexOf("#") > -1 ? t.slice(t.indexOf("#") + 1).replace(/^\s+|\s+$/g, "") : "";
+      var n = /^([a-z0-9][a-z0-9 -]{0,39}),\s*(\d{4}-\d\d-\d\d)$/.exec(note);
+      out.push({ id: r.fingerprint("safe-id", m[1] + ":" + m[2]).slice(0, 8), kind: n ? n[1] : "", date: n ? n[2] : "" });
+    });
+    return out;
+  }
   function ownListInfo() {
     var r = REDACT_ON ? RED : REDACTOR(read(REDACT_LIST) || "", true, !JXA);
-    return { on: REDACT_ON, exists: exists(REDACT_LIST), own: r.own, safe: r.safe, ignored: (r.ignored || []).length };
+    return { on: REDACT_ON, exists: exists(REDACT_LIST), own: r.own, safe: r.safe, ignored: (r.ignored || []).length,
+             safeList: safeList(r), path: REDACT_LIST };
   }
   function updateState() {
     var st = {};
@@ -1178,7 +1194,9 @@ function run(argv) {
     });
     var mine = st.here === HERE;
     return { installed: (read(HERE + "/VERSION") || "").trim(), newest: mine && isVer(st.newest) ? st.newest : "",
-             checked: mine && /^\d+$/.test(st.checked || "") ? +st.checked : 0, notice: updateNotice() || "" };
+             checked: mine && /^\d+$/.test(st.checked || "") ? +st.checked : 0, notice: updateNotice() || "",
+             updated: autoUpdated(), deferred: mine && isVer(st.deferred) ? st.deferred : "",
+             failed: mine && isVer(st.failed) ? st.failed : "", held: mine && isVer(st.held) ? st.held : "" };
   }
   function settingsPage(spend) {
     var values = {};
@@ -1196,6 +1214,7 @@ function run(argv) {
       viewer: asset("viewer.js"),
       plan: asset("plan.js"),
       settings: SETTINGS_SRC,
+      statusline: read(HERE + "/build/statusline.js") || "",
       page: asset("settings.js")
     });
   }
@@ -1245,6 +1264,19 @@ function run(argv) {
     return st.newest;
   }
 
+  // Installed by the automatic update (lib/update.sh --auto): said on the
+  // index for a day, as on the status line.
+  function autoUpdated() {
+    var st = {};
+    (read(HOME + "/.claude/.claude-html.update") || "").split("\n").forEach(function (l) {
+      var i = l.indexOf("=");
+      if (i > 0) st[l.slice(0, i)] = l.slice(i + 1);
+    });
+    var at = /^\d+$/.test(st.autoat || "") ? +st.autoat : 0, now = Math.round(Date.now() / 1000);
+    if (st.here !== HERE || !isVer(st.auto) || !at || now - at < 0 || now - at >= 86400) return null;
+    return { to: st.auto, at: at };
+  }
+
   function indexPage(entries, errors, spend) {
     var data = { sessions: entries, home: HOME, root: ROOT, errors: errors,
                  built: Math.round(Date.now() / 1000) };
@@ -1252,6 +1284,8 @@ function run(argv) {
     // sessions may rightly differ in.
     var upd = updateNotice();
     if (upd) data.update = upd;
+    var auto = autoUpdated();
+    if (auto) data.updated = auto;
     data.actions = ACTIONS; data.mac = MAC;
     if (LIMITS) { data.limits = LIMITS; data.spend = spend || null; }
     return fill(asset("index.html"), {

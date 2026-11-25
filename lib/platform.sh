@@ -774,7 +774,7 @@ $_box
 Closes after $(ch_span "$CH_GUARD_LIMIT") — nothing changed."
   _bf=""
   case "$CH_DIALOG" in
-    osascript) set -- --limit "$CH_GUARD_LIMIT" confirm "$1" "$2" "$3"
+    osascript) set -- --ok "$4" --limit "$CH_GUARD_LIMIT" confirm "$1" "$2" "$3"
                if [ -n "$_box" ] && [ -n "$_bk" ]; then
                  _bf="$(ch_box_file "$_box")" || _bf=""
                  [ -z "$_bf" ] || set -- --box "$_bk" "$_bf" "$@"

@@ -120,11 +120,61 @@ R="$(cfg forget-safe)"
 check "the safe: lines go, and nothing else" "$(diff "$T/list.before" "$LIST" | grep -c '^<') $(grep -c 'safe:' "$LIST") $(grep -cx "$SECRET" "$LIST") $(grep -c '^# my list$' "$LIST") $(grep -c '^/acme_' "$LIST")" "2 0 1 1 1"
 check "  said without what the list says" "$(printf '%s\n' "$R" | grep -c 'forgot 2 safe value(s); your own entries in ~/.claude/claude-html.redact stay') $(printf '%s' "$R" | grep -c "$SECRET")" "1 0"
 
+# ── one safe value at a time ─────────────────────────────────────────
+echo "safe values by id"
+list; printf 'safe:00112233445566aa:00112233445566778899aabbccddeeff\n' >> "$LIST"; cp "$LIST" "$T/list.before"
+# The ids, as build/redact.js's fingerprint() gives them: the page's.
+IDS="$(node -e 'var s=require("fs").readFileSync(process.argv[1]+"/build/redact.js","utf8"),f=new Function(s+"\nreturn fingerprint;")();
+  console.log(["0123456789abcdef:0123456789abcdef0123456789abcdef","fedcba9876543210:fedcba9876543210fedcba9876543210","00112233445566aa:00112233445566778899aabbccddeeff"]
+  .map(function(x){return f("safe-id",x).slice(0,8)}).join(" "))' "$HERE")"
+ID1="${IDS%% *}"; ID3="${IDS##* }"; ID2="${IDS#* }"; ID2="${ID2%% *}"
+R="$(cfg safe)"
+check "--config safe: an id, the kind and the date each, the shell's ids the page's" \
+  "$(printf '%s\n' "$R" | sed -n '2,4p' | tr -s ' ')" " $ID1 github 2026-11-19
+ $ID2 jwt 2026-11-20
+ $ID3 kind unknown "
+check "  never the salt, the fingerprint or an entry of the list" \
+  "$(printf '%s' "$R" | grep -c -e 0123456789abcdef -e fedcba98765 -e 0011223344 -e "$SECRET" -e acme_)" 0
+R="$(cfg forget-safe "$ID2")"
+check "forget-safe <id>: that line goes, and nothing else" \
+  "$(diff "$T/list.before" "$LIST" | grep '^[<>]' | sed 's/^< *//') | $(grep -c 'safe:' "$LIST") $(grep -cx "$SECRET" "$LIST")" \
+  "safe:fedcba9876543210:fedcba9876543210fedcba9876543210   # jwt, 2026-11-20 | 2 1"
+check "  said by its kind and date" "$(printf '%s\n' "$R" | grep -c "forgot the safe value $ID2 (jwt, 2026-11-20)")" 1
+cp "$LIST" "$T/list.before"
+for bad in zzzzzzzz 0123abcd "$ID2" "${ID1}0" "${ID1:0:7}" "$(printf '%s' "$ID1" | tr a-f A-F)" "$ID1 $ID1"; do
+  # shellcheck disable=SC2086
+  R="$(cfg forget-safe $bad)"; RC=$?
+  check "forget-safe $bad: refused, nothing written" "$RC $(cmp -s "$LIST" "$T/list.before" && echo same)" "2 same"
+done
+R="$(cfg forget-safe "$ID1" "$ID3")"
+check "  two ids at once: both go" "$(grep -c 'safe:' "$LIST") $(grep -cx "$SECRET" "$LIST") $(grep -c '^# my list$' "$LIST")" "0 1 1"
+
+# ── the own list, in the text editor ─────────────────────────────────
+echo "edit-list"
+# A Linux desktop with its opener, a stand-in that is never reached: the
+# switch notes what it would have run.
+mkdir -p "$T/xstub"; printf '#!/bin/sh\necho "$*" >> "%s/xdg.called"\n' "$T" > "$T/xstub/xdg-open"; chmod +x "$T/xstub/xdg-open"
+rm -f "$LIST"; : > "$T/shown"
+R="$(cfg edit-list -- CLAUDE_HTML_UNAME=Linux DISPLAY=:9 XDG_CURRENT_DESKTOP=GNOME PATH="$T/xstub:/usr/bin:/bin")"; RC=$?
+check "--config edit-list, no list yet: made with a header, its owner's only, then opened" \
+  "$RC $(head -1 "$LIST") $(grep -vc '^#' "$LIST") $(ls -l "$LIST" | cut -c1-10)" \
+  "0 # claude-html: your own list of things to mask, one a line, never shown anywhere. 0 -rw-------"
+check "  by the opener, noted and not shown here (CLAUDE_HTML_NO_SCREEN)" "$(cat "$T/shown")|$([ -e "$T/xdg.called" ] && echo called)" \
+  "open 'xdg-open' '$LIST'|"
+echo "MINE" >> "$LIST"; cp "$LIST" "$T/list.before"
+cfg edit-list -- CLAUDE_HTML_UNAME=Linux DISPLAY=:9 XDG_CURRENT_DESKTOP=GNOME PATH="$T/xstub:/usr/bin:/bin" >/dev/null
+check "  there already: opened as it is" "$(cmp -s "$LIST" "$T/list.before" && echo same)" same
+: > "$T/shown"
+R="$(cfg edit-list -- CLAUDE_HTML_UNAME=Linux PATH=/usr/bin:/bin)"; RC=$?
+check "  nothing that opens files (a Linux without a desktop): says so, exit 1" "$RC $(printf '%s' "$R" | grep -c 'edit ~/.claude/claude-html.redact in your editor')" "1 1"
+list
+
 # ── the link's grammar ───────────────────────────────────────────────
 echo "link"
 lok() { env -i CLAUDE_HTML_NO_SCREEN="$T/shown" PATH="$PATH" HOME="$H" /bin/bash -c 'HERE="$0"; . "$HERE/lib/settings.sh"; ch_set_link_ok "$1" && echo ok || echo no' "$HERE" "$1"; }
 n=0; m=0
-for p in "v1/none/GUARD=off" "v1/0123456789abcdef/GUARD_WAIT=2m/ENGINE/forget-safe" \
+for p in "v1/none/GUARD=off" "v1/0123456789abcdef/GUARD_WAIT=2m/ENGINE/forget-safe" "v1/none/forget-safe=0123abcd" \
+         "v1/none/forget-safe=0123abcd/forget-safe=89abcdef" "v1/none/edit-list" "v1/none/STATUSLINE_ITEMS=five%20ctx/STATUSLINE_WIDTH=80" \
          "v1/none/WEEK_RESET=tue%2007%3A00%20UTC" "v1/none/PRICES=%2FUsers%2Fme%2Fp%20q.tsv" "v1/none/EXPORT=~%2Fx.json"; do
   m=$((m + 1)); [ "$(lok "$p")" = ok ] && n=$((n + 1))
 done
@@ -136,6 +186,9 @@ for p in "" "v1" "v1/none" "v1/none/" "v2/none/GUARD=off" "V1/none/GUARD=off" "v
          "v1/none/GUARD=\$(id)" "v1/none/GUARD=%0aoff" "v1/none/PRICES=%2Fa%0Ab" "v1/none/PRICES=%2Fa%7Fb" "v1/none/PRICES=%2Fa%00" \
          "v1/none/GUARD=off?x=1" "v1/none/GUARD=off#f" "v1/none/GUARD=o'ff" 'v1/none/GUARD="off"' "v1/none/GUARD=off x" \
          "v1/none/PRICES=%2fx" "v1/none/GUARD=%zz" "$LONG" \
+         "v1/none/forget-safe=0123ABCD" "v1/none/forget-safe=0123abc" "v1/none/forget-safe=0123abcde" "v1/none/forget-safe=" \
+         "v1/none/forget-safe=0123abcd;id" "v1/none/forget-safe=%30123abc" "v1/none/forget-safe=\$(id)" "v1/none/forget-safe=0123abcd%0A" \
+         "v1/none/forget-safe=../../x" "v1/none/edit-list=x" "v1/none/Edit-list" "v1/none/edit-list%2F" "v1/none/forget-safe0123abcd" \
          "v1/none$(printf '/GUARD=off%.0s' $(seq 1 25))" "v1/none/GUARD=off
 v1/none/GUARD=on"; do
   m=$((m + 1)); [ "$(lok "$p")" = no ] && n=$((n + 1)) || echo "        taken: $p" | cut -c1-120
@@ -156,7 +209,11 @@ apply_dry() { cli --settings-apply "$1" CLAUDE_HTML_UNAME=Linux DISPLAY=:9 XDG_C
 for p in "v1/none/NOPE=1" "v1/none/OUT=%2Ftmp" "v1/none/CONF=%2Ftmp" "v1/none/LIMIT_RULES=fri" "v1/none/GUARD=maybe" \
          "v1/none/PRICES=%2Ftmp%2F..%2Fetc%2Fpasswd" "v1/none/PRICES=..%2Fx" "v1/none/EXPORT=%2Fx%24(id)" "v1/none/EXPORT=%2Fx%22y" \
          "v1/none/EXPORT=%2Fx%60id%60" "v1/none/GUARD_WAIT=1h" "v1/none/WEEK_RESET=tue%2025%3A00" "v1/none/GUARD=off/GUARD=on" \
-         "v1/none/forget-safe/forget-safe" "v1/none/CLAUDE_HTML_GUARD=off"; do
+         "v1/none/forget-safe/forget-safe" "v1/none/CLAUDE_HTML_GUARD=off" \
+         "v1/none/forget-safe=0123abcd" "v1/none/forget-safe/forget-safe=$ID1" "v1/none/forget-safe=$ID1/forget-safe=$ID1" \
+         "v1/none/edit-list/GUARD=off" "v1/none/GUARD=off/edit-list" "v1/none/edit-list/edit-list" "v1/none/edit-list/forget-safe" \
+         "v1/none/STATUSLINE_ITEMS=five%20five" "v1/none/STATUSLINE_ITEMS=five%3Bid" "v1/none/STATUSLINE_WIDTH=19" "v1/none/STATUSLINE_WIDTH=1e3" \
+         "v1/none/STATUSLINE_BAR=7" "v1/none/STATUSLINE_BAR_FROM=101" "v1/none/AUTO_UPDATE=maybe"; do
   R="$(apply_dry "$p")"; RC=$?
   check "refused, nothing asked or written: $p" "$RC $(printf '%s' "$R" | grep -c "^'zenity'") $(cmp -s "$CONFF" "$T/conf.before" && echo same)" "2 0 same"
 done
@@ -196,7 +253,36 @@ CLAUDE_HTML_OUT	/x
 CLAUDE_HTML_CONF	/x
 CLAUDE_HTML_VIEW_THEME	Dark
 CLAUDE_HTML_VIEW_PRICES	today
-CLAUDE_HTML_VIEW_SESSION	talk'
+CLAUDE_HTML_VIEW_SESSION	talk
+CLAUDE_HTML_STATUSLINE_ITEMS	Model, five ctx
+CLAUDE_HTML_STATUSLINE_ITEMS	five week stop budget
+CLAUDE_HTML_STATUSLINE_ITEMS	five,week stop  budget
+CLAUDE_HTML_STATUSLINE_ITEMS	none
+CLAUDE_HTML_STATUSLINE_ITEMS	five five
+CLAUDE_HTML_STATUSLINE_ITEMS	five bogus
+CLAUDE_HTML_STATUSLINE_ITEMS	none five
+CLAUDE_HTML_STATUSLINE_ITEMS	,
+CLAUDE_HTML_STATUSLINE_WIDTH	80
+CLAUDE_HTML_STATUSLINE_WIDTH	0100
+CLAUDE_HTML_STATUSLINE_WIDTH	100
+CLAUDE_HTML_STATUSLINE_WIDTH	19
+CLAUDE_HTML_STATUSLINE_WIDTH	401
+CLAUDE_HTML_STATUSLINE_WIDTH	00080
+CLAUDE_HTML_STATUSLINE_WIDTH	8O
+CLAUDE_HTML_STATUSLINE_WIDTH	-50
+CLAUDE_HTML_STATUSLINE_BAR_FROM	0
+CLAUDE_HTML_STATUSLINE_BAR_FROM	100
+CLAUDE_HTML_STATUSLINE_BAR	20
+CLAUDE_HTML_STATUSLINE_BAR	7
+CLAUDE_HTML_STATUSLINE_FORM	Condensed
+CLAUDE_HTML_STATUSLINE_COLOR	Cyan
+CLAUDE_HTML_STATUSLINE_COLOR	level
+CLAUDE_HTML_STATUSLINE_COLOR	auto
+CLAUDE_HTML_STATUSLINE_COLOR	grey
+CLAUDE_HTML_STATUSLINE_COLOR	on
+CLAUDE_HTML_STATUSLINE_COLOR	off
+CLAUDE_HTML_STATUSLINE_COLOR	purple
+CLAUDE_HTML_AUTO_UPDATE	ON'
 printf '%s\n' "$PAIRS" > "$T/pairs"
 SHA="$(while IFS='	' read -r k v; do sh_ 'ch_set_load; if ch_set_check "$1" "$2"; then echo "ok ${_SU:+unset}$(ch_set_tilde "$_SV")"; else echo no; fi' "$k" "$v"; done < "$T/pairs")"
 JSA="$(node -e '
@@ -258,6 +344,30 @@ Guard:  now prompt · asked off   ⚠ lowers protection
 Windows wait:  now 1m (default) · asked 2m"
 check "  a value the environment overrides: said in the window" \
   "$(apply_dry "v1/$FP/GUARD_WAIT=2m" CLAUDE_HTML_GUARD_WAIT=45s | grep -c '(set in the environment, which wins: no change here while it is)')" 1
+list
+D="$(apply_dry "v1/$FP/forget-safe=$ID1/forget-safe=$ID2")"
+check "forget-safe=<id> in the window: each by its kind and date, the lines it takes out" \
+  "$(printf '%s\n' "$D" | grep -e '^Safe value' -e '^# in')" \
+  "Safe value $ID1:  github, 2026-11-19 → forgotten: asked about again
+Safe value $ID2:  jwt, 2026-11-20 → forgotten: asked about again
+# in ~/.claude/claude-html.redact: the safe: line of $ID1 taken out, nothing else
+# in ~/.claude/claude-html.redact: the safe: line of $ID2 taken out, nothing else"
+check "  never the salt or the fingerprint, nor what the list says" "$(printf '%s' "$D" | grep -c -e 0123456789abcdef -e fedcba98 -e "$SECRET")" 0
+D="$(apply_dry "v1/$FP/edit-list")"
+check "edit-list in the window: asked as that, Open and Cancel, never Apply; what it opens, and that it would be on the screen" \
+  "$(printf '%s\n' "$D" | grep -c -- "^'zenity' '--question' '--no-markup' '--default-cancel' '--title=claude-html' '--ok-label=Open' '--cancel-label=Cancel' '--text=Open your own list in the text editor?$") $(printf '%s' "$D" | grep -c Apply) $(printf '%s\n' "$D" | grep -e '^Open:' -e '^Note:')" \
+  "1 0 Open:  ~/.claude/claude-html.redact in your text editor
+Note:  it holds your own secrets: they will be on the screen"
+check "  no window to ask in: the same question in words, nothing opened, the command said" \
+  "$(cli --settings-apply "v1/$FP/edit-list" CLAUDE_HTML_UNAME=Linux PATH="$T/stub:$PATH" | tr '\n' '|')" \
+  "Open your own list in the text editor? There is no window to ask you in here, so nothing was opened. To open it, run:|claude-html --config edit-list|"
+D="$(apply_dry "v1/$FP/forget-safe=$ID1")"
+check "safe values forgotten and nothing else: asked as that, Forget and Cancel" \
+  "$(printf '%s\n' "$D" | grep -c -- "'--ok-label=Forget' '--cancel-label=Cancel' '--text=Forget this safe value?$") $(printf '%s' "$D" | grep -c Apply)" "1 0"
+check "  two of them; all of them" \
+  "$(apply_dry "v1/$FP/forget-safe=$ID1/forget-safe=$ID2" | grep -c -- "--text=Forget these safe values?$") $(apply_dry "v1/$FP/forget-safe" | grep -c -- "'--ok-label=Forget' '--cancel-label=Cancel' '--text=Forget the safe values?$")" "1 1"
+check "  with a setting among them: Change settings?, Apply" \
+  "$(apply_dry "v1/$FP/GUARD=off/forget-safe=$ID1" | grep -c -- "'--ok-label=Apply' '--cancel-label=Cancel' '--text=Change claude-html settings?$")" 1
 # On a Mac: the window of dialog.js, through a stand-in osascript; the
 # lines in a private file, gone after.
 cat > "$T/mac/osascript" <<'STUB'
@@ -276,6 +386,15 @@ check "on a Mac: the confirmation window, Cancel: nothing changed" "$R $(cmp -s 
 check "  its rows, its File ▸ lines in a private file gone after, the test's limit" \
   "$(grep -c '^confirm$' "$T/mrec.argv") $(grep -c 'Guard:	now prompt · asked off   ⚠ lowers protection' "$T/mrec.argv") $(cat "$T/mrec.content") $(cat "$T/mrec.modes")$(ls -A "$T/mtmp" | wc -l | tr -d ' ') $(grep -A1 -x -- '--limit' "$T/mrec.argv" | tail -1)" \
   '1 1 CLAUDE_HTML_GUARD="off" drwx------ -rw------- 0 7'
+check "  its button: Apply for a setting" "$(grep -A1 -x -- '--ok' "$T/mrec.argv" | tail -1)" Apply
+cli --settings-apply "v1/$FP/edit-list" CLAUDE_HTML_UNAME=Darwin PATH="$T/mac:$PATH" TMPDIR="$T/mtmp" STUB_REC="$T/mrec" STUB_ANSWER=cancel CLAUDE_HTML_GUARD_TEST_LIMIT=7 CLAUDE_HTML_NO_SCREEN= >/dev/null
+check "  Open for the own list, its question that" "$(grep -A1 -x -- '--ok' "$T/mrec.argv" | tail -1) $(grep -A1 -x confirm "$T/mrec.argv" | tail -1)" "Open Open your own list in the text editor?"
+cli --settings-apply "v1/$FP/forget-safe=$ID1" CLAUDE_HTML_UNAME=Darwin PATH="$T/mac:$PATH" TMPDIR="$T/mtmp" STUB_REC="$T/mrec" STUB_ANSWER=cancel CLAUDE_HTML_GUARD_TEST_LIMIT=7 CLAUDE_HTML_NO_SCREEN= >/dev/null
+check "  dialog.js reads its button from --ok, a word or two, else Apply" \
+  "$(node -e 'var vm=require("vm"),c={};vm.createContext(c);vm.runInContext(require("fs").readFileSync(process.argv[1],"utf8"),c);
+    console.log([["--ok","Open","--limit","5","confirm"],["--ok","Forget","confirm"],["confirm"],["--ok","x\";rm","confirm"],["--ok","","confirm"]]
+      .map(function(a){return vm.runInContext("options("+JSON.stringify(a)+").ok",c)}).join(" "))' "$HERE/mac/dialog.js")" "Open Forget Apply Apply Apply"
+check "  Forget for a safe value alone" "$(grep -A1 -x -- '--ok' "$T/mrec.argv" | tail -1) $(grep -A1 -x confirm "$T/mrec.argv" | tail -1)" "Forget Forget this safe value?"
 mkdir -p "$H/.claude/.claude-html-settings-ask"
 check "one window at a time: a second link while one asks, exit 3" \
   "$(cli --settings-apply "v1/$FP/GUARD=off" CLAUDE_HTML_UNAME=Linux DISPLAY=:9 XDG_CURRENT_DESKTOP=GNOME PATH="$T/stub:$PATH" STUB_ANSWER=yes >/dev/null; echo $?) $(cmp -s "$CONFF" "$T/conf.before" && echo same)" "3 same"
@@ -323,8 +442,10 @@ for ENG in $([ "$HAVE_OSASCRIPT" = true ] && echo osascript) node; do
   check "$ENG:   what the machine is, and the engine that built it" \
     "$(data "$P" '[d.shell.engine.name, d.shell.version === d.update.installed, !!d.shell.system, d.shell.fp.length].join(" ")')" \
     "$ENG true true 16"
-  check "$ENG:   the own list by count only: never a word of it, nor the safe values' hashes" \
-    "$(data "$P" 'd.redact.own+" "+d.redact.safe') $(grep -rl -e "$SECRET" -e acme_ -e 0123456789abcdef0123456789abcdef "$T/out" | wc -l | tr -d ' ')" "2 2 0"
+  check "$ENG:   the own list by count only: never a word of it, nor the safe values' salts or hashes" \
+    "$(data "$P" 'd.redact.own+" "+d.redact.safe') $(grep -rl -e "$SECRET" -e acme_ -e 0123456789abcdef -e fedcba9876543210 "$T/out" | wc -l | tr -d ' ')" "2 2 0"
+  check "$ENG:   each safe value by the id --config safe gives it, its kind and its date" \
+    "$(data "$P" 'd.redact.safeList.map(function(e){return e.id+" "+e.kind+" "+e.date}).join("|")')" "$ID1 github 2026-11-19|$ID2 jwt 2026-11-20"
   check "$ENG:   the hooks as settings.json has them (none here), and cleanupPeriodDays" \
     "$(data "$P" 'JSON.stringify(d.hooks)')" \
     '{"Stop":false,"SessionEnd":false,"PreCompact":false,"guardPrompt":false,"guardBash":false,"statusLine":"none","cleanupPeriodDays":null}'

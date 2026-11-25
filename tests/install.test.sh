@@ -345,7 +345,7 @@ check "  and given back exactly on uninstall" "$(sl)" "$ORIG"
 node -e 'var fs=require("fs"),p=process.argv[1],s=JSON.parse(fs.readFileSync(p,"utf8")); s.statusLine={type:"command"}; fs.writeFileSync(p,JSON.stringify(s,null,2))' "$SJ"
 install
 check "a statusLine that is not a command is left as it is" "$(sl) $(grep -c 'is not a command, so it was left' "$T/install.out")" "{\"type\":\"command\"} 1"
-for f in .claude-html.limits .claude-html.limits-marks .claude-html.spend; do : > "$H/.claude/$f"; done
+for f in .claude-html.limits .claude-html.limits-marks .claude-html.spend .claude-html.today .claude-html.autoupdate.log; do : > "$H/.claude/$f"; done
 clean_env bash "$C/install.sh" --uninstall > "$T/install.out" 2>&1
 check "uninstall takes the limits' own state away too" "$(ls -A "$H/.claude" | grep -c '^\.claude-html')" 0
 

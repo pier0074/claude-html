@@ -99,9 +99,11 @@ ch_lim_mktime() {   # days h m hint_offset -> _LT
 # every setting. A script that sourced conf.sh already has them decided;
 # the status line reads the conf itself, line by line, without running it.
 CH_LIM_KEYS="CLAUDE_HTML_LIMITS CLAUDE_HTML_LIMIT_RULES CLAUDE_HTML_BUDGET CLAUDE_HTML_BUDGET_WARN CLAUDE_HTML_LIMIT_NOTIFY CLAUDE_HTML_WEEK_RESET"
+# CH_LIM_EXTRA_KEYS: more keys read in the same pass, for a caller that
+# needs its own settings too (the status line's), without a second read.
 ch_lim_settings() {
   local k unset_keys="" line v conf="${CLAUDE_HTML_CONF:-$HOME/.claude/claude-html.conf}"
-  for k in $CH_LIM_KEYS; do eval "[ -n \"\${$k+x}\" ]" || unset_keys="$unset_keys $k"; done
+  for k in $CH_LIM_KEYS ${CH_LIM_EXTRA_KEYS:-}; do eval "[ -n \"\${$k+x}\" ]" || unset_keys="$unset_keys $k"; done
   if [ -n "$unset_keys" ] && [ -f "$conf" ]; then
     while IFS= read -r line || [ -n "$line" ]; do
       line="${line#"${line%%[![:space:]]*}"}"; line="${line#export }"
@@ -117,7 +119,7 @@ ch_lim_settings() {
       eval "_set_$k=\$v"
     done < "$conf"
   fi
-  for k in $CH_LIM_KEYS; do
+  for k in $CH_LIM_KEYS ${CH_LIM_EXTRA_KEYS:-}; do
     case " $unset_keys " in
       *" $k "*) eval "if [ -n \"\${_set_$k+x}\" ]; then $k=\"\$_set_$k\"; unset _set_$k; else $k=; fi" ;;
     esac

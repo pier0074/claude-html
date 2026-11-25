@@ -145,6 +145,152 @@ check "  no total yet: says so" "$(sl "$T/api2" | plain)" \
   "budget · \$50 per week, no total yet: claude-html counts it at the next save · this session \$1.12"
 check "it never started node or osascript" "$(started)" 0
 
+# ── the line's options ──────────────────────────────────────────────
+echo "status line options"
+conf "$RULES"; rm -f "$STATE" "$H/.claude/.claude-html.today"
+ALL='CLAUDE_HTML_STATUSLINE_ITEMS=five week session today ctx model project stop'
+check "the defaults: the line of before, exactly" "$(sl "$T/p1" | plain)" \
+  "plan · 5 h ██████░░░░ 62 % ↻16:30 · week ████████░░ 81 % ↻Tue 08:00 · stop at 80 % from Fri 20:00"
+check "  a wide terminal changes nothing" "$(sl "$T/p1" COLUMNS=200 | plain)" \
+  "plan · 5 h ██████░░░░ 62 % ↻16:30 · week ████████░░ 81 % ↻Tue 08:00 · stop at 80 % from Fri 20:00"
+check "  a terminal of 101 columns holds its 97, with the 4 Claude Code keeps" "$(sl "$T/p1" COLUMNS=101 | plain)" \
+  "plan · 5 h ██████░░░░ 62 % ↻16:30 · week ████████░░ 81 % ↻Tue 08:00 · stop at 80 % from Fri 20:00"
+check "  one of 100 does not: the last item condensed" "$(sl "$T/p1" COLUMNS=100 | plain)" \
+  "plan · 5 h ██████░░░░ 62 % ↻16:30 · week ████████░░ 81 % ↻Tue 08:00 · stop80%"
+rm -f "$H/.claude/.claude-html.today"
+check "every item, normal" "$(sl "$T/p1" "$ALL" CLAUDE_HTML_STATUSLINE_FORM=normal | plain)" \
+  "plan · 5 h ██████░░░░ 62 % ↻16:30 · week ████████░░ 81 % ↻Tue 08:00 · this session \$1.12 · today \$1.12 · ctx 8 % · Opus 5.5 · app · stop at 80 % from Fri 20:00"
+check "  condensed: each item's short form, the first word gone" "$(sl "$T/p1" "$ALL" CLAUDE_HTML_STATUSLINE_FORM=condensed | plain)" \
+  "5h:62% ↻16:30 · wk:81% ↻Tu08 · ses\$1.12 · today\$1.12 · ctx8% · Op5.5 · ap · stop80%"
+L="$(sl "$T/p1" "$ALL" | plain)"
+check "  auto, 100 columns: condensed from the last listed until it fits" "$L" \
+  "plan · 5h:62% ↻16:30 · wk:81% ↻Tu08 · ses\$1.12 · today\$1.12 · ctx8% · Op5.5 · ap · stop80%"
+check "  110: the 5-hour window keeps its normal form" "$(sl "$T/p1" "$ALL" CLAUDE_HTML_STATUSLINE_WIDTH=110 | plain)" \
+  "plan · 5 h ██████░░░░ 62 % ↻16:30 · wk:81% ↻Tu08 · ses\$1.12 · today\$1.12 · ctx8% · Op5.5 · ap · stop80%"
+W="$(node -e 'console.log(Array.from(process.argv[1]).length)' "$L")"
+check "  and it fits: $W columns" "$([ "$W" -le 100 ] && echo fits)" fits
+check "  the terminal narrower (COLUMNS=60): its width less 4 wins" "$(sl "$T/p1" "$ALL" COLUMNS=60 | plain)" \
+  "5h:62% ↻16:30 · wk:81% ↻Tu08 · ses\$1.12 · today\$1.12 · ctx8% · Op5.5 · ap · stop80%"
+check "  the width setting, 70: the week condensed too, the first word kept" "$(sl "$T/p1" CLAUDE_HTML_STATUSLINE_WIDTH=70 | plain)" \
+  "plan · 5 h ██████░░░░ 62 % ↻16:30 · wk:81% ↻Tu08 · stop80%"
+check "  a width that is no number: the default" "$(sl "$T/p1" CLAUDE_HTML_STATUSLINE_WIDTH=wide | plain)" "$(sl "$T/p1" | plain)"
+check "items in another order, the 5-hour window last" "$(sl "$T/p1" CLAUDE_HTML_STATUSLINE_ITEMS="week, stop five" | plain)" \
+  "plan · week ████████░░ 81 % ↻Tue 08:00 · stop at 80 % from Fri 20:00 · 5 h ██████░░░░ 62 % ↻16:30"
+check "  none: the first word alone" "$(sl "$T/p1" CLAUDE_HTML_STATUSLINE_ITEMS=none | plain)" "plan"
+check "  a word that is no item is passed over" "$(sl "$T/p1" CLAUDE_HTML_STATUSLINE_ITEMS="week bogus" | plain)" "plan · week ████████░░ 81 % ↻Tue 08:00"
+check "bar of 5 blocks, of 20" "$(sl "$T/p3" CLAUDE_HTML_STATUSLINE_BAR=5 | plain | grep -o '5 h [^ ]* ') | $(sl "$T/p3" CLAUDE_HTML_STATUSLINE_BAR=20 | plain | grep -o '5 h [^ ]* ')" \
+  "5 h ██░░░  | 5 h █████████░░░░░░░░░░░ "
+check "  a bar only from 70 %: none under it" "$(sl "$T/p3" CLAUDE_HTML_STATUSLINE_BAR_FROM=70 | plain)" \
+  "plan · 5 h 46 % ↻16:30 · week 30 % ↻Tue 08:00 · stop at 80 % from Fri 20:00"
+check "    the 81 % one with its bar, the 62 % one without" "$(sl "$T/p1" CLAUDE_HTML_STATUSLINE_BAR_FROM=70 | plain)" \
+  "plan · 5 h 62 % ↻16:30 · week ████████░░ 81 % ↻Tue 08:00 · stop at 80 % from Fri 20:00"
+check "colours auto: no colour on a figure, the terminal's own; the rest stays dim" \
+  "$(sl "$T/p1" CLAUDE_HTML_STATUSLINE_COLOR=auto | grep -c -e "${ESC}\[3[0-9]m" -e "${ESC}\[9[0-9]m" -e "${ESC}\[38;5;214m") $(sl "$T/p1" CLAUDE_HTML_STATUSLINE_COLOR=auto | grep -c "${ESC}\[2m")" "0 1"
+check "  level, and on from an earlier 3.7.0: the line of before" \
+  "$(sl "$T/p1" CLAUDE_HTML_STATUSLINE_COLOR=level | od -c | md5sum 2>/dev/null || sl "$T/p1" CLAUDE_HTML_STATUSLINE_COLOR=level | od -c | md5) $(sl "$T/p1" CLAUDE_HTML_STATUSLINE_COLOR=on | od -c | md5sum 2>/dev/null || sl "$T/p1" CLAUDE_HTML_STATUSLINE_COLOR=on | od -c | md5)" \
+  "$(sl "$T/p1" | od -c | md5sum 2>/dev/null || sl "$T/p1" | od -c | md5) $(sl "$T/p1" | od -c | md5sum 2>/dev/null || sl "$T/p1" | od -c | md5)"
+o=""
+for c in green cyan blue magenta yellow red grey; do
+  L="$(sl "$T/p1" CLAUDE_HTML_STATUSLINE_COLOR=$c)"
+  o="$o$c:$(printf '%s' "$L" | grep -o "${ESC}\[[0-9;]*m[█░▌ ]*[0-9]* %" | sed "s/$ESC\[\([0-9;]*\)m.*/\1/" | sort -u | tr '\n' ',') "
+done
+check "  a fixed colour: each figure in the terminal's own basic colour" "$o" \
+  "green:32, cyan:36, blue:34, magenta:35, yellow:33, red:31, grey:90, "
+check "    the stop rule left as it is, the line as wide" \
+  "$(sl "$T/p1" CLAUDE_HTML_STATUSLINE_COLOR=cyan | grep -c "${ESC}\[38;5;214mstop") $(sl "$T/p1" CLAUDE_HTML_STATUSLINE_COLOR=cyan "$ALL" | plain)" \
+  "0 $(sl "$T/p1" "$ALL" | plain)"
+check "colours off, from an earlier 3.7.0: no green, amber or red; the rest stays dim" \
+  "$(sl "$T/p1" CLAUDE_HTML_STATUSLINE_COLOR=off | grep -c -e "${ESC}\[32m" -e "${ESC}\[38;5;214m" -e "${ESC}\[31m") $(sl "$T/p1" CLAUDE_HTML_STATUSLINE_COLOR=off | grep -c "${ESC}\[2m")" "0 1"
+check "  condensed, the figure coloured" "$(sl "$T/p1" CLAUDE_HTML_STATUSLINE_FORM=condensed | grep -c "5h:${ESC}\[32m62%")" 1
+# The agent, from the model's id; one it does not know, by its name.
+mj() { payload "$1" 62.4 81.3; node -e 'var f=require("fs"),o=JSON.parse(f.readFileSync(process.argv[1],"utf8")); o.model=JSON.parse(process.argv[2]); f.writeFileSync(process.argv[1],JSON.stringify(o))' "$1" "$2"; }
+o=""
+for m in '{"id":"claude-opus-5-5","display_name":"Opus"}' '{"id":"claude-fable-5-2"}' '{"id":"claude-sonnet-5-5[1m]"}' \
+         '{"id":"claude-haiku-5-5-20261001"}' '{"id":"claude-3-5-sonnet-20241022"}' '{"id":"gpt-x-1","display_name":"Some Big Model"}' '{"id":"x"}'; do
+  mj "$T/pm" "$m"
+  o="$o$(sl "$T/pm" CLAUDE_HTML_STATUSLINE_ITEMS=model | plain | sed 's/^plan · //')/$(sl "$T/pm" CLAUDE_HTML_STATUSLINE_ITEMS=model CLAUDE_HTML_STATUSLINE_FORM=condensed | plain)|"
+done
+check "the agent: name and version, and two letters and the version" "$o" \
+  "Opus 5.5/Op5.5|Fable 5.2/Fa5.2|Sonnet 5.5/So5.5|Haiku 5.5/Ha5.5|Sonnet 3.5/So3.5|Some Big Model/SomeBi|plan/plan|"
+# The project and its branch, read from HEAD: a repository, a worktree's .git file.
+mkdir -p "$T/w/Trading/.git" "$T/w/Trading/src" "$T/w/wt" "$T/w/Trading/.git/worktrees/wt"
+echo "ref: refs/heads/v2" > "$T/w/Trading/.git/HEAD"
+echo "gitdir: $T/w/Trading/.git/worktrees/wt" > "$T/w/wt/.git"; echo "0123456789abcdef0123456789abcdef01234567" > "$T/w/Trading/.git/worktrees/wt/HEAD"
+pj() { printf '{"session_id":"s9","workspace":{"current_dir":"%s","project_dir":"%s"}}' "$2" "$3" > "$1"; }
+pj "$T/pp1" "$T/w/Trading/src" "$T/w/Trading"; pj "$T/pp2" "$T/w/wt" "$T/w/wt"; pj "$T/pp3" "$T/root" "$T/root"
+rm -f "$STATE"
+check "project · branch, from a subfolder; condensed" \
+  "$(sl "$T/pp1" CLAUDE_HTML_STATUSLINE_ITEMS=project | plain) | $(sl "$T/pp1" CLAUDE_HTML_STATUSLINE_ITEMS=project CLAUDE_HTML_STATUSLINE_FORM=condensed | plain)" \
+  "claude-html · Trading · v2 | Tr.v2"
+check "  a worktree, detached: its commit, short; no repository: the project alone" \
+  "$(sl "$T/pp2" CLAUDE_HTML_STATUSLINE_ITEMS=project | plain) | $(sl "$T/pp3" CLAUDE_HTML_STATUSLINE_ITEMS=project | plain)" \
+  "claude-html · wt · 0123456 | claude-html · root"
+# Today's cost: each session from what it had cost when the day began.
+TODAY="$H/.claude/.claude-html.today"; rm -f "$TODAY"
+cs() { printf '{"session_id":"%s","cost":{"total_cost_usd":%s}}' "$2" "$3" > "$1"; }
+cs "$T/c1" s1 1.00; cs "$T/c2" s2 2.50; cs "$T/c3" s1 1.20; cs "$T/c4" s1 1.75
+sl "$T/c1" "CLAUDE_HTML_STATUSLINE_ITEMS=today" >/dev/null
+check "today: two sessions add up" "$(sl "$T/c2" "CLAUDE_HTML_STATUSLINE_ITEMS=today session" | plain)" "claude-html · today \$3.50 · this session \$2.50"
+check "  the next day, each from where it stood" "$(sl "$T/c3" "CLAUDE_HTML_STATUSLINE_ITEMS=today" CLAUDE_HTML_TEST_NOW=$((NOW + 86400)) | plain)" "claude-html · today \$0.20"
+check "  and on" "$(sl "$T/c4" "CLAUDE_HTML_STATUSLINE_ITEMS=today" CLAUDE_HTML_TEST_NOW=$((NOW + 86500)) | plain)" "claude-html · today \$0.75"
+check "  kept for its owner only" "$(ls -l "$TODAY" | cut -c1-10)" "-rw-------"
+check "  not kept at all when it is not shown" "$(rm -f "$TODAY"; sl "$T/c1" >/dev/null; [ -e "$TODAY" ] && echo kept || echo none)" none
+# API use: the budget item, its short form, and this session as before.
+rm -f "$STATE"; conf 'CLAUDE_HTML_BUDGET="50 week"' 'CLAUDE_HTML_WEEK_RESET="tue 07:00 UTC"'
+printf 'start=%s\nend=%s\nmicro=37080000\nids=\n' $((R - 604800)) "$R" > "$SPEND"
+check "API, condensed: \$38/50 and ses\$1.12" "$(sl "$T/api2" CLAUDE_HTML_STATUSLINE_FORM=condensed | plain)" "\$38/50 · ses\$1.12"
+check "  items listed without session: none of it" "$(sl "$T/api2" CLAUDE_HTML_STATUSLINE_ITEMS="budget ctx" | plain)" \
+  "budget · week \$38.20 of \$50 ███████▌░░ 76 % ↻Tue 08:00"
+rm -f "$SPEND"; conf "$RULES"
+check "it still never started node or osascript" "$(started)" 0
+
+# The Settings page's preview draws the same line as the command, item for
+# item, for the same figures and settings (build/statusline.js).
+rm -f "$STATE" "$TODAY"
+PAR=""
+while IFS='|' read -r name envs; do
+  # shellcheck disable=SC2086
+  b="$(eval "sl \"\$T/p1\" $envs" | plain)"
+  j="$(node -e '
+    var SL=require(process.argv[1]+"/build/statusline.js")(), e={};
+    process.argv[2].replace(/"/g,"").split(" CLAUDE_HTML_STATUSLINE_").slice(1).forEach(function(kv){ var i=kv.indexOf("="); e[kv.slice(0,i).toLowerCase()]=kv.slice(i+1).replace(/^"|"$/g,""); });
+    var m=/(^| )COLUMNS=(\d+)/.exec(process.argv[2]);
+    var st=SL.settings({items:e.items,form:e.form,width:e.width,bar:e.bar,from:e.bar_from,color:e.color,columns:m?m[2]:""});
+    var d={mode:"plan",five:{tenths:624,label:"16:30"},week:{tenths:813,label:"Tue 08:00"},stop:{pct:80,from:"Fri 20:00",hit:true},
+      session:"$1.12",today:"$1.12",ctx:80,model:{id:"claude-opus-5-5",name:"Opus"},project:{name:"app",branch:""}};
+    var h=SL.render(st,d).html, M={g:"32",a:"38;5;214",r:"31",green:"32",cyan:"36",blue:"34",magenta:"35",yellow:"33",red:"31",grey:"90"}, out=[], m, re=/<span class="sl-(\w+)">([^<]*)<\/span>/g;
+    while ((m=re.exec(h))) if (m[1]!=="d") out.push(M[m[1]]+":"+m[2]);
+    console.log(SL.render(st,d).text+"\t"+out.join("|"));' "$HERE" " $envs")"
+  b="$b	$(eval "sl \"\$T/p1\" $envs" | node -e 'var t=require("fs").readFileSync(0,"utf8"),out=[],m,re=/\x1b\[([0-9;]+)m([^\x1b]*)\x1b\[0m/g; while((m=re.exec(t))) if(m[1]!=="2") out.push(m[1]+":"+m[2]); console.log(out.join("|"))')"
+  [ "$b" = "$j" ] || PAR="$PAR
+    $name: bash  $b
+    $name: page  $j"
+  rm -f "$TODAY"
+done <<'EOF'
+defaults|
+all normal|"CLAUDE_HTML_STATUSLINE_ITEMS=five week session today ctx model project stop" CLAUDE_HTML_STATUSLINE_FORM=normal
+all condensed|"CLAUDE_HTML_STATUSLINE_ITEMS=five week session today ctx model project stop" CLAUDE_HTML_STATUSLINE_FORM=condensed
+all auto|"CLAUDE_HTML_STATUSLINE_ITEMS=five week session today ctx model project stop"
+auto 60|"CLAUDE_HTML_STATUSLINE_ITEMS=five week session today ctx model project stop" CLAUDE_HTML_STATUSLINE_WIDTH=60
+columns 50|"CLAUDE_HTML_STATUSLINE_ITEMS=five week session today ctx model project stop" COLUMNS=50
+columns 90|COLUMNS=90
+bars|CLAUDE_HTML_STATUSLINE_BAR=5 CLAUDE_HTML_STATUSLINE_BAR_FROM=70 CLAUDE_HTML_STATUSLINE_COLOR=off
+bar 20|CLAUDE_HTML_STATUSLINE_BAR=20 "CLAUDE_HTML_STATUSLINE_ITEMS=stop week ctx"
+none|CLAUDE_HTML_STATUSLINE_ITEMS=none
+auto|CLAUDE_HTML_STATUSLINE_COLOR=auto
+level|CLAUDE_HTML_STATUSLINE_COLOR=level
+on|CLAUDE_HTML_STATUSLINE_COLOR=on
+off|CLAUDE_HTML_STATUSLINE_COLOR=off
+green|CLAUDE_HTML_STATUSLINE_COLOR=green "CLAUDE_HTML_STATUSLINE_ITEMS=five week ctx stop"
+cyan|CLAUDE_HTML_STATUSLINE_COLOR=cyan "CLAUDE_HTML_STATUSLINE_ITEMS=five week ctx stop"
+blue|CLAUDE_HTML_STATUSLINE_COLOR=blue CLAUDE_HTML_STATUSLINE_FORM=condensed
+magenta|CLAUDE_HTML_STATUSLINE_COLOR=magenta
+yellow|CLAUDE_HTML_STATUSLINE_COLOR=yellow
+red|CLAUDE_HTML_STATUSLINE_COLOR=red
+grey|CLAUDE_HTML_STATUSLINE_COLOR=grey "CLAUDE_HTML_STATUSLINE_ITEMS=five week ctx stop" CLAUDE_HTML_STATUSLINE_WIDTH=60
+EOF
+check "the page's preview is the command's line, setting for setting, its colours too (23 cases)" "$PAR" ""
+
 # Theirs first: the same note on its stdin, its output whole, then ours.
 conf "$RULES"; rm -f "$STATE"
 W="$(sl "$T/p1" | plain)"

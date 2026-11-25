@@ -112,6 +112,12 @@ release "$W2" 3.10.0
 release "$W2" 3.9.0
 BARE2="$T/release2.git"; gitx clone -q --bare "$W2" "$BARE2"
 
+# A third, whose newest is a major release: 3.0.1, then 4.0.0.
+W3="$T/work3"; mkdir -p "$W3"; gitx init -q "$W3"
+release "$W3" 3.0.1 3.0.1
+release "$W3" 4.0.0 4.0.0 3.0.1
+BARE3="$T/release3.git"; gitx clone -q --bare "$W3" "$BARE3"
+
 # What each upload-pack call leaves: a mark, to prove whether the remote
 # was asked anything at all.
 UP="$T/upload-pack"
@@ -141,7 +147,7 @@ clone() {   # name, ref, [remote]
 # Every command runs with the sandbox for HOME, conf, projects and pages,
 # the release remote pointed at the sandbox's, and nothing of the shell's.
 run() {
-  env -u CLAUDE_HTML_OUT -u CLAUDE_HTML_ROOT -u CLAUDE_HTML_ENGINE -u CLAUDE_HTML_GUARD \
+  env -u CLAUDE_HTML_OUT -u CLAUDE_HTML_ROOT -u CLAUDE_HTML_ENGINE -u CLAUDE_HTML_GUARD -u CLAUDE_HTML_AUTO_UPDATE \
     -u CLAUDE_HTML_GUARD_DIALOG -u CLAUDE_HTML_UPDATE_CHECK -u CLAUDE_HTML_WEEK_RESET \
     HOME="$H" XDG_CONFIG_HOME="$H/.config" CLAUDE_HTML_CONF="$CONF" CLAUDE_HTML_ROOT="$PROJ" \
     CLAUDE_HTML_OUT="$INST" CLAUDE_HTML_UPDATE_REMOTE="${REMOTE:-$BARE}" CLAUDE_HTML_NO_REGISTER=1 \
@@ -456,6 +462,89 @@ out="$(ch --doctor)"
 has "--doctor: version, newest known, when checked" "$out" "update    3.0.1 · newest known 3.1.0 · last checked"
 ch --update off >/dev/null
 has "  or that checks are off" "$(ch --doctor)" "update    3.0.1 · checks off"
+
+# ── the automatic update ────────────────────────────────────────────
+# A save nobody waits on starts it, detached, once the save is over: what
+# is checked is what it did once it has ended, never how long it took.
+auto_wait() {
+  local i
+  settle
+  for i in $(seq 1 600); do
+    ps ax -o command= 2>/dev/null | grep -F -- "update.sh $INST --auto" | grep -qv grep || { settle; return 0; }
+    sleep 0.1
+  done
+}
+asave() { (cd "$PROJ/app" && run CLAUDE_HTML_UPDATE_CHECK=on CLAUDE_HTML_AUTO_UPDATE="${AUTOSET:-on}" "$@" bash "$INST/save-conversation.sh" --try </dev/null >/dev/null 2>&1); auto_wait; }
+seen() {   # the daily check's state, as if it had just seen <newest> for this clone
+  printf 'checked=%s\nnewest=%s\nhere=%s\ntold=\n' "$(date +%s)" "$1" "$INST" > "$H/.claude/.claude-html.update"
+}
+clone a v3.0.1; : > "$T/installs"; rm -f "$H/.claude/.claude-html.update"
+AUTOSET=off asave
+check "auto-update off (the default): the daily check sees 3.1.0, nothing is installed" "$(state newest) $(at) $(installs)" "3.1.0 v3.0.1 "
+check "  and its notice stays" "$(grep -c '"update":"3.1.0"' "$INST/index.html")" 1
+asave
+check "on: the next save over, 3.1.0 is installed, its install run" "$(at) $(branch) $(installs)" "v3.1.0 main 3.1.0"
+check "  recorded: what, and when" "$(state auto) $([ "$(state autoat)" -gt 0 ] 2>/dev/null && echo at)" "3.1.0 at"
+has "  the index says so for a day" "$(cat "$INST/index.html")" '"updated":{"to":"3.1.0"'
+hasnt "  and no longer that it is out" "$(cat "$INST/index.html")" '"update":"3.1.0"'
+SLN="$(printf '{"session_id":"s1"}' | run CLAUDE_HTML_TEST_NOW="$(state autoat)" NO_COLOR=1 bash "$INST/statusline.sh")"
+check "  and the status line" "$SLN" "claude-html · updated to 3.1.0"
+SLN="$(printf '{"session_id":"s1"}' | run CLAUDE_HTML_TEST_NOW="$(( $(state autoat) + 86400 ))" NO_COLOR=1 bash "$INST/statusline.sh")"
+check "  a day later, not any more" "$SLN" "claude-html"
+check "  its log says what it did, and nothing was left in the temp folder" \
+  "$(grep -c 'Updated 3.0.1 → 3.1.0.' "$H/.claude/.claude-html.autoupdate.log") $(ls -d "${TMPDIR:-/tmp}"/claude-html-autoupdate.* 2>/dev/null | wc -l | tr -d ' ')" "1 0"
+
+# A major release: said, never installed.
+REMOTE="$BARE3" clone m v3.0.1 "$BARE3"; : > "$T/installs"; rm -f "$H/.claude/.claude-html.update"
+REMOTE="$BARE3" asave; REMOTE="$BARE3" asave
+check "a major release (4.0.0 from 3.0.1): not installed, held for the owner" "$(at) $(installs) $(state held)" "v3.0.1  4.0.0"
+has "  and announced as ever" "$(cat "$INST/index.html")" '"update":"4.0.0"'
+out="$(REMOTE="$BARE3" run bash "$INST/lib/update.sh" "$INST" --auto 2>&1; cat "$H/.claude/.claude-html.autoupdate.log")"
+check "  even when --auto is started by hand" "$(at) $(installs)" "v3.0.1 "
+
+# A development checkout: never, even with the state saying a release is out.
+clone d v3.0.1; gitx -C "$INST" commit -q --allow-empty -m "my own work"; : > "$T/installs"
+seen 3.1.0; asave
+check "a development checkout (its HEAD not a release): untouched" "$(gitx -C "$INST" log -1 --format=%s) $(installs)" "my own work "
+clone a v3.0.1; mkdir -p "$INST/dev"; : > "$T/installs"
+seen 3.1.0; asave
+check "  a clone at a release with a dev/ folder, the owner's own: untouched" "$(at) $(installs)" "v3.0.1 "
+rmdir "$INST/dev"
+
+# From the save Claude Code waits on, or any save that is not detached: never.
+seen 3.1.0
+(cd "$PROJ/app" && run CLAUDE_HTML_UPDATE_CHECK=on CLAUDE_HTML_AUTO_UPDATE=on CLAUDE_HTML_TRANSCRIPT=/nonexistent bash "$INST/save-conversation.sh" </dev/null >/dev/null 2>&1); auto_wait
+check "a save in the foreground (not detached): it starts nothing" "$(at) $(installs)" "v3.0.1 "
+
+# A save running: put off, then done when the next save is over.
+sleep 60 & SLEEPER=$!; SLEEPERS="$SLEEPERS $SLEEPER"
+mkdir -p "$H/.claude/.claude-html.lock"; echo "$SLEEPER" > "$H/.claude/.claude-html.lock/pid"
+seen 3.1.0
+run CLAUDE_HTML_UPDATE_CHECK=on CLAUDE_HTML_AUTO_UPDATE=on bash "$INST/lib/update.sh" "$INST" --auto >/dev/null 2>&1
+check "a save holding the lock: put off, nothing moved" "$(at) $(installs) $(state deferred)" "v3.0.1  3.1.0"
+has "  and said so in its log" "$(cat "$H/.claude/.claude-html.autoupdate.log")" "a save is running: put off"
+kill "$SLEEPER" 2>/dev/null; rm -rf "$H/.claude/.claude-html.lock"
+asave
+check "  the next save over: installed" "$(at) $(installs) $(state deferred)" "v3.1.0 3.1.0 "
+
+# A failure: rolled back, the old release working, tried again a day later.
+clone a v3.0.1; : > "$T/installs"; touch "$T/fail-install-3.1.0"
+seen 3.1.0; asave
+check "a failed install: back on 3.0.1, its own install run again" "$(at) $(branch) $(installs)" "v3.0.1 main 3.1.0 3.0.1"
+check "  recorded as failed, nothing said as installed" "$(state failed) $(state auto)" "3.1.0 "
+rm -f "$INST/sessions/$ID.html"; out="$(build)"; rc=$?
+check "  and the old release still builds its pages" "$rc $([ -f "$INST/sessions/$ID.html" ] && echo built) $(cat "$INST/VERSION")" "0 built 3.0.1"
+: > "$T/installs"; asave
+check "  not tried again after the next reply" "$(installs)" ""
+sed "s/^failedat=.*/failedat=$(( $(date +%s) - 90000 ))/" "$H/.claude/.claude-html.update" > "$T/st" && mv "$T/st" "$H/.claude/.claude-html.update"
+rm -f "$T/fail-install-3.1.0"; asave
+check "  a day later, tried again, and done" "$(at) $(installs) $(state failed)" "v3.1.0 3.1.0 "
+
+# Through --config and the Settings page's link, as every setting.
+clone a v3.0.1
+ch --config set AUTO_UPDATE=on >/dev/null
+check "--config set AUTO_UPDATE=on: one line in the conf" "$(grep -c '^CLAUDE_HTML_AUTO_UPDATE="on"$' "$CONF")" 1
+ch --config unset AUTO_UPDATE >/dev/null
 
 echo
 echo "  $pass passed, $fail failed"

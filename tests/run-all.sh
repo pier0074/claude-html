@@ -75,7 +75,7 @@ export PATH="$SHIM:$PATH"
 T0="$(date +%s)"
 
 # The longest start first, so the last one to end is not a long one begun late.
-QUICK="viewer diff index pages docs"
+QUICK="viewer diff index pages docs settingspage"
 SUITES="incremental guard limits settings screen linux update layout usage prices engine install hooks backend archive redact races build agents delete open helper safety doctor"
 run_one() {   # name
   local t="$1" s rc

@@ -22,6 +22,8 @@
 // which prints apply, cancel or timeout.
 //
 // Options, before the kind:
+//   --ok <label>           the confirmation's button that says yes ("Apply";
+//                          "Open", "Forget" where that is what it does)
 //   --limit <seconds>      how long it waits (60; the hook gives the owner's
 //                          CLAUDE_HTML_GUARD_WAIT); the countdown counts it down
 //   --box <key> <file>     a disclosure arrow on the row <key> ("Found:"): the
@@ -65,10 +67,11 @@ function countdown(secs, kind) {
 function plain(text) { return String(text).replace(/[\u0001\u0002]/g, ""); }
 
 function options(argv) {
-  var o = { limit: 60, boxes: {}, order: [], snap: "", snapAfter: 0, open: {}, selftest: "", offscreen: false }, i = 0;
+  var o = { limit: 60, boxes: {}, order: [], snap: "", snapAfter: 0, open: {}, selftest: "", offscreen: false, ok: "Apply" }, i = 0;
   while (i < argv.length && /^--/.test(argv[i])) {
     var a = argv[i];
-    if (a === "--limit") { o.limit = Math.floor(Number(argv[i + 1])) || 60; i += 2; }
+    if (a === "--ok") { o.ok = /^[A-Za-z][A-Za-z ]{0,11}$/.test(argv[i + 1] || "") ? argv[i + 1] : "Apply"; i += 2; }
+    else if (a === "--limit") { o.limit = Math.floor(Number(argv[i + 1])) || 60; i += 2; }
     else if (a === "--box" || a === "--pre") {
       if (!o.boxes[argv[i + 1]]) o.order.push(argv[i + 1]);
       o.boxes[argv[i + 1]] = { file: argv[i + 2] || "", pre: a === "--pre" }; i += 3;
@@ -310,9 +313,9 @@ function show(S, o, boxes) {
     return b;
   }
   if (S.confirm) {
-    // Cancel answers Return as well as Escape: nothing is written unless
-    // Apply itself is pressed.
-    button("Apply", W - P - 84, "", "stopModal");
+    // Cancel answers Return as well as Escape: nothing is done unless
+    // Apply (or Open, or Forget) itself is pressed.
+    button(o.ok, W - P - 84, "", "stopModal");
     button("Cancel", W - P - 84 - 98, "\r", "abortModal");
   } else {
     // OK answers with the choice; Escape, a key with no button of its own

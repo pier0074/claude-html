@@ -128,6 +128,9 @@ var CHPlan = (function () {
 
   // The panel: the rules, the budget, its warnings and the banner, each a
   // field; what they say as a claude-html://limits link and as commands.
+  // opts.meta(key), on the Settings page: what goes at the end of the row
+  // of that setting (its source and its section of SETUP.md), the
+  // warnings then a row of their own.
   function panel(el, L, opts) {
     if (!el || !L) return;
     opts = opts || {};
@@ -167,6 +170,7 @@ var CHPlan = (function () {
     function link() { return linkFor(state); }
     function commands() { return commandsFor(state, JSON.parse(first)); }
     function opt(v, cur, label) { return '<option value="' + v + '"' + (v === cur ? " selected" : "") + ">" + label + "</option>"; }
+    function meta(key) { return opts.meta ? '<span class="lm">' + opts.meta(key) + "</span>" : ""; }
     function draw() {
       var bad = valid(), h = "";
       if (!L.on) h += '<p class="lnote">Limits are off: no stop, no announcement, no budget warning. <code>claude-html --limits on</code> turns them on.</p>';
@@ -180,17 +184,19 @@ var CHPlan = (function () {
       });
       h += '<div class="lrule">' + (state.rules.length < 8 ? '<button class="ladd">+ add a rule</button> ' : "") +
         '<span class="lh">each rule: from that moment until the weekly reset, a new prompt past that % asks first</span></div>';
-      h += "</div></div>";
+      h += "</div>" + meta("CLAUDE_HTML_LIMIT_RULES") + "</div>";
       h += '<div class="lrow"><span class="lk">Budget</span><div class="lv">' +
         '<input data-f="amount" value="' + esc(state.amount) + '" size="7" aria-label="budget in dollars"' + (bad.amount ? ' class="bad"' : "") + '> $ per ' +
         '<select data-f="period" aria-label="period">' + opt("day", state.period, "day") + opt("week", state.period, "week") +
         opt("month", state.period, "month") + '</select> <span class="lh">for API use; empty = none</span>' +
-        '<div class="lrule">budget warnings at <input data-f="w1" value="' + esc(state.w1) + '" size="3" aria-label="first warning"' + (bad.w1 ? ' class="bad"' : "") +
+        (opts.meta ? "</div>" + meta("CLAUDE_HTML_BUDGET") + '</div><div class="lrow"><span class="lk">Budget warnings</span><div class="lv">' : "") +
+        '<div class="lrule">' + (opts.meta ? "at " : "budget warnings at ") + '<input data-f="w1" value="' + esc(state.w1) + '" size="3" aria-label="first warning"' + (bad.w1 ? ' class="bad"' : "") +
         '> % <input data-f="w2" value="' + esc(state.w2) + '" size="3" aria-label="second warning"' + (bad.w2 ? ' class="bad"' : "") +
-        '> % <span class="lh">for API use; Claude Code warns about plan limits itself</span></div></div></div>';
+        '> % <span class="lh">for API use; Claude Code warns about plan limits itself</span></div></div>' +
+        meta(opts.meta ? "CLAUDE_HTML_BUDGET_WARN" : "") + "</div>";
       h += '<div class="lrow"><span class="lk">Notification</span><div class="lv"><label><input type="checkbox" data-f="notify"' +
         (state.notify ? " checked" : "") + '> desktop banner when a rule is about to apply or a budget level is reached</label>' +
-        ' <span class="lh">off by default</span></div></div>';
+        ' <span class="lh">off by default</span></div>' + meta("CLAUDE_HTML_LIMIT_NOTIFY") + "</div>";
       var ok = !Object.keys(bad).length;
       h += '<div class="lrow"><span class="lk"></span><div class="lv">' +
         '<button class="cp lcp" data-c="' + esc(commands()) + '"' + (ok ? "" : " disabled") + '>copy command</button> ' +

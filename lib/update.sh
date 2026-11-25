@@ -5,6 +5,8 @@
 #   update.sh <clone> <env> status               claude-html --update status
 #   update.sh <clone> <env> list                 claude-html --update list
 #   update.sh <clone> --daily                    from a detached save, at most daily
+#   update.sh <clone> --auto-maybe               after a detached save: starts --auto when it is due
+#   update.sh <clone> --auto                     the automatic update itself, detached, from a copy
 #   update.sh <clone> --doctor-line              the line --doctor shows
 #
 # <env> is what CLAUDE_HTML_UPDATE_CHECK was in the environment before the
@@ -282,9 +284,66 @@ doctor_line() {
   printf '%s · newest known %s · %s\n' "$INSTALLED" "$newest" "$(last_line)"
 }
 
+# ── the automatic update ─────────────────────────────────────────────
+# CLAUDE_HTML_AUTO_UPDATE=on: a newer release the daily check saw is
+# installed as claude-html --update installs it, at a moment nobody waits
+# on. --auto-maybe is run by a save that nobody waits on either (the copy
+# the reply's hook detached, or the session end's), after it has let go of
+# the lock; it asks no network and decides from the state alone, then
+# starts --auto, detached, from a copy of these files outside the clone.
+# --auto then takes the saves' lock without waiting: a save running puts
+# it off to the next save's end. Never a major release (said, not
+# installed), never a clone that is not at a release (a development
+# checkout, or one with a dev/ folder, as the owner's own is), and a
+# failure is rolled back, as any update's is, and tried again a day later.
+AUTO=""; AUTO_TMP=""; AUTO_LOG="$HOME/.claude/.claude-html.autoupdate.log"
+# HEAD at a release: a vX.Y.Z tag on the release line, and no dev/ folder,
+# which only a development checkout has.
+at_release() {
+  [ -d "$HERE/dev" ] && return 1
+  classify; [ "$KIND" = release ] || return 1
+  local t
+  for t in $(g tag --points-at HEAD 2>/dev/null); do [[ "$t" =~ $TAGRE ]] && return 0; done
+  return 1
+}
+auto_due() {
+  ch_update_setting; ch_update_is_off "$CH_UP_SETTING" && return 1
+  ch_update_auto_on || return 1
+  ch_update_read || return 1
+  [ "$CH_UP_HERE" = "$HERE" ] && [ -n "$CH_UP_NEWEST" ] && ch_ver_gt "$CH_UP_NEWEST" "$INSTALLED" || return 1
+  if ch_ver_major_gt "$CH_UP_NEWEST" "$INSTALLED"; then
+    # Told, not installed: the notice says it is out, as ever.
+    [ "$CH_UP_HELD" = "$CH_UP_NEWEST" ] || { CH_UP_HELD="$CH_UP_NEWEST"; ch_update_write; }
+    return 1
+  fi
+  local now; now="$(date +%s)"
+  if [ "$CH_UP_FAILED" = "$CH_UP_NEWEST" ] && [ $((now - CH_UP_FAILEDAT)) -lt 86400 ] && [ $((now - CH_UP_FAILEDAT)) -ge 0 ]; then
+    return 1
+  fi
+  at_release
+}
+auto_maybe() {
+  auto_due || return 0
+  local tmp
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/claude-html-autoupdate.XXXXXX")" || return 0
+  cp "$SELF/update.sh" "$SELF/version.sh" "$SELF/lock.sh" "$tmp/" 2>/dev/null || { rm -rf "$tmp"; return 0; }
+  # Its own session, its output to a log, nothing on a terminal.
+  CH_AUTO_TMP="$tmp" nohup "${BASH:-bash}" "$tmp/update.sh" "$HERE" --auto </dev/null >/dev/null 2>&1 &
+  return 0
+}
+
 case "${1:-}" in
   --daily) daily; exit 0 ;;
   --doctor-line) doctor_line; exit 0 ;;
+  --auto-maybe) auto_maybe; exit 0 ;;
+  --auto)
+    exec >"$AUTO_LOG" 2>&1
+    echo "automatic update, $(date '+%Y-%m-%d %H:%M:%S'), from $INSTALLED"
+    # Its copy goes when it ends, however it ends.
+    case "${CH_AUTO_TMP:-}" in */claude-html-autoupdate.*) AUTO_TMP="$CH_AUTO_TMP" ;; esac
+    trap '[ -z "${AUTO_TMP:-}" ] || rm -rf "$AUTO_TMP"' EXIT
+    auto_due || { echo "nothing to do"; exit 0; }
+    AUTO=1; set -- unset go ;;
 esac
 ENVSPEC="${1:-unset}"; shift || true
 ACTION="${1:-go}"; shift || true
@@ -350,9 +409,23 @@ fi
 classify
 [ "$KIND" = release ] || refuse_kind
 # 2. what there is
-fetch_releases || { echo "nothing was changed" >&2; exit 1; }
+# What the automatic update leaves in the state when it ends: tried again
+# a day later after a failure; installed, said for a day.
+auto_failed() {
+  [ -n "$AUTO" ] || return 0
+  ch_update_read
+  CH_UP_FAILED="${TARGET:-$CH_UP_NEWEST}"; CH_UP_FAILEDAT="$(date +%s)"; CH_UP_DEFERRED=""
+  [ -z "${AUTO_WAS:-}" ] || { CH_UP_AUTO="${AUTO_WAS%% *}"; CH_UP_AUTOAT="${AUTO_WAS#* }"; }
+  ch_update_write
+}
+fetch_releases || { echo "nothing was changed" >&2; auto_failed; exit 1; }
 remember_newest
 TARGET="${WANT:-$NEWEST}"
+if [ -n "$AUTO" ] && ch_ver_major_gt "$TARGET" "$INSTALLED"; then
+  echo "$TARGET is a major release: not installed by itself; claude-html --update installs it"
+  ch_update_read; CH_UP_HELD="$TARGET"; ch_update_write
+  exit 0
+fi
 if [ -n "$WANT" ] && [ -z "$(commit_of "$WANT")" ]; then
   if g rev-parse -q --verify "refs/tags/v$WANT" >/dev/null 2>&1; then
     echo "v$WANT is a tag, but not a release: it is not on the release line ($R/main); nothing was changed" >&2
@@ -383,6 +456,7 @@ if [ -n "$CHANGED" ]; then
   N="$(printf '%s\n' "$CHANGED" | wc -l | tr -d ' ')"
   FILES="$(printf '%s\n' "$CHANGED" | cut -c4- | head -3 | tr '\n' ' ' | sed 's/ $//; s/ /, /g')"
   echo "$N file(s) of the release are changed here ($FILES): commit, stash or undo them first; nothing was changed" >&2
+  auto_failed
   exit 1
 fi
 
@@ -421,9 +495,16 @@ fi
 # shellcheck source=lock.sh
 if [ -f "$SELF/lock.sh" ]; then . "$SELF/lock.sh"; else . "$HERE/lib/lock.sh"; fi
 release_lock() { ch_lock_release; }
-trap 'release_lock' EXIT
+trap 'release_lock; [ -z "${AUTO_TMP:-}" ] || rm -rf "$AUTO_TMP"' EXIT
 _lw="${CLAUDE_HTML_UPDATE_LOCK_WAIT:-60}"
-if ! ch_lock_take "$_lw" "a save is running; waiting for it to finish (up to $_lw s)…"; then
+if [ -n "$AUTO" ]; then
+  # A save running: put off to the next save's end, which tries again.
+  if ! ch_lock_take 0; then
+    echo "a save is running: put off until the next one ends"
+    ch_update_read; CH_UP_DEFERRED="$TARGET"; ch_update_write
+    exit 0
+  fi
+elif ! ch_lock_take "$_lw" "a save is running; waiting for it to finish (up to $_lw s)…"; then
   echo "a save is still running; try again in a moment — nothing was changed" >&2
   exit 1
 fi
@@ -471,6 +552,7 @@ roll_back() {
     echo "and it could not go back to $INSTALLED (${START_BRANCH:-$START_COMMIT}): see git -C $HERE status" >&2
   fi
   rm -f "$LOG"
+  auto_failed
   exit 1
 }
 
@@ -499,6 +581,14 @@ NOW="$(cat "$HERE/VERSION" 2>/dev/null | tr -d '[:space:]')"
 # 7. the new release's own install, which keeps the conf and its choices
 install_here || roll_back "its install.sh failed"
 INSTALL_REBUILT="$(sed -n 's/.*built: *[0-9]* session(s), \([0-9]*\) rebuilt.*/\1/p' "$LOG" | tail -1)"
+
+# Said for a day from now, on the index this build makes and on the status
+# line: written before the build, put back if it fails.
+if [ -n "$AUTO" ]; then
+  ch_update_read; AUTO_WAS="$CH_UP_AUTO $CH_UP_AUTOAT"
+  CH_UP_AUTO="${NOW:-$TARGET}"; CH_UP_AUTOAT="$(date +%s)"; CH_UP_DEFERRED=""; CH_UP_FAILED=""; CH_UP_FAILEDAT=0
+  ch_update_write
+fi
 
 # 8. a build, which rebuilds what the new scripts would make differently.
 # Where its scripts are is the release's own: in folders, or, for one from

@@ -5,6 +5,35 @@ fixes, a minor adds without breaking, a major needs something from you
 (usually `./install.sh` again). To update: `claude-html --update`; before
 3.1.0, `git checkout main && git pull && ./install.sh`.
 
+## 3.7.0 — 2026-11-25
+
+- Settings page: the guard's safe values one by one — the kind, the date
+  and an id, never the value nor its fingerprint — each with **forget**;
+  `claude-html --config safe` lists them and `--config forget-safe ID…`
+  forgets those. Asked as "Forget this safe value?", Forget or Cancel.
+- Your own list opens in your text editor from the Settings page (asked
+  first: "Open your own list in the text editor?", Open or Cancel) or with
+  `claude-html --config edit-list`; made with a few lines of help if missing.
+- Status line: choose its items and their order (the 5-hour window, the
+  week, this session's cost, today's cost across sessions, the context used,
+  the agent, project · branch, the stop rule, the budget), its form
+  (normal, condensed, or auto, which condenses to fit the terminal), its
+  width, its bar, and its colours: `auto` (the terminal's own), `level`
+  (green, amber, red; the default) or one of the terminal's colours. A live
+  preview on the Settings page; the defaults draw the line as before.
+- Limits & budget: the panel is the one place to change them, each of its
+  rows with where its value comes from and its section of SETUP.md.
+- Automatic updates (`CLAUDE_HTML_AUTO_UPDATE`, off by default): a newer
+  release the daily check finds is installed by itself once a save is over,
+  as `claude-html --update` installs it — never a major release, never a
+  development checkout; put off while a save runs, rolled back on failure
+  and tried again a day later; "updated to X.Y.Z" for a day on the index and
+  the status line. Nothing is scheduled.
+- Guard: when a command is stopped, Claude is told to write each sensitive
+  value as `***` if it mentions the command, and is given the command
+  already masked; a long one is cut to its start, each `***` with what is
+  around it, and its end.
+
 ## 3.6.4 — 2026-11-25
 
 - `--doctor` has one layout: a header with the version, titled sections a

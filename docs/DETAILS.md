@@ -243,7 +243,7 @@ cd ~/claude-html && ./install.sh --uninstall
 That removes the `claude-html` command (only one that leads to this clone),
 the helper app (on Linux, the link handler), the hooks it added — only its
 own; the rest of your `settings.json` is untouched — and the state it kept
-for itself in `~/.claude` (the update check's, the guard's pending answers,
+for itself in `~/.claude` (the update check's and the automatic update's log, the guard's pending answers,
 the update launchers), and keeps what is yours: the pages, the
 archives, `~/.claude/claude-html.conf` and your `cleanupPeriodDays`. Nothing
 saves from then on; what was saved stays readable.
@@ -352,6 +352,7 @@ node tests/diff.test.js         # the diff, against every edit ever made here
 node tests/index.test.js        # the index: search, its failures, and what Linux is shown
 node tests/pages.test.js        # every page's head, print and words; the dashboard's chart, empty periods included
 node tests/docs.test.js         # every setting the code reads is in SETUP.md, and every link resolves
+node tests/settingspage.test.js # the Settings page: safe values by id, the own list, the status line, the limits panel
 bash tests/backend.test.sh      # osascript and node build byte-identical pages; nested projects
 bash tests/archive.test.sh      # a page made from the archive alone is the page made from the transcript
 bash tests/engine.test.sh       # node does the data work when it is here and works; osascript when not
@@ -365,7 +366,7 @@ bash tests/prices.test.sh       # the price file, the line in force at a boundar
 bash tests/redact.test.sh       # no secret reaches an archive, a page or a cache; the transcript is never touched
 bash tests/guard.test.sh        # a prompt or command holding a secret is stopped, and each answer does what it says
 bash tests/install.test.sh      # a second install keeps your conf; env, conf, default; only its own hooks
-bash tests/update.test.sh       # --update, going back, the daily check, and copies that are not clones
+bash tests/update.test.sh       # --update, going back, the daily check, the automatic update, and copies that are not clones
 bash tests/safety.test.sh       # an outside file cannot write elsewhere or break a page
 bash tests/delete.test.sh       # deleting removes everything it should, and nothing else (macOS)
 bash tests/open.test.sh         # a project name opens the right thing, and nothing else (macOS)

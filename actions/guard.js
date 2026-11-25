@@ -185,12 +185,66 @@ function guard(argv) {
                      : secs / 60 + " minute" + (secs === 60 ? "" : "s");
   }
   var NEXT = "To never be asked about this value again, answer `safe` as your next prompt; `stop` turns the check off.";
+  // What Claude is told about speaking of the command afterwards, and the
+  // command itself with every sensitive value as ***, so it can quote it
+  // without masking anything itself. Masked by every rule and the own
+  // list, as the pages are; then each value the guard found is taken out
+  // wherever it still stands, and if one were left all the same, the
+  // command is not given at all. Masked first, then shortened.
+  var TELL = "If you mention this command in your reply, in a report or in a command you propose later, " +
+    "write each sensitive value as *** \u2014 never the value itself.";
+  var MASKED_MAX = 2000;
+  function masked(cmd) {
+    cmd = String(cmd || "");
+    if (!cmd) return "";
+    var all = lib[0](read(LIST) || "", true, !JXA), t = all.text(cmd), vals = [];
+    red.find(cmd).concat(all.find(cmd)).forEach(function (m) { if (m.value && m.value.length >= 4) vals.push(String(m.value)); });
+    vals.sort(function (a, b) { return b.length - a.length; });
+    vals.forEach(function (v) { t = t.split(v).join("***"); });
+    if (vals.some(function (v) { return t.indexOf(v) > -1; })) return "";
+    return shorten(t);
+  }
+  // A masked command longer than MASKED_MAX, cut down to what tells where
+  // its values were: its first 300 characters, 80 on either side of each
+  // ***, its last 300, in order, windows that meet joined, each gap
+  // [...]. An edge moves to a line break or a space within 20 characters,
+  // so no word is cut in half, and never between a pair of surrogates.
+  // Only ever given the masked text: cutting cannot bring a value back.
+  var HEAD = 300, TAIL = 300, AROUND = 80, SNAP = 20;
+  function shorten(t) {
+    if (t.length <= MASKED_MAX) return t;
+    var n = t.length, w = [[0, HEAD]], i = -1;
+    while ((i = t.indexOf("***", i + 1)) > -1) { w.push([i - AROUND, i + 3 + AROUND]); i += 2; }
+    w.push([n - TAIL, n]);
+    function gap(c) { return c === " " || c === "\n" || c === "\t"; }
+    function surr(k) { return k > 0 && k < n && (t.charCodeAt(k) & 0xFC00) === 0xDC00; }
+    w = w.map(function (x) {
+      var a = Math.max(0, x[0]), b = Math.min(n, x[1]), k;
+      if (a > 0) for (k = a; k > Math.max(0, a - SNAP); k--) if (gap(t.charAt(k - 1))) { a = k; break; }
+      if (b < n) for (k = b; k < Math.min(n, b + SNAP); k++) if (gap(t.charAt(k))) { b = k; break; }
+      if (surr(a)) a--;
+      if (surr(b)) b++;
+      return [a, b];
+    }).sort(function (x, y) { return x[0] - y[0]; });
+    var m = [w[0].slice()];
+    w.slice(1).forEach(function (x) {
+      var l = m[m.length - 1];
+      if (x[0] <= l[1]) l[1] = Math.max(l[1], x[1]); else m.push(x.slice());
+    });
+    return m.map(function (x) { return t.slice(x[0], x[1]).replace(/^\s+|\s+$/g, ""); }).join(" [...] ");
+  }
+  function tell(cmd) {
+    var m = masked(cmd);
+    return " " + TELL + (m ? " The command, masked: " + m : "");
+  }
+  var CMD = KIND === "bash" || KIND === "answer-bash" ?
+    (note.tool_input && typeof note.tool_input.command === "string" ? note.tool_input.command : "") : "";
   function refuse(kinds) {
     return JSON.stringify({
       hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny",
         permissionDecisionReason: "claude-html: this command carries a secret (" + kinds + ") and was not run. " +
           "Do not put the secret in the command: read it from ~/.my.cnf, an environment variable or a " +
-          "credential helper instead." },
+          "credential helper instead." + tell(CMD) },
       systemMessage: "\u26d4 claude-html stopped a command that carries a secret (" + kinds + "). " + NEXT
     });
   }
@@ -278,7 +332,7 @@ function guard(argv) {
     return JSON.stringify({
       hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask",
         permissionDecisionReason: "Claude's command has been interrupted \u2014 sensitive information detected (" +
-          kinds + "). Deny to stop it; allow to run it this time only.\n" + NEXT }
+          kinds + "). Deny to stop it; allow to run it this time only.\n" + NEXT + tell(CMD) }
     });
   }
 
@@ -312,7 +366,7 @@ function guard(argv) {
       return JSON.stringify({
         hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny",
           permissionDecisionReason: "claude-html: in this command " + late + " It was not run. " +
-            "Stop here and do not retry it: wait for the user." },
+            "Stop here and do not retry it: wait for the user." + tell(CMD) },
         systemMessage: "\u23f8 claude-html: " + late + " The command was not run. " + NEXT
       });
     }
