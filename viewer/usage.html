@@ -105,6 +105,11 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:now
 tr.bucket th{padding-top:17px;font-size:12.5px;color:var(--fg);text-transform:none;letter-spacing:0}
 tr.bucket.now th{color:var(--m1)}
 tr.sum td{color:var(--fg);font-weight:600;border-bottom:2px solid var(--line)}
+/* What a table's rows add up to, under them all. */
+tr.total td{color:var(--fg);font-weight:600;border-top:2px solid var(--dim);border-bottom:0}
+/* One part chosen: a period is one row, its label where the name was. */
+td.pl{white-space:nowrap}
+tr.one.now td.pl{color:var(--m1)}
 tr.flash td,tr.flash th{background:rgba(200,160,60,.17)}
 td.nm{white-space:nowrap}
 /* A name is a button inside the cell, never a flex cell: it filters the
@@ -138,6 +143,7 @@ table.u{font-size:12px;min-width:610px}
 table.u th,table.u td{padding-left:8px;padding-right:8px}
 table.u col.n:last-child{width:calc(var(--numw) - 8px)}
 table.u thead th{white-space:normal}
+td.pl{white-space:normal}
 table.u.ph col.n,table.u.ph col.n:last-child{width:72px}
 table.u.ph col.c{width:240px}
 }
@@ -177,12 +183,14 @@ The chart stays on tokens: a cost lands all at once when a session exits, so cha
 <thead><tr><th id="dimh">Model</th><th class="num">Input</th><th class="num">Output</th>
 <th class="num">Cache read</th><th class="num">Cache write</th><th class="num">Replies</th><th class="num">Total</th><th class="num">Cost</th></tr></thead>
 <tbody id="buckets"></tbody></table></div>
+<p class="hint" id="bnote" hidden></p>
 
 <h2 id="ph">By project</h2>
 <div class="tu"><table class="u"><colgroup><col><col class="n"><col class="n"><col class="n"><col class="n"><col class="n"><col class="n"><col class="n"></colgroup>
 <thead><tr><th id="oth">Project</th><th class="num">Input</th><th class="num">Output</th>
 <th class="num">Cache read</th><th class="num">Cache write</th><th class="num">Replies</th><th class="num">Total</th><th class="num">Cost</th></tr></thead>
 <tbody id="projects"></tbody></table></div>
+<p class="hint" id="pnote" hidden></p>
 
 <div id="prices" hidden>
 <h2>Price history <span class="ps">· USD per million tokens<span id="pcheck"></span></span></h2>

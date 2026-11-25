@@ -486,13 +486,13 @@ PC="$(TZ=UTC node "$T/pagecost.js" "$HERE" "" "$CDATA")"
 cf() { printf '%s' "$PC" | js 'd[process.argv[4]]' "" "" "$1"; }
 check "cost: the all-time card says what is known" "$(cf all | cut -d' ' -f5-9)" "\$1.23 recorded by Claude Code"
 check "  the bar's tooltip carries it" "$(cf tip)" True
-check "  the lower table has it per project, and — where none is known" \
-  "$(cf lower)" "a 11 110 1.0 k 50 3 1.2 k ≈ \$1.23 b 5 50 500 0 1 555 —"
+check "  the lower table has it per project, and — where none is known; its total, what is known" \
+  "$(cf lower)" "a 11 110 1.0 k 50 3 1.2 k ≈ \$1.23 b 5 50 500 0 1 555 — total 16 160 1.5 k 50 4 1.7 k ≈ \$1.23"
 check "  nowhere does an unknown cost read \$0.00" "$(cf zero)" False
 check "  the coverage line counts sessions" "$(cf cover | cut -d' ' -f1-8)" "Cost is known for 1 of 3 sessions"
 check "filtered to a project with no cost, the card says —" "$(cf b | cut -d' ' -f1-9)" "555 all time — recorded by Claude Code 50"
 check "  and its coverage line follows the filter" "$(cf bCover | cut -d' ' -f1-10)" "Cost is known for 0 of 1 session in b"
-check "  as do its rows" "$(cf bRows)" "2026-10-13 opus-5 5 50 500 0 1 555 —"
+check "  as do its rows, and their total" "$(cf bRows)" "2026-10-13 opus-5 5 50 500 0 1 555 — total · 1 day 5 50 500 0 1 555 —"
 check "filtered to a model, the cost is that model's" "$(cf opus | cut -d' ' -f1-9)" "1.7 k all time \$1.23 recorded by Claude Code"
 check "  and to one whose cost is unknown, —" "$(cf haiku | cut -d' ' -f1-8)" "11 all time — recorded by Claude Code"
 check "a week with no cost against one with: — and no delta" "$(cf week | cut -d' ' -f1-15)" "555 week of 2026-10-12 00:00 ▼ 53% vs previous — recorded by Claude Code 50"

@@ -84,6 +84,16 @@ tables. Click it again, or the × on the chip that says what is filtered, to
 see everything. A model and a project can be combined; the filter survives
 switching period or breakdown, and the browser remembers it.
 
+**The tables.** The first lists every period of your history, whichever
+period button is on (that button picks the cards and the second table), and
+ends with a total row: with a project chosen, it is that project's tokens,
+every session and sub-agent of it, as its conversations add them up. When
+the filter has left one name in the breakdown (a project, broken down by
+project), the heading names it and each period is a single row. A total's
+cost is what Claude Code recorded, `≥` when a session in it was recorded
+only in part; rows marked calc are not in it, and the line under the table
+says so and gives the calculated total.
+
 A reply that appears in more than one transcript — a resumed or forked
 session copies the earlier messages — is counted once on the dashboard. Each
 session's own total still counts everything in it, so the sessions on the

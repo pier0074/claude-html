@@ -5,6 +5,20 @@ fixes, a minor adds without breaking, a major needs something from you
 (usually `./install.sh` again). To update: `claude-html --update`; before
 3.1.0, `git checkout main && git pull && ./install.sh`.
 
+## 3.8.2 — 2026-11-25
+
+- Usage page: with one project chosen (or one model, broken down by
+  model), each period is one row, named once in the table's heading,
+  instead of the same name under every period's own line.
+- Usage page: both tables end with a total row. The period table covers
+  your whole history, whichever period button is on, and its heading now
+  says "all time"; with a project chosen its total is that project's,
+  as its conversations add it up. A total's recorded cost is marked `≥`
+  when a session in it was recorded only in part, as that session's page
+  does, and the line under the table says when rows marked calc are not in
+  it, with the calculated total.
+- Usage page: the month chart's labels read 2026-10, not 26-10.
+
 ## 3.8.1 — 2026-11-25
 
 - Tests: `tests/run-all.sh` runs one at a time on a machine; a second run

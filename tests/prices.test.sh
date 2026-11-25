@@ -311,6 +311,7 @@ function button(id) { el(id).listeners.click(); }
 var o = {};
 button("pall"); button("bmodel");
 o.card = text("cards"); o.rows = text("buckets"); o.tableHtml = el("buckets").innerHTML;
+o.bnote = el("bnote").hidden ? "" : el("bnote").textContent;
 o.on = [el("cthen").cls.on, el("cnow").cls.on]; o.group = el("cgroup").hidden;
 o.history = text("ptable"); o.notes = text("pnotes"); o.check = el("pcheck").textContent;
 o.links = (el("pnotes").innerHTML.match(/<a href="[^"]*"/g) || []).length;
@@ -337,6 +338,11 @@ check "the table: recorded plain, calculated where none was, marked calc" \
 check "  a recorded cost is never replaced by a calculated one" \
   "$(p '(d.tableHtml.match(/class="num cc"/g) || []).length + " " + /≈ \$0\.50<\/td>/.test(d.tableHtml)')" "4 true"
 check "  calc cells say what they are" "$(p '/title="[^"]*no price line[^"]*">≥ \$0\.02 <span class="cm">calc<\/span>/.test(d.tableHtml)')" "true"
+# The total adds what was recorded, as every sum on the page does; with
+# rows marked calc beside it, the line under the table says so and gives
+# the calculated total too.
+check "the total row's cost, and what it leaves out, said under the table" \
+  "$(p '/total · \d+ days .* ≈ \$0\.50$/.test(d.rows) + " " + /^The total.s cost, ≈ \$0\.50, adds what Claude Code recorded; the rows marked calc .* the total is ≥ \$\d+\.\d\d\.$/.test(d.bnote)')" "true true"
 check "today's prices: every hour at the current line" \
   "$(p 'd.nowCard.split(" ").slice(4, 12).join(" ")')" '$0.50 recorded by Claude Code ≥ $0.06 calculated'
 check "  the toggle shows it and remembers it" "$(p 'JSON.stringify(d.nowOn) + " " + d.stored')" "[false,true] now"

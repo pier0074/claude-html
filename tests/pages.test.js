@@ -122,10 +122,10 @@ function el(id) {
     setAttribute() {}
   };
 }
-function usage(byProject, store) {
+function usage(byProject, store, coverage) {
   const els = {};
   const get = (id) => els[id] || (els[id] = el(id));
-  get("usage-data").textContent = JSON.stringify({ byProject, coverage: {} });
+  get("usage-data").textContent = JSON.stringify({ byProject, coverage: coverage || {} });
   const m = Object.assign({}, store || {});
   const ctx = {
     console, JSON, Date, Math,
@@ -208,6 +208,89 @@ test("each toggle's label stays on the line of its buttons", () => {
   assert.ok(/<span class="vg">period ·\n<button id="pweek">/.test(html));
   assert.ok(/<span class="vg gap">broken down by ·\n<button id="bmodel">/.test(html));
   assert.ok(/\.view \.vg\{display:inline-block;white-space:nowrap/.test(html));
+});
+
+// ── the tables, broken down by project ───────────────────────────────
+// Two projects, two models; one week with both, one with app alone.
+const TWO = {
+  app: { "2026-10-14T12": { "claude-opus-4-5": [10, 20, 300, 40, 2] },
+         "2026-11-18T12": { "claude-opus-4-5": [10, 20, 300, 40, 2, 0, 0, 1000000],
+                            "claude-haiku-4-5": [1, 2, 3, 4, 1] } },
+  web: { "2026-11-18T12": { "claude-opus-4-5": [100, 200, 0, 0, 1, 0, 0, 500000] } }
+};
+const plain = (html) => html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+const trs = (html) => html.split("<tr").slice(1);
+const byProject = (store) => usage(TWO, Object.assign({ "ch-usage-dim": "project" }, store));
+const one = { "ch-usage-filter": JSON.stringify({ project: "app" }) };
+
+// One project chosen, each week was its label on a line, then the project's
+// name on a line of its own, the same name under every week.
+["week", "month", "all"].forEach((p) => {
+  test("one project chosen, by " + p + ": one row per period, the name said once in the heading", () => {
+    const get = byProject(Object.assign({ "ch-usage-period": p }, one));
+    const html = get("buckets").innerHTML;
+    assert.ok(!/data-fk/.test(html), "no project name in the rows: " + html);
+    assert.ok(!/colspan/.test(html), "no period heading lines: " + html);
+    const rows = trs(html).filter((r) => !/class="total"/.test(r));
+    assert.strictEqual(rows.length, 2, html);
+    assert.ok(/^ class="one( now)?" id="b-/.test(rows[0]), "the row is the bar's target: " + rows[0]);
+    assert.strictEqual(get("dimh").textContent, p === "month" ? "Month" : p === "week" ? "Week" : "Day");
+    assert.ok(/ · app( · |$)/.test(get("bh").textContent), get("bh").textContent);
+  });
+});
+test("one model chosen, broken down by model: one row per period too", () => {
+  const get = usage(TWO, { "ch-usage-period": "month", "ch-usage-filter": JSON.stringify({ model: "claude-haiku-4-5" }) });
+  assert.ok(!/data-fk/.test(get("buckets").innerHTML));
+  assert.ok(/ · haiku-4-5/.test(get("bh").textContent), get("bh").textContent);
+});
+test("without a filter the periods keep their project rows", () => {
+  const html = byProject({ "ch-usage-period": "month" })("buckets").innerHTML;
+  assert.strictEqual((html.match(/data-fk="project"/g) || []).length, 3, html);
+});
+
+// No total anywhere, so the weeks could not be held against a project's total.
+[["unfiltered", {}], ["one project", one]].forEach(([name, f]) => {
+  ["week", "month", "all"].forEach((p) => {
+    test("a total row under the periods, " + name + ", by " + p, () => {
+      const get = byProject(Object.assign({ "ch-usage-period": p }, f));
+      const rows = trs(get("buckets").innerHTML);
+      const last = rows[rows.length - 1];
+      assert.ok(/^ class="total"/.test(last), last);
+      // app 370 + 380 (+ web 300): 750, 1,050; replies 5 (+ 1); recorded $1.00 (+ $0.50)
+      const want = f === one ? "21 42 603 84 5 750 ≈ $1.00" : "121 242 603 84 6 1.1 k ≈ $1.50";
+      assert.ok(plain("<tr" + last).endsWith(want), plain("<tr" + last));
+      assert.ok(/^total · 2 (weeks|months|days)/.test(plain("<tr" + last)), plain("<tr" + last));
+    });
+  });
+});
+test("a total row under the other table when it has more than one row", () => {
+  const get = byProject({ "ch-usage-period": "all" });
+  const rows = trs(get("projects").innerHTML);
+  assert.strictEqual(rows.length, 3, get("projects").innerHTML);
+  assert.ok(/^ class="total"/.test(rows[2]) && plain("<tr" + rows[2]).endsWith("121 242 603 84 6 1.1 k ≈ $1.50"), plain("<tr" + rows[2]));
+});
+// The period buttons choose the cards and the second table; the first one
+// is the whole history whatever they say, and its heading says so.
+test("the period table's heading says it covers all time", () => {
+  assert.ok(/ · all time$/.test(byProject({ "ch-usage-period": "week" })("bh").textContent));
+  assert.ok(/ · all time$/.test(byProject({ "ch-usage-period": "month" })("bh").textContent));
+});
+
+// The session page says ≥ for a cost that is a floor; the total said ≈.
+test("the total's recorded cost is a floor (≥) when a session in it was recorded in part", () => {
+  const cov = { app: [2, 2, 1], web: [1, 1, 0] };
+  const last = (get, id) => { const r = trs(get(id).innerHTML); return plain("<tr" + r[r.length - 1]); };
+  const get = usage(TWO, Object.assign({ "ch-usage-dim": "project", "ch-usage-period": "all" }, one), cov);
+  assert.ok(last(get, "buckets").endsWith("≥ $1.00"), last(get, "buckets"));
+  const web = usage(TWO, { "ch-usage-dim": "project", "ch-usage-period": "all",
+    "ch-usage-filter": JSON.stringify({ project: "web" }) }, cov);
+  assert.ok(last(web, "buckets").endsWith("≈ $0.50"), "web was recorded whole: " + last(web, "buckets"));
+});
+
+// "26-10" under a month's bar read as the 26th of October.
+test("by month the axis names the month in full", () => {
+  const html = byProject({ "ch-usage-period": "month" })("xaxis").innerHTML;
+  assert.ok(html.includes(">2026-11<") && !/>26-1\d</.test(html), html);
 });
 
 require("./lib.js").report();

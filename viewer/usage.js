@@ -207,7 +207,7 @@
     month: {
       key: function (at) { return ymd(at).slice(0, 7); },
       label: function (k) { return k; },
-      xl: function (k) { return k.slice(2); },
+      xl: function (k) { return k; },
       step: 32 * 864e5
     },
     day: {
@@ -306,8 +306,13 @@
   // own sum at list prices, as the cards and the index say. Where it
   // recorded nothing, the calculated cost, marked as such: "≥" when some of
   // the tokens have no price line.
-  function costCell(t) {
-    if (cost(t) !== null) return '<td class="num">≈ ' + money(cost(t)) + "</td>";
+  // "≥" for a floor: a total holding a session some of whose replies fall
+  // outside what Claude Code recorded, as that session's own page says.
+  function costCell(t, floor) {
+    if (cost(t) !== null) {
+      return '<td class="num"' + (floor ? ' title="some replies fall outside what Claude Code recorded, so at least this"' : "") +
+        ">" + (floor ? "≥ " : "≈ ") + money(cost(t)) + "</td>";
+    }
     if (calc(t) === null) return '<td class="num d">—</td>';
     return '<td class="num cc" title="' + esc(calcTitle(t)) + '">' + approx(t[MISS] ? "≥ " : "≈ ", calc(t)) +
       ' <span class="cm">calc</span></td>';
@@ -323,17 +328,54 @@
       (t[MISS] ? "; some of these tokens have no price line, so at least this" : "") +
       " — Claude Code recorded no cost here";
   }
-  function numbers(t) {
+  function numbers(t, floor) {
     return cell(t[0]) + cell(t[1]) + cell(t[2]) + cell(t[3]) +
-           '<td class="num">' + t[4] + "</td>" + cell(total(t)) + costCell(t);
+           '<td class="num">' + t[4] + "</td>" + cell(total(t)) + costCell(t, floor);
   }
 
-  function bucketTable(buckets, keys, span, current) {
-    document.getElementById("buckets").innerHTML = keys.slice().reverse().map(function (k) {
+  // The last row of a table: what its rows add up to. Its cost is like any
+  // sum's, what Claude Code recorded wherever it recorded anything; a row
+  // marked calc may then be left out of it, which the line under the table
+  // says, with the calculated total beside it.
+  function totalRow(label, t, parts) {
+    var mixed = cost(t) !== null && parts.some(function (p) { return cost(p) === null && calc(p) !== null; });
+    return { mixed: mixed, html: '<tr class="total"><td>' + esc(label) + "</td>" + numbers(t, sessionsInPart()) + "</tr>" };
+  }
+  function totalNote(id, row, t) {
+    var el = document.getElementById(id);
+    el.hidden = !row.mixed;
+    el.textContent = row.mixed
+      ? "The total's cost, " + (sessionsInPart() ? "≥ " : "≈ ") + money(cost(t)) + ", adds what Claude Code " +
+        "recorded; the rows marked calc have no recorded cost and are not in it. A session's cost is recorded " +
+        "as a running total when it exits, on that hour, so a row marked calc is work inside a later row's " +
+        "figure, or not recorded yet by a session still open. Calculated for every row, the total is " +
+        approx(t[MISS] ? "≥ " : "≈ ", calc(t)) + "."
+      : "";
+  }
+  // What the filter narrows the page to, said in a heading.
+  function filterNames() {
+    return ["project", "model"].filter(function (k) { return filter[k]; })
+      .map(function (k) { return DIMS[k].name(filter[k]); });
+  }
+
+  // A period's rows, one per part of the breakdown under the period's own
+  // line. When the filter has narrowed the breakdown to one part (a project
+  // chosen, the page broken down by project), that part is the same on every
+  // line: the heading names it once and each period is a single row.
+  function bucketTable(buckets, keys, span, current, unit) {
+    var d = dim(), single = !!filter[dimName], all = zero(), parts = [];
+    document.getElementById("dimh").textContent = single ? unit.charAt(0).toUpperCase() + unit.slice(1) : d.heading;
+    var html = keys.slice().reverse().map(function (k) {
       var b = buckets[k];
-      var d = dim();
+      add(all, b.t);
+      if (single) {
+        parts.push(b.t);
+        return '<tr class="one' + (k === current ? " now" : "") + '" id="b-' + esc(k) + '"><td class="nm pl">' +
+          esc(k) + (k === current ? ' <span class="gc">current</span>' : "") + "</td>" + numbers(b.t) + "</tr>";
+      }
       var ms = d.parts.filter(function (m) { return b.parts[m]; });
-      var html = '<tr class="bucket' + (k === current ? " now" : "") + '" id="b-' + esc(k) + '">' +
+      ms.forEach(function (m) { parts.push(b.parts[m]); });
+      html = '<tr class="bucket' + (k === current ? " now" : "") + '" id="b-' + esc(k) + '">' +
         '<th colspan="8">' + esc(span.label(k)) +
         (k === current ? ' <span class="gc">current</span>' : "") + "</th></tr>";
       html += ms.map(function (m) {
@@ -343,6 +385,9 @@
       if (ms.length > 1) html += '<tr class="sum"><td>' + d.all + "</td>" + numbers(b.t) + "</tr>";
       return html;
     }).join("");
+    var row = totalRow("total · " + CH.plural(keys.length, unit), all, parts);
+    document.getElementById("buckets").innerHTML = html + row.html;
+    totalNote("bnote", row, all);
   }
 
   function projectTable(inPeriod, heading) {
@@ -357,12 +402,18 @@
     });
     var keys = Object.keys(by).sort(function (a, b) { return total(by[b].t) - total(by[a].t); });
     document.getElementById("ph").textContent =
-      "By " + other + " · " + heading;
+      ["By " + other].concat(filterNames(), [heading]).join(" · ");
     document.getElementById("oth").textContent = o.heading;
-    document.getElementById("projects").innerHTML = keys.map(function (k) {
+    var all = zero();
+    keys.forEach(function (k) { add(all, by[k].t); });
+    // One row is its own total.
+    var row = keys.length > 1 ? totalRow("total", all, keys.map(function (k) { return by[k].t; }))
+                              : { mixed: false, html: "" };
+    document.getElementById("projects").innerHTML = (keys.map(function (k) {
       return '<tr><td class="nm">' + nameButton(other, k, o.name(k), o.colour[k]) + "</td>" +
         numbers(by[k].t) + "</tr>";
-    }).join("") || '<tr><td colspan="8" class="d">nothing in this period</td></tr>';
+    }).join("") + row.html) || '<tr><td colspan="8" class="d">nothing in this period</td></tr>';
+    totalNote("pnote", row, all);
   }
 
   function delta(now, before) {
@@ -406,6 +457,12 @@
   // project filtered to or for everything. Counted in sessions, by the build:
   // a model filter cannot narrow it, since one session spans models.
   var coverage = data.coverage || {};
+  // Sessions in what is shown whose recorded cost is only part of theirs.
+  function sessionsInPart() {
+    return Object.keys(coverage).some(function (k) {
+      return (!filter.project || k === filter.project) && Number(coverage[k][2]) > 0;
+    });
+  }
   function cover() {
     var c = [0, 0, 0];
     Object.keys(coverage).forEach(function (k) {
@@ -437,7 +494,6 @@
     // to read, in which case weeks carry it.
     var spanName = period === "all" ? (spanDays > 130 ? "week" : "day") : period;
     var span = SPANS[spanName];
-    document.getElementById("dimh").textContent = dim().heading;
     ["model", "project"].forEach(function (d) {
       document.getElementById("b" + d).classList.toggle("on", d === dimName);
     });
@@ -448,14 +504,16 @@
     chart(buckets, allKeys(span, keys), span);
 
     var current = span.key(new Date());
-    bucketTable(buckets, keys, span, current);
+    bucketTable(buckets, keys, span, current, spanName);
+    // Every period there is, whichever the buttons chose: they choose the
+    // cards and the table under this one.
+    document.getElementById("bh").textContent =
+      ["By " + spanName].concat(filterNames(), ["all time"]).join(" · ");
 
     if (period === "all") {
       var everything = zero();
       keys.forEach(function (k) { add(everything, buckets[k].t); });
       cards(everything, null, "all time");
-      document.getElementById("bh").textContent =
-        "By " + (spanName === "day" ? "day" : "week") + " · all time";
       projectTable(null, "all time");
     } else {
       // The latest bucket that has data, and the one just before it in time
@@ -464,7 +522,6 @@
       var prev = buckets[prevKey(span, last)];
       cards(buckets[last].t, prev ? prev.t : zero(),
             last === current ? "this " + period : span.label(last));
-      document.getElementById("bh").textContent = "By " + period;
       projectTable(function (r) { return span.key(r.at) === last; }, span.label(last));
     }
     history();
