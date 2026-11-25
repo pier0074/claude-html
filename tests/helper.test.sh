@@ -81,6 +81,26 @@ x" "" "$(printf 'v1/none/none/80-95/on%0200d' 0)"; do
 done
 check "  and refuses every variant ($m)" "$n" "$m"
 
+# The settings link: the helper takes v1/ and the link's characters, at
+# most 2048, and hands them to --settings-apply only, which reads them
+# whole; applied, it opens the page the command names, and only that.
+check "the settings link, through --settings-apply only, the page opened again" \
+  "$(osadecompile "$SCPT" 2>/dev/null | grep -c '" --settings-apply " & quoted form of payload\|if not my isSettingsPayload(payload) then return\|if thePage ends with "/settings.html" then do shell script "open " & quoted form of thePage')" 3
+iss() { osascript -e "on run argv" -e "set s to load script POSIX file \"$T/h.scpt\"" -e "tell s to return isSettingsPayload(item 1 of argv)" -e "end run" -- "$1" 2>/dev/null; }
+n=0; m=0
+for p in "v1/none/GUARD=off" "v1/0123456789abcdef/GUARD_WAIT=2m/ENGINE/forget-safe" "v1/none/EXPORT=%2F%C3%A9%2Fx.json"; do
+  m=$((m + 1)); [ "$(iss "$p")" = true ] && n=$((n + 1))
+done
+check "the helper takes good settings payloads ($m)" "$n" "$m"
+n=0; m=0
+for p in "" "v1" "V1/none/GUARD=off" "x/v1/none/GUARD=off" "v1/none/GUARD=off?x=1" "v1/none/GUARD=off#f" "v1/none/GUARD=off;id" \
+         "v1/none/GUARD=\$(id)" "v1/none/GUARD=\`id\`" "v1/none/EXPORT='/x'" 'v1/none/EXPORT="/x"' "v1/none/GUARD=off x" \
+         "v1/none/GUARD=off
+x" "v1/none/PRICES=$(printf 'a%.0s' $(seq 1 2050))"; do
+  m=$((m + 1)); [ "$(iss "$p")" = false ] && n=$((n + 1))
+done
+check "  and refuses every variant ($m)" "$n" "$m"
+
 # What the update link makes the command do, dry: Terminal opens a
 # launcher that runs this clone's own command, then the login shell.
 H="$T/home"; mkdir -p "$H/.claude"

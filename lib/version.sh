@@ -114,3 +114,12 @@ ch_update_notice() {
   [ -n "$CH_UP_NEWEST" ] && [ "$CH_UP_HERE" = "$1" ] && ch_ver_gt "$CH_UP_NEWEST" "$2" || return 1
   CH_UP_NOTICE="$CH_UP_NEWEST"
 }
+
+# The daily check switched on or off, by --update on|off or --config: off
+# also forgets what the last check saw, so the notice goes at the next
+# build; on makes the next save look again.
+ch_update_switched() {   # on|off
+  ch_update_read || return 0
+  CH_UP_CHECKED=0; ch_update_is_off "$1" && CH_UP_NEWEST=""
+  ch_update_write
+}

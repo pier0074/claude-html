@@ -80,6 +80,12 @@ ch_js_opts() {
     _lj="$(bash -c 'set +eu; . "$1/lib/platform.sh" && . "$1/lib/limits.sh" && ch_lim_json' _ "$_h" 2>/dev/null)" || _lj=""
     case "$_lj" in '{'*'}') set -- "$@" :limits "$_lj" ;; esac
   fi
+  # And what the Settings page shows that only the shell knows (settings.sh,
+  # bash's, in this shell's copy: where each setting comes from is conf.sh's).
+  if [ -f "$_h/lib/settings.sh" ] && [ -n "${BASH_VERSION:-}" ]; then
+    _sj="$(set +eu; HERE="$_h"; . "$_h/lib/settings.sh" && ch_settings_json "$_h" 2>/dev/null)" || _sj=""
+    case "$_sj" in '{'*'}') set -- "$@" :settings "$_sj" ;; esac
+  fi
   ch_json_obj root "$ROOT" out "$OUT" here "$_h" "$@"
 }
 
@@ -380,7 +386,7 @@ ch_engine_line() {
 # transcripts. What an earlier release wrote readable by others is made so
 # too: only the files and folders it writes in the pages folder, never
 # anything else kept there, and every archive folder it writes to.
-CH_PAGE_FILES="index.html usage.html sessions search resume .cache .manifest.json .build-errors.json
+CH_PAGE_FILES="index.html usage.html settings.html defaults.js sessions search resume .cache .manifest.json .build-errors.json
   .archive-errors .last-save .last-open .last-resume"
 # Of a path and what is under it, what others may read, write or enter:
 # printed, or (with -exec) made the owner's alone.
@@ -720,6 +726,16 @@ Closes after $(ch_span "$CH_GUARD_LIMIT") — counts as Cancel."
     cancel|Cancel*) echo cancel ;; allow|Allow\ once*) echo allow ;; until|Allow\ until*) echo until ;; stop|Stop*) echo stop ;;
   esac
   return 0
+}
+
+# One confirmation window at a time, by a folder made for it: 0 when it was
+# made, 3 when one younger than eleven minutes (the longest wait and some)
+# is there, as another window still asking; 1 when it cannot be made.
+# The caller removes it when the window closes.
+ch_ask_take() {   # folder
+  mkdir "$1" 2>/dev/null && return 0
+  [ -z "$(find "$1" -maxdepth 0 -mmin -11 2>/dev/null)" ] || return 3
+  rm -rf "$1"; mkdir "$1" 2>/dev/null || return 1
 }
 
 # Asks before something is changed, Cancel the default, in this desktop's

@@ -6,6 +6,7 @@ __pycache__/
 # transcripts, and they contain the full text of your conversations.
 /*.html
 /search-index.js
+/defaults.js
 /search/
 /sessions/
 /resume/

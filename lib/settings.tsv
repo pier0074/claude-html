@@ -1,0 +1,47 @@
+# Every user setting of claude-html, in one place: the Settings page, claude-html --config,
+# the claude-html://settings link and the docs test all read this file. Tab-separated.
+# A line starting @ names a group: @<group> <title>. Then one line per setting:
+#   key  group  label  kind  values  default  anchor  flags  help
+# A field with nothing in it is written -.
+# kind: enum (one of values, |-separated), path, duration (CLAUDE_HTML_GUARD_WAIT's),
+#   week (CLAUDE_HTML_WEEK_RESET's), rules, budget, warn (the limits'), text.
+# default: the value for an enum, else what applies, in words. anchor: its section in docs/SETUP.md.
+# flags, comma-separated: ro (set by ./install.sh only), env (read from the environment only),
+#   hidden (not on the page), panel (set in the Limits & budget panel), low:<value> (that value
+#   lowers protection, and the confirmation says so).
+@where	Where things go
+CLAUDE_HTML_OUT	where	Pages	path	-	the clone	where-things-go	ro	where the pages are written
+CLAUDE_HTML_ROOT	where	Projects root	path	-	the folder the clone is in	where-things-go	ro	which projects get archived: every session started in it or below
+@engine	Engine
+CLAUDE_HTML_ENGINE	engine	Engine	enum	auto|node|osascript	auto	engine	-	which one reads the transcripts and builds the pages; auto: node when a working one is found, else osascript
+CH_NODE_PROBE_LIMIT	engine	Node probe	text	-	5	engine	env,hidden	seconds each node found is given to answer before it is passed over
+@weeks	Dashboard weeks
+CLAUDE_HTML_WEEK_RESET	weeks	Week reset	week	-	calendar weeks, from Monday 00:00	dashboard-weeks	-	when your plan's weekly allowance resets, a day and an hour, local or UTC: tue 07:00 UTC
+@prices	Prices
+CLAUDE_HTML_PRICES	prices	Price file	path	-	build/prices.tsv in the clone	prices	-	a price file of your own, in the same format, instead of the clone's
+@exports	claude.ai exports
+CLAUDE_HTML_EXPORT	exports	Export file	path	-	conversations.json in ~/Downloads or the projects root, looked for	claudeai-exports	-	one conversations.json to read, instead of looking
+@secrets	Secrets
+CLAUDE_HTML_REDACT	secrets	Masking	enum	on|off	on	secrets	low:off	tokens, keys and passwords written as *** in everything claude-html writes
+CLAUDE_HTML_REDACT_FILE	secrets	Own list	path	-	~/.claude/claude-html.redact	secrets	-	your own list of things to mask, one per line; never shown anywhere
+@guard	Guard
+CLAUDE_HTML_GUARD	guard	Guard	enum	on|prompt|off	on	guard	low:off	stops a secret before it reaches Claude: in prompts and commands, prompts only, or not at all
+CLAUDE_HTML_GUARD_DIALOG	guard	Asks in	enum	on|off	on	guard	-	on: a window when someone is at the screen; off: always in words, as the next prompt
+CLAUDE_HTML_GUARD_WAIT	guard	Windows wait	duration	-	1m	guard	-	how long the guard's, the stop and the confirmation windows wait before Cancel: 45s, 2m, 1m30s, from 30 seconds to 60 minutes
+@limits	Limits & budget
+CLAUDE_HTML_LIMITS	limits	Limits	enum	on|off	on	limits-and-budget	-	off: no stop, no announcement, no budget warning, no banner; the figures still show
+CLAUDE_HTML_LIMIT_RULES	limits	Stop rules	rules	-	none	limits-and-budget	panel	from that weekday and time until the weekly reset, a new prompt past that % asks first
+CLAUDE_HTML_BUDGET	limits	Budget	budget	-	none	limits-and-budget	panel	dollars per day, week or month, for API use
+CLAUDE_HTML_BUDGET_WARN	limits	Budget warnings	warn	-	80 95	limits-and-budget	panel	the budget's two warning levels, in percent
+CLAUDE_HTML_LIMIT_NOTIFY	limits	Banner	enum	on|off	off	limits-and-budget	panel	a desktop banner for rule announcements and budget warnings
+@updates	Updates
+CLAUDE_HTML_UPDATE_CHECK	updates	Daily check	enum	on|off	on	updating	-	asks the release repository for its tags once a day, and says when a newer release is out
+@view	Page defaults
+CLAUDE_HTML_VIEW_THEME	view	Theme	enum	auto|light|dark	auto	page-defaults	-	every page: auto follows the system
+CLAUDE_HTML_VIEW_GROUP	view	Index	enum	date|project	date	page-defaults	-	the index in date order, or grouped by project
+CLAUDE_HTML_VIEW_SESSION	view	Session view	enum	conversation|everything	everything	page-defaults	-	a session page shows the conversation only, or everything with the tool calls
+CLAUDE_HTML_VIEW_PERIOD	view	Dashboard period	enum	week|month|all	week	page-defaults	-	the token dashboard by week, by month, or all time
+CLAUDE_HTML_VIEW_BREAKDOWN	view	Broken down by	enum	model|project	model	page-defaults	-	the token dashboard stacked by model or by project
+CLAUDE_HTML_VIEW_PRICES	view	Cost at	enum	time|today	time	page-defaults	-	a cost at the price of the time, or at today's prices
+@conf	The conf
+CLAUDE_HTML_CONF	conf	Conf file	path	-	~/.claude/claude-html.conf	how-a-setting-is-decided	env,hidden	the conf file itself

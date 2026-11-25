@@ -394,8 +394,8 @@ Moved to [SETUP.md](SETUP.md), with every variable, its default and an example.
 | ----- | ---- |
 | `claude-html`, `install.sh` | the command and the installer |
 | `save-conversation.sh`, `guard.sh`, `statusline.sh` | what `settings.json` runs: the save, the guard and the status line, called by their full path, so they stay at the top |
-| `lib/` | the shell the others source: the conf (`conf.sh`), what the machine has (`platform.sh`), the lock, the plan limits, the update (`update.sh`) and the release numbers (`version.sh`) |
-| `build/` | the pages: `convert.js` builds them, with `parse.js`, `redact.js`, `prices.js` and its `prices.tsv`, and `limits.js` |
+| `lib/` | the shell the others source: the conf (`conf.sh`), what the machine has (`platform.sh`), the lock, the plan limits, the settings (`settings.sh`, and `settings.tsv`, which describes every one of them), the update (`update.sh`) and the release numbers (`version.sh`) |
+| `build/` | the pages: `convert.js` builds them, with `parse.js`, `redact.js`, `prices.js` and its `prices.tsv`, `limits.js`, and `settings.js`, the one check of a setting's value in JavaScript |
 | `actions/` | what the command and the installer run besides: the guard's judge, open, resume, delete, and the edit of `settings.json` |
 | `mac/` | the helper app's source and build, and the windows (`dialog.js`) |
 | `linux/` | the link handler |
@@ -593,7 +593,8 @@ with `xdg-mime` as the handler for `x-scheme-handler/claude-html` (never from
 a temporary folder, and not when `CLAUDE_HTML_NO_REGISTER` is set);
 `--uninstall` takes it out again. The handler accepts exactly
 `claude-html://delete|open|resume/<session id>`, or `claude-html://update`
-exactly, and nothing else, and passes only the id on. The index offers the
+exactly, or a `limits` or `settings` link in its fixed form, and nothing
+else, and passes only the id or the form on. The index offers the
 bin, the project links, resume and an update's run only
 where that handler is installed — on macOS always — so no page shows a control
 that does nothing.
@@ -607,6 +608,25 @@ are valid desktop files that land in an awkward folder. It runs on macOS and
 on Ubuntu in CI. It has not been clicked through on a physical Linux desktop,
 so a desktop that behaves differently from its documentation would only show
 up there.
+
+### The Settings page
+
+`settings.html` is built with the index, from `lib/settings.tsv` — every
+setting, its kind, default and section in [SETUP.md](SETUP.md#the-settings-page) —
+and what the shell knows as of the build: each value and where it comes
+from, the conf's fingerprint, the engine, the system. Of your own list of
+secrets it carries how many lines, never one of them. It writes nothing:
+**apply** is a `claude-html://settings/…` link, which the helper (macOS) or
+`handler.sh` (Linux) checks for its characters and length before
+`claude-html --settings-apply` reads it whole, checks every value as
+`--config set` does, and asks in the limits' window, Cancel the default.
+A value is checked once per language: `build/settings.js` for the page,
+the setting's own shell code (`ch_wait_secs`, the limits' parsers) for the
+command, and the tests hold the two to the same answers.
+
+The page defaults (`CLAUDE_HTML_VIEW_*`) are written to `defaults.js`
+beside the index, which every page loads in its head before it draws, so
+changing one rebuilds no conversation's page.
 
 ### Deleting, and undoing it
 

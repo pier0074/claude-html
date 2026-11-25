@@ -139,11 +139,13 @@ var CHPlan = (function () {
     var first = JSON.stringify(state);
     var open = false;
     try { open = localStorage.getItem("ch-limits-open") === "1"; } catch (e) {}
+    // The Settings page shows it open, whatever the dashboard last did.
+    if (opts.open) open = true;
     el.innerHTML = '<details class="lim"' + (open ? " open" : "") + '><summary><span class="lt">Limits &amp; budget</span>' +
       ' <span class="ls"></span><span class="lr">' + esc(resetLabel(L)) + "</span></summary>" +
       '<div class="lb"></div></details>';
     var det = el.querySelector("details"), body = el.querySelector(".lb");
-    det.addEventListener("toggle", function () {
+    if (!opts.open) det.addEventListener("toggle", function () {
       try { localStorage.setItem("ch-limits-open", det.open ? "1" : "0"); } catch (e) {}
     });
     el.querySelector(".ls").textContent = "· " + summary(L);
@@ -234,7 +236,7 @@ var CHPlan = (function () {
   // command a button carries, to the clipboard, and "copied" for a moment.
   function copyButtons() {
     document.addEventListener("click", function (e) {
-      if (!e.target.matches("button.cp")) return;
+      if (!e.target.matches("button.cp[data-c]")) return;
       navigator.clipboard.writeText(e.target.dataset.c).then(function () {
         var was = e.target.textContent;
         e.target.textContent = "copied";

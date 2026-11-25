@@ -43,7 +43,7 @@
   var PR = typeof claudeHtmlPrices === "function" && typeof data.prices === "string"
     ? claudeHtmlPrices(data.prices) : null;
   var priceAt = "then";
-  try { priceAt = localStorage.getItem("ch-usage-prices") || "then"; } catch (e) {}
+  priceAt = CH.pref("prices", "then");
   if (!/^(then|now)$/.test(priceAt)) priceAt = "then";
   // Tokens only: the fifth column counts replies and must never be summed in.
   function total(t) { return t[0] + t[1] + t[2] + t[3]; }
@@ -125,7 +125,7 @@
                heading: "Project", all: "all projects" }
   };
   var dimName = "model";
-  try { dimName = localStorage.getItem("ch-usage-dim") || "model"; } catch (e) {}
+  dimName = CH.pref("breakdown", "model");
   if (!DIMS[dimName]) dimName = "model";
   function dim() { return DIMS[dimName]; }
 
@@ -254,7 +254,7 @@
 
   // ── rendering ──────────────────────────────────────────────────────
   var period = "week";
-  try { period = localStorage.getItem("ch-usage-period") || "week"; } catch (e) {}
+  period = CH.pref("period", "week");
   if (!/^(week|month|all)$/.test(period)) period = "week";
 
   function chart(buckets, keys, span) {
@@ -432,7 +432,6 @@
     ["then", "now"].forEach(function (w) {
       document.getElementById("c" + w).classList.toggle("on", w === priceAt);
     });
-    try { localStorage.setItem("ch-usage-period", period); } catch (e) {}
 
     // "all" means the whole history: day by day, unless that is too many bars
     // to read, in which case weeks carry it.
@@ -592,6 +591,7 @@
     document.getElementById("p" + p).addEventListener("click", function () {
       if (period === p) return;
       period = p;
+      try { localStorage.setItem("ch-usage-period", period); } catch (e) {}
       draw();
     });
   });

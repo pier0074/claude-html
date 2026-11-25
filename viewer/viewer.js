@@ -232,8 +232,9 @@ var CH = (function () {
   function parseReset(spec) {
     var m = /^\s*(sun|mon|tue|wed|thu|fri|sat)[a-z]*[\s,]+(\d{1,2})(?::(\d{2}))?(?:\s*(utc|gmt|z))?\s*$/i
       .exec(String(spec || ""));
-    if (!m) return { dow: 1, hour: 0, minute: 0, utc: false, spec: "mon 00:00" };
-    var r = { dow: DOW[m[1].toLowerCase()], hour: +m[2], minute: +(m[3] || 0), utc: !!m[4] };
+    // One that is not a moment (25:00) is not one either: calendar weeks.
+    if (!m || +m[2] > 23 || +(m[3] || 0) > 59) return { dow: 1, hour: 0, minute: 0, utc: false, spec: "mon 00:00", ok: false };
+    var r = { dow: DOW[m[1].toLowerCase()], hour: +m[2], minute: +(m[3] || 0), utc: !!m[4], ok: true };
     r.spec = m[1].toLowerCase() + " " + ("0" + r.hour).slice(-2) + ":" +
              ("0" + r.minute).slice(-2) + (r.utc ? " UTC" : "");
     return r;
@@ -257,15 +258,54 @@ var CH = (function () {
     return s;
   }
 
+  // ── the page defaults ─────────────────────────────────────────────
+  // What a view starts as: what this browser remembered from a click, else
+  // what the conf says (CLAUDE_HTML_VIEW_*, in defaults.js beside the index,
+  // which each page's head loads), else the page's own. Each is the
+  // conf's word for it and what the page keeps in localStorage.
+  var PREFS = {
+    theme: ["ch-theme", { auto: "auto", light: "light", dark: "dark" }],
+    group: ["ch-group", { date: "0", project: "1" }],
+    session: ["ch-mode", { conversation: "talk", everything: "all" }],
+    period: ["ch-usage-period", { week: "week", month: "month", all: "all" }],
+    breakdown: ["ch-usage-dim", { model: "model", project: "project" }],
+    prices: ["ch-usage-prices", { time: "then", today: "now" }]
+  };
+  function stored(name) {
+    var p = PREFS[name], v = null;
+    try { v = localStorage.getItem(p[0]); } catch (e) {}
+    for (var k in p[1]) if (p[1][k] === v) return v;
+    return null;
+  }
+  function confDefault(name) {
+    var d = typeof CH_DEFAULTS === "object" && CH_DEFAULTS ? CH_DEFAULTS[name] : null;
+    return d && Object.prototype.hasOwnProperty.call(PREFS[name][1], d) ? PREFS[name][1][d] : null;
+  }
+  function pref(name, own) {
+    var s = stored(name);
+    if (s !== null) return s;
+    var d = confDefault(name);
+    return d !== null ? d : own;
+  }
+  // "Reset this browser": what it remembered, claude-html's keys only.
+  function forgetPrefs() {
+    var gone = 0;
+    try {
+      for (var i = localStorage.length - 1; i >= 0; i--) {
+        var k = localStorage.key(i);
+        if (k && k.indexOf("ch-") === 0) { localStorage.removeItem(k); gone++; }
+      }
+    } catch (e) {}
+    return gone;
+  }
+
   // ── theme ─────────────────────────────────────────────────────────
   // The pages follow the system appearance; this button lets you insist.
   // auto -> light -> dark -> auto, remembered per browser.
   function themeInit(btn) {
     var KEY = "ch-theme", ORDER = ["auto", "light", "dark"];
     var LABEL = { auto: "\u25d0", light: "\u2600", dark: "\u263e" };
-    var cur = "auto";
-    try { cur = localStorage.getItem(KEY) || "auto"; } catch (e) {}
-    if (ORDER.indexOf(cur) < 0) cur = "auto";
+    var cur = pref("theme", "auto");
     function apply() {
       if (cur === "auto") document.documentElement.removeAttribute("data-theme");
       else document.documentElement.setAttribute("data-theme", cur);
@@ -612,6 +652,7 @@ var CH = (function () {
     promptUnder: promptUnder, ownsFindKey: ownsFindKey,
     countPrompts: countPrompts, resumable: resumable, resumeCmd: resumeCmd,
     themeInit: themeInit, parseReset: parseReset, weekStart: weekStart,
+    pref: pref, stored: stored, PREFS: PREFS, forgetPrefs: forgetPrefs,
     fmtTokens: fmtTokens, fmtMoney: fmtMoney, plural: plural
   };
 })();

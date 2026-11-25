@@ -194,7 +194,7 @@
   }
 
   var grouped = false;
-  try { grouped = localStorage.getItem("ch-group") === "1"; } catch (e) {}
+  grouped = CH.pref("group", "0") === "1";
   if (!worthGrouping) grouped = false;
 
   function heading(name) {

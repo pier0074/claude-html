@@ -54,6 +54,35 @@ on open location theURL
 		return
 	end if
 
+	-- Changing settings from the Settings page: the link carries the changes
+	-- in a fixed grammar, checked here for its characters and length before
+	-- anything runs; the command checks every key and value as --config set
+	-- does, and asks in a window of its own, Cancel the default, before it
+	-- writes anything. Applied, it rebuilds and names the page, opened again.
+	set settingsPrefix to "claude-html://settings/"
+	considering case
+		set isSettings to (theURL starts with settingsPrefix)
+	end considering
+	if isSettings then
+		if (length of theURL) is (length of settingsPrefix) then return
+		set payload to text ((length of settingsPrefix) + 1) thru -1 of theURL
+		if not my isSettingsPayload(payload) then return
+		set here to do shell script "dirname " & quoted form of POSIX path of (path to me)
+		try
+			set res to do shell script quoted form of (here & "/claude-html") & " --settings-apply " & quoted form of payload
+			if (count of paragraphs of res) > 1 and paragraph 1 of res is "Applied." then
+				set thePage to paragraph -1 of res
+				if thePage ends with "/settings.html" then do shell script "open " & quoted form of thePage
+			end if
+		on error errText number errNum
+			if errNum is not 3 then
+				activate
+				display dialog "The settings were not changed." & return & return & errText buttons {"OK"} default button 1 with icon stop with title "claude-html"
+			end if
+		end try
+		return
+	end if
+
 	-- Opening a project: no dialog, because the point of it is to be quick.
 	-- It can only ever reach a folder already in the index, inside the projects
 	-- root, and it only ever opens — it never runs anything.
@@ -269,3 +298,17 @@ on splitText(t, d)
 	set AppleScript's text item delimiters to saved
 	return out
 end splitText
+
+-- What a settings link may carry, before the command reads it whole
+-- (lib/settings.sh says the grammar): v1/, then letters, digits and
+-- . _ ~ % = / - only, at most 2048 of them.
+on isSettingsPayload(s)
+	if (length of s) < 4 or (length of s) > 2048 then return false
+	considering case
+		if s does not start with "v1/" then return false
+		repeat with c in (characters of s)
+			if "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._~%=/-" does not contain (contents of c) then return false
+		end repeat
+	end considering
+	return true
+end isSettingsPayload

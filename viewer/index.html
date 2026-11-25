@@ -1,7 +1,8 @@
 <!doctype html><html lang="en"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Claude sessions</title>
-<script>(function(){try{var t=localStorage.getItem("ch-theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}})()</script>
+<script src="defaults.js"></script>
+<script>(function(){var t=null;try{t=localStorage.getItem("ch-theme")}catch(e){}if(t!=="auto"&&t!=="light"&&t!=="dark")t=(window.CH_DEFAULTS||{}).theme;if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)})()</script>
 <style>/*{{css}}*/</style>
 <main class="ix">
 <h1>Claude sessions <button id="theme" class="th" title="theme" aria-label="theme">◐</button></h1>
@@ -11,7 +12,9 @@ title="the Claude web app">claude.ai<span class="ext">↗</span></a>
 <a href="https://claude.ai/settings/usage" target="_blank" rel="noopener"
 title="your plan's usage and limits, on claude.ai">plan usage<span class="ext">↗</span></a>
 <span class="sep">·</span>
-<a href="usage.html" title="tokens from your own transcripts, by week, month, model and project">token dashboard</a></p>
+<a href="usage.html" title="tokens from your own transcripts, by week, month, model and project">token dashboard</a>
+<span class="sep">·</span>
+<a href="settings.html" title="every claude-html setting: what it is, where it comes from, and a field to change it">settings</a></p>
 <p class="sub"><span id="count">0 sessions</span><span id="built"></span> · rebuild with <code>claude-html</code><span id="launch"></span></p>
 <p class="sub upd" id="update" hidden></p>
 <div class="errors" id="errors" hidden></div>

@@ -128,7 +128,7 @@ ch_lim_settings() {
   case "$CLAUDE_HTML_LIMIT_NOTIFY" in [Oo][Nn]|1|[Yy][Ee][Ss]|[Tt][Rr][Uu][Ee]) CH_LIM_NOTIFY=1 ;; esac
   ch_lim_parse_rules "$CLAUDE_HTML_LIMIT_RULES"
   ch_lim_parse_budget "$CLAUDE_HTML_BUDGET"
-  ch_lim_parse_warn "$CLAUDE_HTML_BUDGET_WARN"
+  ch_lim_parse_warn "$CLAUDE_HTML_BUDGET_WARN" || :
 }
 
 # A rule: from a weekday and a local time until the weekly reset, a new
@@ -215,7 +215,8 @@ ch_lim_parse_budget() {
     CH_LIM_BBAD="$1"
   fi
 }
-# Budget warnings, two percentages: "80 95".
+# Budget warnings, two percentages: "80 95". Fails for what is not two
+# such, the first lower, which leaves the default in force.
 ch_lim_parse_warn() {
   CH_LIM_W1=80; CH_LIM_W2=95
   local t="$1"
@@ -224,7 +225,10 @@ ch_lim_parse_warn() {
   if [ $# = 2 ] && [[ "$1" =~ ^[0-9]{1,2}$ ]] && [[ "$2" =~ ^[0-9]{1,2}$ ]] &&
      [ $((10#$1)) -ge 1 ] && [ $((10#$1)) -lt $((10#$2)) ]; then
     CH_LIM_W1=$((10#$1)); CH_LIM_W2=$((10#$2))
+  else
+    [ $# = 0 ] || return 1
   fi
+  return 0
 }
 ch_lim_period_word() {   # day|week|month -> _PW ("today", "this week", "this month")
   case "$1" in day) _PW=today ;; month) _PW="this month" ;; *) _PW="this week" ;; esac
@@ -321,6 +325,19 @@ ch_lim_money() {   # micro -> _MON "$38.20"
 #   calendar      Monday 00:00, local
 # Needs ch_lim_read_state and CH_NOW.
 CH_LIM_RESET_RE='^(sun|mon|tue|wed|thu|fri|sat)[a-z]*[[:space:],]+([0-9]{1,2})(:([0-9]{2}))?([[:space:]]*(utc|gmt|z))?$'
+# CLAUDE_HTML_WEEK_RESET read, as the dashboard's parseReset reads it: into
+# _WDOW (0 Sunday … 6 Saturday), _WH, _WM and _WUTC ("" for local time), and
+# _WSPEC as it is written back ("tue 07:00 UTC"); fails for what is not one.
+ch_lim_reset_parse() {   # text
+  local spec="$1"
+  spec="${spec#"${spec%%[![:space:]]*}"}"; spec="${spec%"${spec##*[![:space:]]}"}"
+  ch_lim_lower "$spec"; spec="$_lc"
+  [[ "$spec" =~ $CH_LIM_RESET_RE ]] || return 1
+  ch_lim_day_num "${BASH_REMATCH[1]}"; _WDOW=$((_DN % 7))
+  _WH=$((10#${BASH_REMATCH[2]})); _WM=$((10#${BASH_REMATCH[4]:-0})); _WUTC="${BASH_REMATCH[6]}"
+  [ "$_WH" -le 23 ] && [ "$_WM" -le 59 ] || return 1
+  printf -v _WSPEC '%s %02d:%02d%s' "${BASH_REMATCH[1]}" "$_WH" "$_WM" "${_WUTC:+ UTC}"
+}
 ch_lim_week() {
   local r="${S_week_reset:-}" k spec dow h m utc day back cand
   case "$r" in ''|*[!0-9]*) r="" ;; esac
@@ -330,13 +347,8 @@ ch_lim_week() {
     CH_WS=$(( CH_WR - CH_LIM_WEEK ))
     return 0
   fi
-  spec="${CLAUDE_HTML_WEEK_RESET:-}"
-  spec="${spec#"${spec%%[![:space:]]*}"}"; spec="${spec%"${spec##*[![:space:]]}"}"
-  ch_lim_lower "$spec"; spec="$_lc"
-  if [[ "$spec" =~ $CH_LIM_RESET_RE ]]; then
-    ch_lim_day_num "${BASH_REMATCH[1]}"; dow=$((_DN % 7))
-    h=$((10#${BASH_REMATCH[2]})); m=$((10#${BASH_REMATCH[4]:-0})); utc="${BASH_REMATCH[6]}"
-    CH_WSRC=conf
+  if ch_lim_reset_parse "${CLAUDE_HTML_WEEK_RESET:-}"; then
+    dow=$_WDOW; h=$_WH; m=$_WM; utc=$_WUTC; CH_WSRC=conf
   else
     dow=1; h=0; m=0; utc=""; CH_WSRC=calendar
   fi

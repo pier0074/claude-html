@@ -309,12 +309,11 @@ claude-html --limits notify $nn"
   # One window at a time: a page that opens the link again and again
   # gets one question, not a pile of them.
   local ask="$HOME/.claude/.claude-html-limits-ask"
-  if ! mkdir "$ask" 2>/dev/null; then
-    if [ -n "$(find "$ask" -maxdepth 0 -mmin -11 2>/dev/null)" ]; then
-      echo "a window asking about the limits is already open; nothing was changed" >&2; return 3
-    fi
-    rm -rf "$ask"; mkdir "$ask" 2>/dev/null || { echo "could not ask; nothing was changed" >&2; return 1; }
-  fi
+  ch_ask_take "$ask"; case $? in
+    0) ;;
+    3) echo "a window asking about the limits is already open; nothing was changed" >&2; return 3 ;;
+    *) echo "could not ask; nothing was changed" >&2; return 1 ;;
+  esac
   ch_detect; CH_HERE="$HERE"
   local ans
   # The arrow on File: the very lines Apply writes, as ch_conf_set writes them.

@@ -73,8 +73,33 @@ _conf_env_update="${CLAUDE_HTML_UPDATE_CHECK:-}"
 for _conf_lk in CLAUDE_HTML_LIMITS CLAUDE_HTML_LIMIT_RULES CLAUDE_HTML_BUDGET CLAUDE_HTML_BUDGET_WARN CLAUDE_HTML_LIMIT_NOTIFY; do
   eval "if [ -n \"\${$_conf_lk+x}\" ]; then _conf_env_has_$_conf_lk=1; _conf_env_val_$_conf_lk=\"\$$_conf_lk\"; else _conf_env_has_$_conf_lk=; fi"
 done
+# Where each setting comes from, for claude-html --config and the Settings
+# page: CH_SRC_<key> is environment, conf or default. Every setting is in
+# lib/settings.tsv; one set in the environment (the limits' even when set to
+# nothing, as above) wins, and is put back after the conf is read.
+_conf_set_tsv="$HERE/lib/settings.tsv"; _conf_envset=" "; CH_SET_KEYS=""
+if [ -f "$_conf_set_tsv" ]; then
+  while IFS='	' read -r _conf_k _conf_rest; do
+    case "$_conf_k" in CLAUDE_HTML_*|CH_*) ;; *) continue ;; esac
+    CH_SET_KEYS="$CH_SET_KEYS $_conf_k"
+    case " CLAUDE_HTML_LIMITS CLAUDE_HTML_LIMIT_RULES CLAUDE_HTML_BUDGET CLAUDE_HTML_BUDGET_WARN CLAUDE_HTML_LIMIT_NOTIFY " in
+      *" $_conf_k "*) [ -n "${!_conf_k+x}" ] ;;
+      *) [ -n "${!_conf_k:-}" ] ;;
+    esac && { _conf_envset="$_conf_envset$_conf_k "; eval "_conf_ev_$_conf_k=\${!_conf_k}"; }
+  done < "$_conf_set_tsv"
+fi
 # shellcheck disable=SC1090
 if [ -f "$CONF" ]; then . "$CONF"; fi
+for _conf_k in $CH_SET_KEYS; do
+  case "$_conf_envset" in
+    *" $_conf_k "*) eval "CH_SRC_$_conf_k=environment; $_conf_k=\$_conf_ev_$_conf_k; unset _conf_ev_$_conf_k" ;;
+    *) if [ -n "${!_conf_k:-}" ]; then eval "CH_SRC_$_conf_k=conf"; else eval "CH_SRC_$_conf_k=default"; fi ;;
+  esac
+done
+# The two read from the environment by the build: a plain line in the conf
+# reaches it too, not only one written with export.
+[ -z "${CLAUDE_HTML_PRICES:-}" ] || export CLAUDE_HTML_PRICES
+[ -z "${CLAUDE_HTML_EXPORT:-}" ] || export CLAUDE_HTML_EXPORT
 ROOT="${_conf_env_root:-${CLAUDE_HTML_ROOT:-$(dirname "$HERE")}}"
 OUT="${_conf_env_out:-${CLAUDE_HTML_OUT:-$HERE}}"
 # Made whole, since node does its work from / and not from here. Only a
@@ -113,4 +138,4 @@ export CLAUDE_HTML_UPDATE_CHECK="${_conf_env_update:-${CLAUDE_HTML_UPDATE_CHECK:
 for _conf_lk in CLAUDE_HTML_LIMITS CLAUDE_HTML_LIMIT_RULES CLAUDE_HTML_BUDGET CLAUDE_HTML_BUDGET_WARN CLAUDE_HTML_LIMIT_NOTIFY; do
   eval "[ -z \"\$_conf_env_has_$_conf_lk\" ] || $_conf_lk=\"\$_conf_env_val_$_conf_lk\"; unset _conf_env_has_$_conf_lk _conf_env_val_$_conf_lk"
 done
-unset _conf_lk _conf_env_update _conf_env_root _conf_env_out _conf_env_week _conf_env_engine _conf_env_redact _conf_env_redact_file _conf_env_guard _conf_env_guard_dialog _conf_env_guard_wait
+unset _conf_k _conf_rest _conf_envset _conf_set_tsv _conf_lk _conf_env_update _conf_env_root _conf_env_out _conf_env_week _conf_env_engine _conf_env_redact _conf_env_redact_file _conf_env_guard _conf_env_guard_dialog _conf_env_guard_wait

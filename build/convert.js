@@ -1049,7 +1049,7 @@ function run(argv) {
   // Every placeholder is filled in one pass. Replacing them one after another
   // would let a conversation that quotes a placeholder — this project's own
   // sessions do — have a later replacement land inside its own data.
-  var PLACEHOLDER = /\/\*\{\{(css|data|viewer|page|index|usage|prices|plan)\}\}\*\//g;
+  var PLACEHOLDER = /\/\*\{\{(css|data|viewer|page|index|usage|prices|plan|settings|root)\}\}\*\//g;
 
   function fill(template, parts) {
     return template.replace(PLACEHOLDER, function (m, key) {
@@ -1074,8 +1074,11 @@ function run(argv) {
   // messages come as their JSON joined by commas — what embedding the whole
   // object would have written between the brackets — so a long session's
   // can be kept between saves and only the new ones encoded.
+  // Where the index is from the page, for the page defaults beside it.
+  function rootOf(meta) { return String(meta.up || "../index.html").replace(/index\.html$/, ""); }
   function pageText(meta, msgsJson, agents) {
     return fill(asset("page.html"), {
+      root: rootOf(meta),
       css: asset("session.css"),
       data: '{"meta":' + embed(meta) + ',"messages":[' + msgsJson + '],"agents":' +
             embed(agents || []) + "}",
@@ -1088,6 +1091,7 @@ function run(argv) {
   // one encoding of the whole is faster than one per message, and the same.
   function sessionPage(meta, msgs, agents) {
     return fill(asset("page.html"), {
+      root: rootOf(meta),
       css: asset("session.css"),
       data: embed({ meta: meta, messages: msgs, agents: agents || [] }),
       viewer: asset("viewer.js"),
@@ -1112,6 +1116,87 @@ function run(argv) {
       prices: PRICES_SRC,
       plan: asset("plan.js"),
       usage: asset("usage.js")
+    });
+  }
+
+  // ── the Settings page ───────────────────────────────────────────────
+  // Every setting as lib/settings.tsv describes it, with build/settings.js
+  // to check a value, and what the shell gave (settings.sh: each value and
+  // where it comes from, the conf's fingerprint, the engine, the system).
+  // Built from the command or a save, it has all of that; built straight
+  // from convert.js (the tests do), none of it.
+  // Never a secret: of the own list, only how many lines it has.
+  var SETTINGS_TSV = read(HERE + "/lib/settings.tsv") || "";
+  var SETTINGS_SRC = read(HERE + "/build/settings.js") || "";
+  var SET = opt.settings && typeof opt.settings === "object" && opt.settings.values ? opt.settings : null;
+  var SETDESC = SETTINGS_SRC ? new Function(SETTINGS_SRC + "\nreturn claudeHtmlSettings;")()(SETTINGS_TSV, null) : null;
+  function settingValue(key) {
+    // Straight from convert.js nothing is known of the conf: none is
+    // guessed, and the page says so.
+    return SET ? SET.values[key] || { v: "", src: "default" } : { v: "", src: "unknown" };
+  }
+  // The page defaults (CLAUDE_HTML_VIEW_*), as every page starts with them
+  // before a browser remembers its own: one small file beside the index,
+  // read by each page's head, so a change rebuilds no page.
+  var VIEW_NAMES = { THEME: "theme", GROUP: "group", SESSION: "session", PERIOD: "period",
+                     BREAKDOWN: "breakdown", PRICES: "prices" };
+  function viewDefaults() {
+    var out = {};
+    if (!SETDESC) return out;
+    SETDESC.list.forEach(function (s) {
+      var m = /^CLAUDE_HTML_VIEW_([A-Z]+)$/.exec(s.key);
+      if (!m || !VIEW_NAMES[m[1]]) return;
+      var v = String(settingValue(s.key).v || "").toLowerCase();
+      out[VIEW_NAMES[m[1]]] = s.values.indexOf(v) > -1 ? v : s.def;
+    });
+    return out;
+  }
+  function defaultsFile() {
+    return "// The page defaults from the conf (CLAUDE_HTML_VIEW_*): what a browser starts with.\n" +
+      "var CH_DEFAULTS = " + embed(viewDefaults()) + ";\n";
+  }
+  // This clone's hooks in Claude Code's settings.json, read by the
+  // installer's own reader, which writes nothing in its status mode.
+  function hooksStatus() {
+    var src = read(HERE + "/actions/settings-hooks.js");
+    if (!src) return null;
+    try {
+      var r = new Function("require", src + "\nreturn run;")(typeof require === "function" ? require : undefined)(
+        [HOME + "/.claude/settings.json", HERE, "status"]);
+      return /^\{/.test(r) ? JSON.parse(r) : { unreadable: true };
+    } catch (e) { return null; }
+  }
+  function ownListInfo() {
+    var r = REDACT_ON ? RED : REDACTOR(read(REDACT_LIST) || "", true, !JXA);
+    return { on: REDACT_ON, exists: exists(REDACT_LIST), own: r.own, safe: r.safe, ignored: (r.ignored || []).length };
+  }
+  function updateState() {
+    var st = {};
+    (read(HOME + "/.claude/.claude-html.update") || "").split("\n").forEach(function (l) {
+      var i = l.indexOf("=");
+      if (i > 0) st[l.slice(0, i)] = l.slice(i + 1);
+    });
+    var mine = st.here === HERE;
+    return { installed: (read(HERE + "/VERSION") || "").trim(), newest: mine && isVer(st.newest) ? st.newest : "",
+             checked: mine && /^\d+$/.test(st.checked || "") ? +st.checked : 0, notice: updateNotice() || "" };
+  }
+  function settingsPage(spend) {
+    var values = {};
+    if (SETDESC) SETDESC.list.forEach(function (s) { values[s.key] = settingValue(s.key); });
+    var d = { desc: SETTINGS_TSV, values: values, partial: !SET, actions: ACTIONS, mac: MAC,
+              shell: SET ? { fp: SET.fp, conf: SET.conf, here: SET.here, version: SET.version,
+                             engine: SET.engine, system: SET.system, links: SET.links, linksOk: SET.linksOk, os: SET.os } : null,
+              here: HERE, home: HOME, root: ROOT,
+              hooks: hooksStatus(), redact: ownListInfo(), update: updateState(),
+              prices: { path: PRICES_PATH, checked: PR ? PR.checked : "", lines: PR ? PR.lines.length : 0 },
+              limits: LIMITS, spend: spend || null };
+    return fill(asset("settings.html"), {
+      css: asset("index.css"),
+      data: embed(d),
+      viewer: asset("viewer.js"),
+      plan: asset("plan.js"),
+      settings: SETTINGS_SRC,
+      page: asset("settings.js")
     });
   }
 
@@ -2210,6 +2295,8 @@ function run(argv) {
   });
   write(OUT + "/usage.html", usagePage(byProject, coverage, priceUse, spend));
   write(OUT + "/index.html", indexPage(entries, shown, spend));
+  write(OUT + "/settings.html", settingsPage(spend));
+  write(OUT + "/defaults.js", defaultsFile());
   if (errors.length) write(OUT + "/.build-errors.json", JSON.stringify(errors));
   else remove(OUT + "/.build-errors.json");
 

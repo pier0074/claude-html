@@ -4,6 +4,7 @@ Every setting and every way to set the tool up, in one place. How it all
 works is in [DETAILS.md](DETAILS.md).
 
 - [How a setting is decided](#how-a-setting-is-decided)
+- [The Settings page](#the-settings-page)
 - [Where things go](#where-things-go)
 - [Engine](#engine)
 - [Dashboard weeks](#dashboard-weeks)
@@ -12,6 +13,7 @@ works is in [DETAILS.md](DETAILS.md).
 - [Secrets](#secrets)
 - [Guard](#guard)
 - [Limits and budget](#limits-and-budget)
+- [Page defaults](#page-defaults)
 - [Hooks](#hooks)
 - [Transcript cleanup](#transcript-cleanup)
 - [Commands](#commands)
@@ -41,6 +43,84 @@ CLAUDE_HTML_OUT="$HOME/Sites/claude-html"
 | Variable | What it is | Default |
 | -------- | ---------- | ------- |
 | `CLAUDE_HTML_CONF` | the conf file itself (environment only) | `~/.claude/claude-html.conf` |
+
+Every setting is described once, in `lib/settings.tsv` — its group, what
+kind of value it takes, its default, and its section here — and the
+Settings page, `claude-html --config` and the tests all read it.
+
+## The Settings page
+
+`settings.html`, beside the index, linked from its header (**settings**,
+beside the token dashboard) and from the Token usage page: every setting
+below, what it is set to as of the last build, a badge saying where that
+comes from (**default**, **conf** or **environment**), its default, one line
+of help and a link to its section here. It follows the pages' theme, light
+or dark, and fits a phone.
+
+What it shows besides the settings: the engine in use; the price file's
+newest `checked` date; how many entries your own list of secrets has —
+**never what it says**; how many safe values the guard keeps, with **forget
+them all**; the installed and newest release; Claude Code's side, read
+only — `cleanupPeriodDays` and which of claude-html's hooks are in
+`~/.claude/settings.json`, with the `./install.sh` that fixes them (the page
+never writes that file); and, last, what `--doctor` would say of this
+machine. `CLAUDE_HTML_OUT` and `CLAUDE_HTML_ROOT` are shown with the
+`./install.sh --out`/`--root` command that changes them, not a field. The
+Limits & budget section is the Token usage page's own panel.
+
+A setting set in the environment says so: the conf cannot change it while
+that variable is set, so its field is off.
+
+**Changing one.** A field you change marks its row, and a bar at the foot
+of the window gathers the changes: **N changes · copy command · apply ·
+discard**. **copy command** gives them as `claude-html --config` lines;
+**apply** (where the helper app or the Linux link handler is) opens one
+`claude-html://settings/…` link, which asks in a window of its own — the
+limits' window: selectable text, a countdown of `CLAUDE_HTML_GUARD_WAIT`,
+Cancel the default — listing each change as it is now and as it will be.
+Turning the masking or the guard off is marked **⚠ lowers protection**; its
+**File ▸** arrow shows the exact conf lines Apply writes. Only Apply writes
+the conf, rebuilds the pages and opens the Settings page again.
+
+The page carries a fingerprint of the conf as it was built. When the conf
+has changed since — edited, or by `--config`, `--limits` or `--guard` — the
+window says **the conf changed since this page was built**, and shows each
+value as it is now beside the one asked for. Every command that changes a
+setting rebuilds the pages, so the page follows a terminal.
+
+**The link** holds the changes in a fixed form and nothing else, at most
+2048 characters; the helper and `handler.sh` check its characters and
+length, the command reads it whole, and any fault changes nothing and says
+why:
+
+```text
+claude-html://settings/v1/<fingerprint>/<change>[/<change>…]      24 changes at most
+  fingerprint   none, or the first 16 hex digits of the conf's md5
+  change        KEY=VALUE · KEY (back to its default) · forget-safe
+  KEY           the setting's name without CLAUDE_HTML_, one the page can change
+  VALUE         A-Z a-z 0-9 . _ ~ - and %XX (UTF-8), no control character
+```
+
+Each value then passes the check `--config set` makes. Nothing in a link
+is ever run, and no secret is ever in it.
+
+**From a terminal**, the same:
+
+```bash
+claude-html --config                          # every setting: value, where from, default
+claude-html --config set GUARD_WAIT=2m WEEK_RESET="tue 07:00 UTC"
+claude-html --config unset GUARD_WAIT         # back to the default
+claude-html --config forget-safe              # the guard's safe values; your own entries stay
+```
+
+A key is written with or without `CLAUDE_HTML_`, in any case. Every value
+is checked before anything is written, by the setting's own check — the
+wait's, the week's, the limits' parsers; one bad value and nothing is
+written. An on/off or a choice set to its default takes its line out. A
+path is written from `/` or `~/` (and written whole), with no `.` or `..`,
+no control character and none of `"` `` ` `` `$` `\`. `CLAUDE_HTML_OUT` and
+`CLAUDE_HTML_ROOT` are `./install.sh`'s; the environment-only ones are not
+settable. The pages are rebuilt after.
 
 ## Where things go
 
@@ -154,8 +234,7 @@ no `--force` needed.
 | ------- | ---------- | ------- |
 | `CLAUDE_HTML_PRICES` | a price file of your own, in the same format, instead of the clone's | `build/prices.tsv` in the clone |
 
-Like `CLAUDE_HTML_EXPORT` it is read from the environment only, so in the
-conf it needs `export`. Your own file is not updated with the tool: copy the
+A plain line in the conf works, as an `export` line does. Your own file is not updated with the tool: copy the
 clone's new lines into it after an update.
 
 On the dashboard, **cost at · the price of the time / today's prices** prices
@@ -170,11 +249,8 @@ subscription both are list-price equivalents, not a bill.
 | `CLAUDE_HTML_EXPORT` | one `conversations.json` to read, instead of looking | `conversations.json` in `~/Downloads`, the projects root, or one folder inside either |
 | `~/.claude/claude-html.hidden` | claude.ai chats hidden from the index, one id per line; delete a line to bring a chat back | none hidden |
 
-`CLAUDE_HTML_EXPORT` is read from the environment only, so in the conf it
-needs `export`:
-
 ```bash
-export CLAUDE_HTML_EXPORT="$HOME/exports/conversations.json"
+CLAUDE_HTML_EXPORT="$HOME/exports/conversations.json"   # in the conf; export works too
 ```
 
 The index's bin writes the hidden list for you.
@@ -351,7 +427,9 @@ claude-html --guard wait default   # its line out of the conf: a minute again
 
 **What Safe keeps**: a line `safe:<salt>:<hash>   # github, 2026-11-19` in
 your own list — a salted SHA-256 of the value, never the value. To forget
-one, delete its line. A plain line or `/regex/` of your own list still masks
+one, delete its line; to forget them all, `claude-html --config forget-safe`
+or the Settings page's **forget them all**, which take out the `safe:` lines
+and nothing else. A plain line or `/regex/` of your own list still masks
 what it matches, safe or not.
 
 **What it cannot do**: see what a tool prints (it checks what goes in, not
@@ -507,6 +585,28 @@ next refresh can pass a level by a few percent; other sessions running at
 the same time count toward the API budget once they end; nothing here
 stops work already running.
 
+## Page defaults
+
+What each page starts with, until a browser remembers a click of its own.
+A click still changes the view at once and is remembered by that browser,
+over the default; the Settings page's **reset this browser** forgets what
+it remembered (claude-html's own keys only), so the defaults apply again.
+
+| Setting | What it is | Default |
+| ------- | ---------- | ------- |
+| `CLAUDE_HTML_VIEW_THEME` | `auto`, `light` or `dark`: every page; auto follows the system | `auto` |
+| `CLAUDE_HTML_VIEW_GROUP` | the index by `date` or grouped by `project` | `date` |
+| `CLAUDE_HTML_VIEW_SESSION` | a session page as `conversation` or `everything` | `everything` |
+| `CLAUDE_HTML_VIEW_PERIOD` | the token dashboard by `week`, `month` or `all` time | `week` |
+| `CLAUDE_HTML_VIEW_BREAKDOWN` | the dashboard broken down by `model` or `project` | `model` |
+| `CLAUDE_HTML_VIEW_PRICES` | cost at the price of the `time`, or `today`'s | `time` |
+
+The build writes them to `defaults.js` beside the index, which every page
+loads (a page without it — copied elsewhere — keeps its own defaults), so a
+change rebuilds no conversation's page. The `CLAUDE_HTML_VIEW_*` lines go
+in the conf like any other, or through `claude-html --config` and the
+Settings page.
+
 ## Hooks
 
 `./install.sh` adds these hooks to `~/.claude/settings.json`:
@@ -552,6 +652,10 @@ installer says so if it is under a year. Uninstalling leaves it as it is.
 | `claude-html --limits budget day\|week\|month <dollars>` / `budget off` / `budget warn <a> <b>` | the API budget and its two warnings |
 | `claude-html --limits notify on\|off` / `on\|off` | the desktop banner; all of the limits |
 | `claude-html --limits-apply <payload>` | what the page's **apply** link reaches: asks in a window, then writes and rebuilds |
+| `claude-html --config` | every [setting](#the-settings-page): its value, where it comes from, its default |
+| `claude-html --config set KEY=VALUE …` / `unset KEY …` | change settings, every value checked first; then rebuild |
+| `claude-html --config forget-safe` | forget the guard's safe values; your own entries stay |
+| `claude-html --settings-apply <payload>` | what the Settings page's **apply** link reaches: asks in a window, then writes, rebuilds and names the page |
 | `claude-html --delete <full id>` | the index's bin: move a conversation to the Trash, after asking |
 | `claude-html --delete-plan <full id>` | say what `--delete` would move, and move nothing |
 | `claude-html --delete <full id> --yes` | the same without asking (`-y`) |
@@ -641,7 +745,7 @@ one reads only what was appended. It holds text, masked as the pages are.
 The same JavaScript runs under node, which Linux needs (14.14 or later).
 The terminal a resume or an update opens, the trash, the confirmation
 dialog and the `claude-html://` link handler (`delete`, `open`, `resume`
-with a session id, `update` alone, and `limits` with its values) are picked per machine from what is
+with a session id, `update` alone, and `limits` and `settings` with their values) are picked per machine from what is
 installed (when the command ends, the window stays, as an ordinary shell
 in that folder); `$TERMINAL` wins over all terminals. See
 [On Linux](DETAILS.md#on-linux) for the table.

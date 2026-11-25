@@ -5,6 +5,29 @@ fixes, a minor adds without breaking, a major needs something from you
 (usually `./install.sh` again). To update: `claude-html --update`; before
 3.1.0, `git checkout main && git pull && ./install.sh`.
 
+## 3.6.0 — 2026-11-25
+
+- **A Settings page** (`settings.html`), linked from the index and the Token
+  usage page: every setting with where its value comes from (default, conf or
+  environment), its default, one line of help and its `SETUP.md` section.
+  Change it there and **apply** asks in a window, listing each change before →
+  after, marking what lowers protection, and warning when the conf changed
+  since the page was built. Where the pages go and the projects root are shown
+  with the command that changes them; Claude Code's own settings are shown,
+  never written; your own masking list is only ever counted.
+- `claude-html --config` shows every setting; `--config set KEY=VALUE…` checks
+  every value before writing any; `--config unset KEY…` restores the default;
+  `--config forget-safe` forgets the guard's safe values and keeps your own
+  entries. Each rebuilds the pages.
+- Page defaults in the conf: `CLAUDE_HTML_VIEW_THEME`, `_GROUP`, `_SESSION`,
+  `_PERIOD`, `_BREAKDOWN`, `_PRICES`. A browser starts with them until a click
+  is remembered; "reset this browser" forgets what it remembered.
+- `CLAUDE_HTML_PRICES` and `CLAUDE_HTML_EXPORT` work as plain conf lines,
+  without `export`.
+- Opening a session page no longer pins its view in the browser; only a click
+  does.
+- A week reset such as `fri 25:00` is now refused rather than wrapping round.
+
 ## 3.5.1 — 2026-11-24
 
 - Fixed: the API budget no longer counts a forked session's copied replies

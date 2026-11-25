@@ -521,7 +521,9 @@
       var gap = el.getBoundingClientRect().top - y - 12;
       if (gap > 0) window.scrollBy(0, gap);
     }
-    try { localStorage.setItem("ch-mode", m); } catch (e) {}
+    // Remembered when it is a click: on opening, what was there, or the
+    // conf's default, stays as it is.
+    if (!opening) { try { localStorage.setItem("ch-mode", m); } catch (e) {} }
     place();
     // What can be seen has changed, so what find can land on has too.
     if (typeof find === "function" && fq && fq.value) find();
@@ -819,7 +821,7 @@
   });
 
   var saved = "all";
-  try { saved = localStorage.getItem("ch-mode") || "all"; } catch (e) {}
+  saved = CH.pref("session", "all");
   mode(saved, true);
   if (/^#m\d+(?::find=[^#]*)?$/.test(location.hash)) toHash();
   else fillNear(NEAR);

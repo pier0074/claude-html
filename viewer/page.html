@@ -1,7 +1,8 @@
 <!doctype html><html lang="en"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>session</title>
-<script>(function(){try{var t=localStorage.getItem("ch-theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}})()</script>
+<script src="/*{{root}}*/defaults.js"></script>
+<script>(function(){var t=null;try{t=localStorage.getItem("ch-theme")}catch(e){}if(t!=="auto"&&t!=="light"&&t!=="dark")t=(window.CH_DEFAULTS||{}).theme;if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)})()</script>
 <style>/*{{css}}*/</style>
 <header><div class="hw">
 <h1 class="crumbs" id="crumbs"></h1>

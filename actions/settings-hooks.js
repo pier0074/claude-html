@@ -194,6 +194,24 @@ function run(argv) {
     return { dir: dir, mine: mine, wrap: m[2] === undefined ? null : unq(m[2]) };
   }
 
+  // What is installed, for the Settings page: this clone's hooks, the status
+  // line, cleanupPeriodDays. Nothing is written.
+  if (mode === "status") {
+    var sl = statusLineOf(data.statusLine), has = function (event, script, arg, matcher) {
+      return already(event, script, arg, matcher);
+    };
+    return JSON.stringify({
+      Stop: has("Stop", "save-conversation.sh", "--background"),
+      SessionEnd: has("SessionEnd", "save-conversation.sh", ""),
+      PreCompact: has("PreCompact", "save-conversation.sh", "", "auto") && has("PreCompact", "save-conversation.sh", "", "manual"),
+      guardPrompt: has("UserPromptSubmit", "guard.sh", "prompt"),
+      guardBash: has("PreToolUse", "guard.sh", "bash", "Bash"),
+      statusLine: sl && sl.mine ? (sl.wrap !== null ? "wrapped" : "ours") : sl ? "other copy" :
+        (data.statusLine && data.statusLine.command ? "yours" : "none"),
+      cleanupPeriodDays: typeof data.cleanupPeriodDays === "number" ? data.cleanupPeriodDays : null
+    });
+  }
+
   if (mode === "remove") {
     var removed = drop(function (c) { return isMine(c); });
     if (Object.keys(hooks).length) data.hooks = hooks; else delete data.hooks;

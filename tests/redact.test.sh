@@ -156,7 +156,8 @@ if [ "$HAVE_OSASCRIPT" = true ] && command -v node >/dev/null 2>&1; then
     rm -rf "$OUT" "$T/home/.claude/claude-html.archives"; mkdir -p "$OUT"
     rm -f "$CONV/$S1.json" "$CONV/$S2.json" "$CONV/$S3.json"
     CLAUDE_HTML_ENGINE="$1" save
-    (cd "$OUT" && find . -type f ! -name .last-save | sort | while IFS= read -r f; do
+    # The Settings page says which engine is set and in use, as --doctor does.
+    (cd "$OUT" && find . -type f ! -name .last-save ! -name settings.html | sort | while IFS= read -r f; do
        printf '%s %s\n' "$f" "$(sed 's/"built":[0-9]*,/"built":0,/' "$f" | cksum)"; done)
     cksum < "$CONV/$S1.json"
   }

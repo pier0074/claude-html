@@ -489,6 +489,7 @@ cat > "$HD/claude-html" <<'SH'
 case "$1" in
   --delete-plan) printf 'TITLE\t%s\nACTION\ttrash\nITEM\t~/x.jsonl\ttranscript\nHISTORY\t2\n' "$PLAN_TITLE" ;;
   --resume-session) [ -n "${NO_TERM:-}" ] && echo "run: cd -- '/x' && claude --resume $2" ;;
+  --settings-apply) [ -z "${APPLY_OUT:-}" ] || printf '%s\n' "$APPLY_OUT"; exit "${APPLY_RC:-0}" ;;
 esac
 exit 0
 SH
@@ -533,6 +534,32 @@ done
 check "nothing anywhere was run from a limits link" "$(pwned)" ""
 clearlog ubuntu; handle ubuntu "claude-html://limits/$LG" >/dev/null 2>&1
 check "a limits link asks the command for exactly that" "$(log ubuntu)" "cli [--limits-apply] [$LG]"
+
+# A settings link from the Settings page: v1/, its characters and its
+# length, then the command reads it whole; Applied, the page opens again.
+SG="v1/0123456789abcdef/GUARD_WAIT=2m/WEEK_RESET=tue%2007%3A00%20UTC/ENGINE/forget-safe"
+for bad in "claude-html://settings/$SG?x=1" "claude-html://settings/$SG#f" "claude-html://settings/$SG;id" \
+           "claude-html://settings/$SG " "claude-html://settings/$SG${NL}claude-html://delete/$A" "claude-html://settings/" \
+           "claude-html://settings" "claude-html://Settings/$SG" "claude-html://settings//$SG" "claude-html://settings/V1/none/GUARD=off" \
+           "claude-html://settings/v1/none/EXPORT=\$(touch $T/pwned)" "claude-html://settings/v1/none/GUARD=\`id\`" \
+           "claude-html://settings/v1/none/EXPORT='/x'" "claude-html://settings/v1/none/EXPORT=\"/x\"" \
+           "claude-html://settings/v1/none/PRICES=$(printf 'a%.0s' $(seq 1 2100))"; do
+  clearlog ubuntu
+  code="$(handle ubuntu "$bad" >/dev/null 2>&1; echo $?)"
+  check "refused: $(printf '%s' "$bad" | tr '\n' '|' | cut -c1-90)" "$code:$(log ubuntu | grep -c '^cli')" "2:0"
+done
+check "nothing anywhere was run from a settings link" "$(pwned)" ""
+hset() { inenv ubuntu APPLY_OUT="$1" APPLY_RC="$2" sh "$HD/linux/handler.sh" "claude-html://settings/$SG" >/dev/null 2>&1; }
+clearlog ubuntu; handle ubuntu "claude-html://settings/$SG" >/dev/null 2>&1
+check "a settings link asks the command for exactly that" "$(log ubuntu)" "cli [--settings-apply] [$SG]"
+clearlog ubuntu; hset "$(printf 'Applied.\n%s' "$OUT/settings.html")" 0
+check "  applied: the Settings page opened again" "$(log ubuntu | grep -v '^cli')" "xdg-open [$OUT/settings.html]"
+clearlog ubuntu; hset "Nothing was changed." 0
+check "  cancelled: nothing opened, nothing said" "$(log ubuntu | grep -v '^cli')" ""
+clearlog ubuntu; hset "not a settings link, so nothing was changed:" 2
+check "  refused by the command: the window says why" "$(log ubuntu | grep '^zenity' | grep -c 'The settings were not changed.')" 1
+clearlog ubuntu; hset "a window asking about the settings is already open" 3
+check "  a window already asking: nothing more" "$(log ubuntu | grep -vc '^cli')" 0
 
 clearlog ubuntu; handle ubuntu "claude-html://update" >/dev/null 2>&1
 check "an update link asks for exactly that, and names nothing" "$(log ubuntu)" "cli [--update-terminal]"

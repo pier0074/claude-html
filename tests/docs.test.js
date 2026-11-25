@@ -38,6 +38,44 @@ check("every variable the code reads is in SETUP.md (" + Object.keys(inCode).len
       "missing: " + missing.map(function (n) { return n + " (" + inCode[n] + ")"; }).join(", "));
 check("SETUP.md names no variable the code does not read", !extra.length, "unknown: " + extra.join(", "));
 
+// ── the settings' description ──
+// lib/settings.tsv, which the Settings page, claude-html --config and the
+// link read, describes exactly the settings SETUP.md's tables list (the
+// test suite's knobs aside), and each one's section names it.
+var described = {}, anchorOf = {};
+fs.readFileSync(path.join(HERE, "lib", "settings.tsv"), "utf8").split("\n").forEach(function (l) {
+  var f = l.split("\t");
+  if (/^(CLAUDE_HTML_|CH_)[A-Z0-9_]+$/.test(f[0])) { described[f[0]] = true; anchorOf[f[0]] = f[6]; }
+});
+var userPart = setup.slice(0, setup.indexOf("\n## For the test suite")), tabledSet = {};
+userPart.split("\n").forEach(function (l) {
+  var m = /^\| `((?:CLAUDE_HTML_|CH_)[A-Z0-9_]+)` \|/.exec(l);
+  if (m) tabledSet[m[1]] = true;
+});
+var undescribed = Object.keys(tabledSet).filter(function (k) { return !described[k]; });
+var untabledSet = Object.keys(described).filter(function (k) { return !tabledSet[k]; });
+check("SETUP.md's tables list exactly the settings lib/settings.tsv describes (" + Object.keys(described).length + ")",
+      !undescribed.length && !untabledSet.length,
+      "not described: " + undescribed.join(", ") + "; not in a table: " + untabledSet.join(", "));
+var setupAnchors = anchors(setup), misplaced = [];
+Object.keys(anchorOf).forEach(function (k) {
+  var a = anchorOf[k];
+  if (!setupAnchors[a]) { misplaced.push(k + " → #" + a + " (no such heading)"); return; }
+  // The section: from its heading to the next of the same level.
+  if (!new RegExp("\\| `" + k + "` \\|").test(sectionOf(a)))
+    misplaced.push(k + " is not in the table of #" + a);
+});
+function sectionOf(a) {
+  var lines = setup.split("\n"), on = false, out = [];
+  lines.forEach(function (l) {
+    var m = /^##\s+(.*?)\s*$/.exec(l);
+    if (m) on = m[1].toLowerCase().replace(/[^\w\- ]+/g, "").replace(/ /g, "-") === a;
+    if (on) out.push(l);
+  });
+  return out.join("\n");
+}
+check("each setting's anchor is its section in SETUP.md, and that section's table names it", !misplaced.length, misplaced.join("\n        "));
+
 // ── the command's flags ──
 // Every flag claude-html and install.sh take is in SETUP.md's table of
 // commands, and the table names none they do not take.

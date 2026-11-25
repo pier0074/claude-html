@@ -1,0 +1,116 @@
+<!doctype html><html lang="en"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Settings</title>
+<script src="defaults.js"></script>
+<script>(function(){var t=null;try{t=localStorage.getItem("ch-theme")}catch(e){}if(t!=="auto"&&t!=="light"&&t!=="dark")t=(window.CH_DEFAULTS||{}).theme;if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)})()</script>
+<style>/*{{css}}*/</style>
+<style>
+:root{--sok:#2f6f4f;--sconf:#3d5f8f;--schg:#a8621c}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]){--sok:#7fc79b;--sconf:#8fb0e0;--schg:#e0a060}}
+:root[data-theme=dark]{--sok:#7fc79b;--sconf:#8fb0e0;--schg:#e0a060}
+main.st{max-width:min(1040px,92vw);padding-bottom:120px}
+.crumb{font-size:12.5px;margin:0 0 4px}
+.crumb a{color:var(--dim);text-decoration:none;border-bottom:1px dotted var(--line)}
+.crumb a:hover{color:var(--fg);border-bottom-color:var(--dim)}
+.crumb .sep{color:var(--dim);opacity:.45;margin:0 3px}
+.crumb .th{margin-left:8px}
+p.sub{max-width:760px;line-height:1.6}
+p.sub code,.sh code,.sx code{font-size:11.5px}
+.toc{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:11.5px;margin:0 0 6px}
+.toc a{color:var(--dim);border-bottom:1px dotted var(--line)}
+.toc a:hover{color:var(--fg);text-decoration:none;border-bottom-color:var(--dim)}
+h2{scroll-margin-top:16px;display:flex;align-items:baseline;gap:10px}
+h2 .gx{margin-left:auto;font-size:10.5px;text-transform:none;letter-spacing:0;color:var(--dim)}
+h2 .gx a{border-bottom:1px dotted var(--line)}
+/* A setting: its name, what it is set to with the field to change it, and
+   where the value comes from with a link to its section. */
+/* A changed row is marked in the margin, left of the column the text keeps;
+   its rule under it starts where the text does. */
+.srow{display:grid;grid-template-columns:200px minmax(0,1fr) 150px;gap:4px 18px;padding:11px 0 11px 10px;
+border-left:3px solid transparent;margin-left:-13px;font-size:12.5px;
+background:linear-gradient(var(--line),var(--line)) 10px 100%/calc(100% - 10px) 1px no-repeat}
+.srow:last-child,.srow:has(+ h2){background-image:none}
+.srow.changed{border-left-color:var(--schg);background-color:rgba(200,140,60,.08)}
+.sk .sl{display:block;color:var(--fg)}
+.sk .sn{display:block;font-size:10.5px;color:var(--dim);word-break:break-all;margin-top:1px}
+.sv{min-width:0}
+.sc{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px}
+.sc code.val{background:var(--code);border:1px solid var(--line);border-radius:4px;padding:2px 7px;font-size:12px;
+word-break:break-all}
+.sh,.sd,.sx{margin:4px 0 0;color:var(--dim);font-size:11.5px;line-height:1.55}
+.sd .was{color:var(--schg)}
+.sx{color:var(--fg)}
+.sx .no{color:var(--pbad)} .sx .yes{color:var(--sok)}
+.sw{color:var(--pbad);font-size:11.5px;margin:4px 0 0}
+.senv{color:var(--warn);font-size:11.5px;margin:4px 0 0}
+.sm{text-align:right;font-size:11px;color:var(--dim);display:flex;flex-direction:column;align-items:flex-end;gap:5px}
+.sm a{color:var(--dim);border-bottom:1px dotted var(--line)}
+.sm a:hover{color:var(--fg);text-decoration:none}
+.badge{display:inline-block;border:1px solid var(--line);border-radius:10px;padding:0 8px;font-size:10.5px;line-height:17px;
+text-transform:uppercase;letter-spacing:.06em;color:var(--dim);white-space:nowrap}
+.badge.conf{color:var(--sconf);border-color:var(--sconf)}
+.badge.environment{color:var(--warn);border-color:var(--warn)}
+.badge.changed{color:var(--schg);border-color:var(--schg)}
+/* The fields, the index's switch and the limits' inputs alike. */
+.seg{display:inline-flex}
+.seg button{background:var(--code);color:var(--dim);border:1px solid var(--line);padding:3px 11px;font:inherit;
+font-size:11.5px;cursor:pointer;margin-left:-1px}
+.seg button:first-child{border-radius:4px 0 0 4px;margin-left:0}
+.seg button:last-child{border-radius:0 4px 4px 0}
+.seg button:hover{color:var(--fg)}
+.seg button.on{color:var(--fg);border-color:var(--dim);background:var(--bg);position:relative}
+.seg button[disabled]{cursor:default;opacity:.55}
+.sv input[type=text]{background:var(--code);color:var(--fg);border:1px solid var(--line);border-radius:4px;
+font:inherit;font-size:12px;padding:3px 7px;width:min(100%,400px)}
+.sv input.short{width:150px}
+.sv input:focus{outline:none;border-color:var(--dim)}
+.sv input.bad{border-color:var(--pbad);outline:1px solid var(--pbad)}
+.sv input[disabled]{opacity:.6}
+button.lnk{background:none;border:0;padding:0;font:inherit;font-size:11px;color:var(--dim);cursor:pointer;
+border-bottom:1px dotted var(--line)}
+button.lnk:hover{color:var(--fg)}
+button.cp.danger.on{color:var(--schg);border-color:var(--schg)}
+#limits{margin:4px 0 2px}
+#limits details.lim{border-top:0}
+#limits .lim .lrow{gap:6px 18px}
+#limits .lim .lk{flex:0 0 200px}
+.hook{display:inline-block;margin-right:12px;white-space:nowrap}
+/* The changes, gathered at the foot of the window while there are any. */
+.sbar{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-top:1px solid var(--dim);
+box-shadow:0 -6px 18px rgba(0,0,0,.08);z-index:5}
+.sbar .in{max-width:min(1040px,92vw);margin:0 auto;padding:10px 20px;display:flex;flex-wrap:wrap;align-items:center;
+gap:6px 10px;font-size:12.5px}
+.sbar b{color:var(--schg)}
+.sbar .bs{color:var(--dim);opacity:.6}
+.sbar a.go{margin-left:0;font-size:12px;padding:3px 14px;color:var(--fg);border-color:var(--dim)}
+.sbar a.go.off,.sbar button[disabled]{opacity:.45;cursor:default}
+.sbar .bh{color:var(--dim);font-size:11px;flex-basis:100%}
+.sbar pre{margin:0;flex-basis:100%;font-size:11px;color:var(--dim);white-space:pre-wrap;word-break:break-all}
+@media(max-width:760px){
+main.st{padding:20px 16px 160px}
+.srow{grid-template-columns:minmax(0,1fr);margin-left:-13px}
+#limits .lim .lk{flex:none}
+.sm{flex-direction:row;justify-content:flex-start;align-items:center;text-align:left;gap:10px}
+.sbar .in{padding:10px 16px}
+}
+@media print{.sbar,.toc,.seg button:not(.on),button.lnk,button.cp{display:none!important}}
+</style>
+<main class="st">
+<p class="crumb"><a href="index.html">claude-html</a> / settings <span class="sep">·</span> <a href="usage.html">token dashboard</a> <button id="theme" class="th" title="theme" aria-label="theme">◐</button></p>
+<h1>Settings</h1>
+<p class="sub" id="sub"></p>
+<nav class="toc" id="toc" aria-label="groups"></nav>
+<div id="groups"></div>
+</main>
+<div class="sbar" id="bar" hidden><div class="in">
+<span><b id="bn"></b></span><span class="bs">·</span>
+<button class="cp" id="bcopy">copy command</button><span class="bs">·</span>
+<a class="go" id="bapply" href="#" title="asks in a window before anything changes">apply</a><span class="bs">·</span>
+<button class="cp" id="bdiscard">discard</button>
+<span class="bh" id="bh"></span>
+</div></div>
+<script type="application/json" id="settings-data">/*{{data}}*/</script>
+<script>/*{{viewer}}*/</script>
+<script>/*{{plan}}*/</script>
+<script>/*{{settings}}*/</script>
+<script>/*{{page}}*/</script>

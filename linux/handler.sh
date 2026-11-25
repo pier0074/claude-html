@@ -11,6 +11,8 @@
 # must be one of three actions and a session id, with nothing before, after
 # or between them - or exactly claude-html://update, which names nothing. Which conversation that is, and every path involved, is
 # looked up in the index's own manifest by the command, never taken from here.
+# Or claude-html://settings/<payload>, from the Settings page's "apply", in
+# a grammar of its own that the command checks whole (settings.sh says it).
 # Or claude-html://limits/<payload>, from the Token usage page's "apply":
 # new limits in a fixed grammar (limits-cli.sh says it), which the command
 # checks again and asks about in a window before anything is written.
@@ -39,6 +41,13 @@ LIM_RULE="$LIM_DAY-([01][0-9]|2[0-3])[0-5][0-9]-([1-9][0-9]?|100)"
 LIM_RE="v1/(none|$LIM_RULE([.]$LIM_RULE){0,7})/(none|[1-9][0-9]{0,5}([.][0-9]{1,2})?-(day|week|month))/[1-9][0-9]?-[1-9][0-9]?/(on|off)"
 if [ "$URL" = "claude-html://update" ]; then
   ACTION=update; SID=""
+elif [ "${URL#claude-html://settings/}" != "$URL" ]; then
+  # From the Settings page: v1/ and then letters, digits and . _ ~ % = / -
+  # only, at most 2048; the command reads the grammar whole (settings.sh).
+  ACTION=settings; SID="${URL#claude-html://settings/}"
+  case "$SID" in v1/*) ;; *) echo "handler.sh: not a settings link" >&2; exit 2 ;; esac
+  case "$SID" in *[!A-Za-z0-9._~%=/-]*) echo "handler.sh: not a settings link" >&2; exit 2 ;; esac
+  [ "${#SID}" -le 2048 ] || { echo "handler.sh: not a settings link" >&2; exit 2; }
 elif [ "${URL#claude-html://limits/}" != "$URL" ]; then
   ACTION=limits; SID="${URL#claude-html://limits/}"
   case "$SID" in ''|*[!a-z0-9./-]*) echo "handler.sh: not a limits link" >&2; exit 2 ;; esac
@@ -83,6 +92,21 @@ markup() { printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&g
 plain() { printf '%s' "$1" | sed -e 's/</‹/g' -e 's/>/›/g'; }
 
 case "$ACTION" in
+  settings)
+    # Asked in a window, Cancel the default, as the limits are; applied,
+    # the command rebuilds and names the Settings page, opened again.
+    OUTPUT="$("$CLI" --settings-apply "$SID" 2>&1)"; RC=$?
+    if [ "$RC" = 0 ]; then
+      case "$OUTPUT" in
+        Applied.*) PAGE="$(printf '%s\n' "$OUTPUT" | tail -n 1)"
+                   case "$PAGE" in /*/settings.html) ch_open_file "$PAGE" || true ;; esac ;;
+      esac
+    elif [ "$RC" != 3 ]; then
+      tell "The settings were not changed.
+
+$OUTPUT"
+    fi
+    exit 0 ;;
   limits)
     # The command asks in a window of the desktop's own, Cancel the
     # default, and writes nothing without a yes; with no window to ask in,

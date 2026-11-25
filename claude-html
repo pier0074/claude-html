@@ -56,6 +56,17 @@ conf_line() { ch_conf_set "$@"; }
 # --limits shows and sets them, one conf line at a time; --limits-apply is
 # what a claude-html://limits link from the Token usage page reaches: it
 # asks in a window first, then writes and rebuilds the pages.
+# The pages, built again after a change: as a save builds them, in turn.
+rebuild_pages() {
+  ch_pick_engine
+  # shellcheck source=lib/lock.sh
+  . "$HERE/lib/lock.sh"
+  _nc=""; ch_lock_take 60 || _nc=":cache false"
+  # shellcheck disable=SC2086
+  ch_js "$HERE/build/convert.js" "$(ch_js_opts "$HERE" $_nc)" >/dev/null 2>&1
+  [ -n "$_nc" ] || ch_lock_release
+  ch_private_out "$OUT"
+}
 case "${1:-}" in
   --limits|--limits-apply)
     set +u
@@ -69,31 +80,42 @@ case "${1:-}" in
     [ $# = 2 ] || { echo "claude-html --limits-apply <payload>" >&2; exit 2; }
     ch_lim_apply "$2"; _rc=$?
     [ "$_rc" = 10 ] || exit "$_rc"
-    # The pages show what was applied: built as a save builds them, in turn.
-    ch_pick_engine
-    # shellcheck source=lib/lock.sh
-    . "$HERE/lib/lock.sh"
-    _nc=""; ch_lock_take 60 || _nc=":cache false"
-    # shellcheck disable=SC2086
-    ch_js "$HERE/build/convert.js" "$(ch_js_opts "$HERE" $_nc)" >/dev/null 2>&1
-    [ -n "$_nc" ] || ch_lock_release
-    ch_private_out "$OUT"
+    rebuild_pages
+    exit 0 ;;
+  # Every setting, from lib/settings.tsv: --config shows and changes them,
+  # one conf line each; --settings-apply is what a claude-html://settings
+  # link from the Settings page reaches: it asks in a window first, then
+  # writes, rebuilds the pages, and says where the Settings page is, for
+  # the helper or the Linux handler to open it again.
+  --config|--settings-apply)
+    set +u
+    _how="$1"; shift
+    # shellcheck source=lib/platform.sh
+    . "$HERE/lib/platform.sh"
+    # shellcheck source=lib/limits.sh
+    . "$HERE/lib/limits.sh"
+    # shellcheck source=lib/settings.sh
+    . "$HERE/lib/settings.sh"
+    if [ "$_how" = --config ]; then ch_set_cli "$@"; _rc=$?
+    else
+      [ $# = 1 ] || { echo "claude-html --settings-apply <payload>" >&2; exit 2; }
+      ch_set_apply "$1"; _rc=$?
+    fi
+    [ "$_rc" = 10 ] || exit "$_rc"
+    rebuild_pages
+    [ "$_how" = --config ] || echo "$OUT/settings.html"
     exit 0 ;;
 esac
 
 if [ -n "$UPDATE" ]; then
   case "$UPDWORD" in
     on|off)
-      # The switch, as --guard is one: its own conf line and nothing else.
-      # Off also forgets what the last check saw, so the notice goes at the
-      # next build; on makes the next save look again.
+      # The switch, as --guard is one: its own conf line and nothing else,
+      # and what the last check saw (version.sh's ch_update_switched).
       conf_line CLAUDE_HTML_UPDATE_CHECK "$UPDWORD"
       # shellcheck source=lib/version.sh
       . "$HERE/lib/version.sh"
-      if ch_update_read; then
-        CH_UP_CHECKED=0; [ "$UPDWORD" = off ] && CH_UP_NEWEST=""
-        ch_update_write
-      fi
+      ch_update_switched "$UPDWORD"
       if [ "$UPDWORD" = off ]; then
         echo "The daily check for new releases is off. claude-html --update on turns it back on."
       else
@@ -170,6 +192,7 @@ for arg in "$@"; do
     --redact-archives) REDACTARCHIVES=1 ;;
     --guard) GUARD=1 ;;
     --limits|--limits-apply) echo "claude-html $arg comes first: claude-html --limits [status|add|remove|rules|budget|notify|on|off]" >&2; exit 2 ;;
+    --config|--settings-apply) echo "claude-html $arg comes first: claude-html --config [set KEY=VALUE…|unset KEY…|forget-safe]" >&2; exit 2 ;;
     --yes|-y) YES=true ;;
     -h|--help)
       echo "claude-html            rebuild what changed, open the index"
@@ -192,6 +215,8 @@ for arg in "$@"; do
       echo "claude-html --limits add \"fri 20:00 80%\" | remove <n> | rules \"…\"|none"
       echo "claude-html --limits budget day|week|month <dollars> | budget off | budget warn <a> <b>"
       echo "claude-html --limits notify on|off | on|off"
+      echo "claude-html --config               every setting: its value, where it comes from, its default"
+      echo "claude-html --config set KEY=VALUE … | unset KEY … | forget-safe   (KEY with or without CLAUDE_HTML_)"
       exit 0 ;;
     *) if [ -n "$GUARD" ] && [ -z "$GUARDARG" ]; then GUARDARG="$arg"
        elif [ -n "$GUARD" ] && [ "$GUARDARG" = wait ]; then

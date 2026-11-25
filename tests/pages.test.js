@@ -16,7 +16,7 @@ function test(name, fn) {
   try { fn(); } catch (e) { failed.push([name, e.message]); }
 }
 
-const PAGES = ["index.html", "page.html", "usage.html"];
+const PAGES = ["index.html", "page.html", "usage.html", "settings.html"];
 
 // ── every page ───────────────────────────────────────────────────────
 // Without a viewport a phone lays the page out at 980px and shrinks it;
