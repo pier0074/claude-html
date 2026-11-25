@@ -131,12 +131,13 @@ check "  and can be run" "$([ -x "$L" ] && echo yes)" yes
 
 
 # ── the windows, for real ────────────────────────────────────────────
-# Each one shown, then closed by itself: a test's limit of a few seconds,
-# and a hard stop past it, so none can stay on the screen of whoever runs
-# the suite.
+# Real windows, drawn, timed, pictured and keyed by AppKit, but --offscreen:
+# clear, no Dock icon, nothing brought forward, so whoever runs the suite
+# sees none of them and keeps the keyboard. Each closes by itself: a test's
+# limit of a few seconds, and a hard stop past it.
 realwin() {   # seconds args…
   local lim="$1"; shift
-  osascript -l JavaScript "$HERE/mac/dialog.js" "$@" 2>/dev/null & local p=$!
+  osascript -l JavaScript "$HERE/mac/dialog.js" --offscreen "$@" 2>/dev/null & local p=$!
   ( sleep "$lim"; kill "$p" 2>/dev/null ) >/dev/null 2>&1 & local w=$!
   wait "$p"; local rc=$?; kill "$w" 2>/dev/null; wait "$w" 2>/dev/null
   return $rc

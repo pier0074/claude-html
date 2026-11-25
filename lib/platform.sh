@@ -653,6 +653,7 @@ ch_details() {
 #   ch_dialog_wait <seconds> <command…>
 ch_dialog_wait() {
   _lim="$1"; shift
+  ch_screen_off window "$@" && return 1
   [ "$CH_DIALOG" = osascript ] && _lim=$((_lim + 5))
   _dir="$(mktemp -d "${TMPDIR:-/tmp}/chguard.XXXXXX")" || return 1
   _out="$_dir/answer"; _late="$_dir/late"
@@ -789,10 +790,26 @@ Closes after $(ch_span "$CH_GUARD_LIMIT") — nothing changed."
   return 0
 }
 
-# Prints the command line instead of running it when CH_DRY is set, which is
-# what --doctor shows and what the tests compare.
+# CLAUDE_HTML_NO_SCREEN=<file>: nothing is put on the screen - no page,
+# folder, server or terminal opened, no window asked in, no banner - and
+# each that would have been is added to <file> as one line, its command
+# quoted. What opens succeeds as if it had; a window that is not shown is a
+# window that could not be, so the caller asks in words. The test suites
+# set it (run-all.sh, lib.sh), so a run of them leaves nothing on the
+# screen of whoever runs it; open.js and limits.sh's banner honour it too.
+ch_screen_off() {   # what command…: 0 (and noted) when the switch is on
+  [ -n "${CLAUDE_HTML_NO_SCREEN:-}" ] || return 1
+  _sw="$1"; shift
+  { printf '%s ' "$_sw"; ch_quote_args "$@" | tr '\n' ' ' | sed 's/ *$//'; echo; } 2>/dev/null >> "$CLAUDE_HTML_NO_SCREEN" || true
+  return 0
+}
+
+# Everything that opens a page, a folder or a terminal goes through here.
+# CH_DRY prints the command line instead of running it, which is what
+# --doctor shows and what the tests compare.
 ch_run() {
   if [ -n "${CH_DRY:-}" ]; then ch_quote_args "$@"; echo; return 0; fi
+  ch_screen_off open "$@" && return 0
   "$@"
 }
 

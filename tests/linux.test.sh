@@ -87,12 +87,13 @@ mkenv() {   # name id version id_like pretty
 var() { printf '%s\n' "$2" >> "$T/env/$1/vars"; }
 
 # Run something inside an environment: nothing of this machine's own
-# environment gets in, only what the fake one says.
+# environment gets in, only what the fake one says. Its own stand-ins are
+# the screen, so CLAUDE_HTML_NO_SCREEN is off: they record what is shown.
 inenv() {   # name cmd…
   local e="$T/env/$1"; shift
   local vars=() line
   while IFS= read -r line; do [ -n "$line" ] && vars+=("$line"); done < "$e/vars"
-  env -i HOME="$H" PATH="$e/bin:$SYS" STUB_LOG="$e/log" STUB_TRASH="$e/trashed" \
+  env -i CLAUDE_HTML_NO_SCREEN= HOME="$H" PATH="$e/bin:$SYS" STUB_LOG="$e/log" STUB_TRASH="$e/trashed" \
     CLAUDE_HTML_UNAME=Linux CLAUDE_HTML_OS_RELEASE="$e/os-release" \
     CLAUDE_HTML_PROC_VERSION="$e/version" CLAUDE_HTML_NO_REGISTER=1 \
     ${vars[@]+"${vars[@]}"} "$@"

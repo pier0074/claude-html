@@ -42,6 +42,9 @@
 //                          clicks its copy button (into a pasteboard of its own),
 //                          closes it again, and writes what came of each to
 //                          <file>; the clipboard is given back as it was
+//   --offscreen            drawn, timed and pictured as ever, but clear, with
+//                          no Dock icon and nothing brought forward: the
+//                          window exists, nobody sees it; --selftest works on it
 //   countdown <seconds>|start [confirm]   prints the countdown's words, nothing
 //                          shown; start is where it starts, the --limit
 //
@@ -62,7 +65,7 @@ function countdown(secs, kind) {
 function plain(text) { return String(text).replace(/[\u0001\u0002]/g, ""); }
 
 function options(argv) {
-  var o = { limit: 60, boxes: {}, order: [], snap: "", snapAfter: 0, open: {}, selftest: "" }, i = 0;
+  var o = { limit: 60, boxes: {}, order: [], snap: "", snapAfter: 0, open: {}, selftest: "", offscreen: false }, i = 0;
   while (i < argv.length && /^--/.test(argv[i])) {
     var a = argv[i];
     if (a === "--limit") { o.limit = Math.floor(Number(argv[i + 1])) || 60; i += 2; }
@@ -74,6 +77,7 @@ function options(argv) {
     else if (a === "--snap-after") { o.snapAfter = Number(argv[i + 1]) || 0; i += 2; }
     else if (a === "--open") { o.open[argv[i + 1]] = true; i += 2; }
     else if (a === "--selftest") { o.selftest = argv[i + 1] || ""; i += 2; }
+    else if (a === "--offscreen") { o.offscreen = true; i += 1; }
     else break;
   }
   if (o.limit < 1) o.limit = 60;
@@ -151,7 +155,7 @@ var CAPTION = {
 
 function show(S, o, boxes) {
   var app = $.NSApplication.sharedApplication;
-  app.setActivationPolicy($.NSApplicationActivationPolicyRegular);
+  app.setActivationPolicy(o.offscreen ? $.NSApplicationActivationPolicyAccessory : $.NSApplicationActivationPolicyRegular);
   editMenu(app);
   var W = 500, P = 24, TRI = 18, MAXBOX = 200, STRIP = 22, INSET = 4, CW = 58;
   var body = $.NSFont.systemFontOfSize(13), bold = $.NSFont.boldSystemFontOfSize(15);
@@ -349,9 +353,18 @@ function show(S, o, boxes) {
   }
   layout();
   win.center;
-  win.setLevel($.NSFloatingWindowLevel);
-  app.activateIgnoringOtherApps(true);
-  win.makeKeyAndOrderFront(null);
+  if (o.offscreen) {
+    // Ordered in, so it is laid out, drawn and timed as ever, but clear,
+    // past the mouse, and nothing brought forward: nobody sees it, and
+    // whatever the person at the screen is typing into keeps the keys.
+    win.setAlphaValue(0);
+    win.setIgnoresMouseEvents(true);
+    win.orderFrontRegardless;
+  } else {
+    win.setLevel($.NSFloatingWindowLevel);
+    app.activateIgnoringOtherApps(true);
+    win.makeKeyAndOrderFront(null);
+  }
   // For the tests: a picture of what it shows, and nothing waited for.
   if (o.snap && !o.snapAfter) { snapshot(win, o.snap); return "cancel"; }
 
@@ -451,6 +464,15 @@ function snapshot(win, snap) {
   // Drawn once, as the screen would show it, before it is pictured.
   $.NSRunLoop.currentRunLoop.runUntilDate($.NSDate.dateWithTimeIntervalSinceNow(0.5));
   win.display;
+  // A clear window pictures as clear: its views draw themselves instead,
+  // the title bar's frame and all.
+  if (win.alphaValue < 1) {
+    var fv = win.contentView.superview, rep = fv.bitmapImageRepForCachingDisplayInRect(fv.bounds);
+    fv.cacheDisplayInRectToBitmapImageRep(fv.bounds, rep);
+    rep.representationUsingTypeProperties($.NSBitmapImageFileTypePNG, $()).writeToFileAtomically(snap, true);
+    win.orderOut(null);
+    return;
+  }
   // Its own window, as the window server shows it: a process may always
   // picture its own windows.
   ObjC.import("CoreGraphics");

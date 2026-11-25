@@ -40,10 +40,12 @@ LOG="$T/log"; : > "$LOG"
 
 # Everything a command needs, pointed into the sandbox and nowhere else.
 printf 'CLAUDE_HTML_ROOT="%s"\nCLAUDE_HTML_OUT="%s"\n' "$T/root" "$OUT" > "$T/home/.claude/claude-html.conf"
-# The index is not to be opened in a browser.
+# The index is not to be opened in a browser: a build that names no session
+# opens it, by /usr/bin/open on a Mac, which no stand-in on the PATH can take
+# the place of, so CLAUDE_HTML_NO_SCREEN notes it in a file of this suite's.
 printf '#!/bin/sh\nexit 0\n' > "$T/bin/open"; cp "$T/bin/open" "$T/bin/xdg-open"; chmod +x "$T/bin/"*
 sandbox() {
-  env HOME="$T/home" PATH="$T/bin:$PATH" CLAUDE_HTML_CONF="$T/home/.claude/claude-html.conf" \
+  env HOME="$T/home" PATH="$T/bin:$PATH" CLAUDE_HTML_NO_SCREEN="$T/opened" CLAUDE_HTML_CONF="$T/home/.claude/claude-html.conf" \
     CLAUDE_HTML_ROOT="$T/root" CLAUDE_HTML_OUT="$OUT" CLAUDE_HTML_EXPORT="$T/conversations.json" \
     CLAUDE_HTML_REDACT_FILE="${LIST:-$T/home/.claude/claude-html.redact}" CLAUDE_HTML_NO_REGISTER=1 "$@"
 }
@@ -180,7 +182,7 @@ for eng in $ENGINES; do
   rm -rf "$HOUT" "$HAPP/.claude" "$H/home/.claude/claude-html.archives"; mkdir -p "$HOUT"
   : > "$H/log.$eng"
   hk() {
-    env HOME="$H/home" PATH="$T/bin:$PATH" CLAUDE_HTML_CONF="$H/home/.claude/claude-html.conf" \
+    env HOME="$H/home" PATH="$T/bin:$PATH" CLAUDE_HTML_NO_SCREEN="$T/opened" CLAUDE_HTML_CONF="$H/home/.claude/claude-html.conf" \
       CLAUDE_HTML_ROOT="$H/root" CLAUDE_HTML_OUT="$HOUT" CLAUDE_HTML_EXPORT=/nonexistent \
       CLAUDE_HTML_REDACT_FILE="$H/home/.claude/claude-html.redact" CLAUDE_HTML_ENGINE="$eng" "$@"
   }
@@ -199,6 +201,13 @@ check "  and the transcript is byte for byte as it was" "$([ "$(ch_md5 "$HJ")" =
 check "Claude Code's transcripts are byte for byte as they were" \
   "$([ "$(fingerprint)" = "$BEFORE" ] && echo same || echo changed)" same
 check "no command printed a secret" "$(grep -cF -f "$T/probes.txt" "$LOG")" 0
+
+# A Mac always has a way to open a page, so the index must be noted there;
+# a Linux machine without a display (CI) has none, and nothing is tried.
+# Either way, nothing but the index may be noted.
+_ni="$(grep -c "/index\.html'\$" "$T/opened" 2>/dev/null)"; _no="$(grep -vc "/index\.html'\$" "$T/opened" 2>/dev/null)"
+check "the index was never opened, only noted, each time a build named no session" \
+  "$({ [ "${_ni:-0}" -gt 0 ] || [ "$(uname)" != Darwin ]; } && echo noted) ${_no:-0}" "noted 0"
 
 echo
 echo "  $pass passed, $fail failed"

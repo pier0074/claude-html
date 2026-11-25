@@ -5,6 +5,13 @@ fixes, a minor adds without breaking, a major needs something from you
 (usually `./install.sh` again). To update: `claude-html --update`; before
 3.1.0, `git checkout main && git pull && ./install.sh`.
 
+## 3.6.2 — 2026-11-25
+
+- Tests: a run of the suites no longer opens pages in your browser or brings
+  windows to the front (`CLAUDE_HTML_NO_SCREEN`); it runs at lower priority
+  (`CLAUDE_HTML_TEST_NICE`, default 10), and its helper-app leak check counts
+  only its own temp folders.
+
 ## 3.6.1 — 2026-11-25
 
 - Fixed: a prompt the guard stops is no longer repeated back by Claude Code as

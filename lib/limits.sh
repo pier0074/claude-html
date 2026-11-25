@@ -527,6 +527,10 @@ ch_lim_budget_tenths() { CH_BT=$(( CH_SPENT / (CH_LIM_BC > 0 ? CH_LIM_BC : 1) / 
 ch_lim_banner() {   # text
   [ -n "$CH_LIM_NOTIFY" ] || return 0
   [ -z "${SSH_CONNECTION:-}${SSH_TTY:-}" ] || return 0
+  # CLAUDE_HTML_NO_SCREEN, as platform.sh's ch_screen_off has it: noted, not shown.
+  if [ -n "${CLAUDE_HTML_NO_SCREEN:-}" ]; then
+    printf 'banner %s\n' "$1" 2>/dev/null >> "$CLAUDE_HTML_NO_SCREEN" || true; return 0
+  fi
   case "${CLAUDE_HTML_UNAME:-${OSTYPE:-}}" in
     Darwin|darwin*)
       command -v osascript >/dev/null 2>&1 || return 0

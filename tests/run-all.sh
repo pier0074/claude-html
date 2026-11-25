@@ -5,6 +5,8 @@
 #   bash tests/run-all.sh
 #
 # On macOS the macOS-only suites run too; on Linux they skip and say so.
+# CLAUDE_HTML_TEST_JOBS (how many at once) and CLAUDE_HTML_TEST_NICE (their
+# priority, 10 by default; 0 for full) are in docs/SETUP.md.
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 failed=0
@@ -34,19 +36,54 @@ if [ -z "$JOBS" ]; then
   JOBS=$(( n / 2 )); [ "$JOBS" -lt 2 ] && JOBS=2; [ "$JOBS" -gt 6 ] && JOBS=6
 fi
 case "$JOBS" in ''|*[!0-9]*|0) JOBS=1 ;; esac
+# Each suite at a lower priority, so the machine stays quick for whoever is
+# at it; the run takes no longer when nothing else wants the CPU.
+# CLAUDE_HTML_TEST_NICE=0 runs them at full priority, 1 to 19 at that one.
+NICE="${CLAUDE_HTML_TEST_NICE:-10}"
+case "$NICE" in ''|*[!0-9]*) NICE=10 ;; esac
+[ "$NICE" -le 19 ] || NICE=19
 OUTD="$(mktemp -d "${TMPDIR:-/tmp}/claude-html-tests.XXXXXX")" || exit 1
 trap 'rm -rf "$OUTD"' EXIT
+# Every temp folder a suite makes is in this run's own: what it leaves
+# behind, a registered helper app above all, is known to be this run's.
+RUNTMP="$OUTD/tmp"; mkdir -p "$RUNTMP"; export TMPDIR="$RUNTMP"
+
+# Nor put anything on the screen of whoever runs them: no page, folder,
+# server or terminal opened, no window, no banner. CLAUDE_HTML_NO_SCREEN
+# makes the command, the hooks and open.js add what they would have shown
+# to a file instead (ch_screen_off in platform.sh); and stand-ins for the
+# tools that show things come first on the PATH, for anything that calls
+# one by name past that switch. A suite that tests showing brings
+# stand-ins of its own; one that reaches either of these is a failure,
+# said below. osascript cannot be stood in for (it is an engine as well):
+# screen.test.sh holds the suites' direct calls of it to a list.
+export CLAUDE_HTML_NO_SCREEN="$OUTD/shown"
+SHIM="$OUTD/screen-tools"; mkdir -p "$SHIM"
+for o in open xdg-open gio wslview notify-send terminal-notifier zenity kdialog yad xmessage; do
+  # gio does more than open: its trash, which the delete tests use, goes on.
+  cat > "$SHIM/$o" <<EOF
+#!/bin/sh
+if [ "$o" = gio ] && [ "\${1:-}" != open ]; then
+  PATH="\$(printf '%s' "\$PATH" | tr ':' '\n' | grep -vxF '$SHIM' | paste -s -d: -)" exec gio "\$@"
+fi
+printf '%s %s\n' "$o" "\$*" >> '$OUTD/shown.by-name'
+exit 0
+EOF
+  chmod +x "$SHIM/$o"
+done
+export PATH="$SHIM:$PATH"
 T0="$(date +%s)"
 
 # The longest start first, so the last one to end is not a long one begun late.
 QUICK="viewer diff index pages docs"
-SUITES="incremental guard limits settings linux update layout usage prices engine install hooks backend archive redact races build agents delete open helper safety"
+SUITES="incremental guard limits settings screen linux update layout usage prices engine install hooks backend archive redact races build agents delete open helper safety"
 run_one() {   # name
   local t="$1" s rc
   s="$(date +%s)"
+  local pri=(); [ "$NICE" = 0 ] || pri=(nice -n "$NICE")
   case " $QUICK " in
-    *" $t "*) node "$HERE/$t.test.js" > "$OUTD/$t.out" 2>&1 ;;
-    *) bash "$HERE/$t.test.sh" > "$OUTD/$t.out" 2>&1 ;;
+    *" $t "*) ${pri[@]+"${pri[@]}"} node "$HERE/$t.test.js" > "$OUTD/$t.out" 2>&1 ;;
+    *) ${pri[@]+"${pri[@]}"} bash "$HERE/$t.test.sh" > "$OUTD/$t.out" 2>&1 ;;
   esac
   rc=$?
   echo "$(( $(date +%s) - s ))" > "$OUTD/$t.secs"
@@ -84,17 +121,15 @@ if [ "$HAD_APP" = no ] && [ -e "$CLONE/Claude HTML.app" ]; then
 fi
 
 # The suites build helper apps in temp folders. None of them may be left
-# registered with macOS, or the real delete button launches a ghost.
-LSREG=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
-if [ -x "$LSREG" ]; then
-  leaked=$("$LSREG" -dump 2>/dev/null | grep -c 'path: .*/\(tmp\|var/folders\)/.*Claude HTML\.app' || true)
-  # Nor this clone's own, unless it is the installed copy.
-  INSTALLED_AT="$(cd "$(dirname "$(readlink "$HOME/.local/bin/claude-html" 2>/dev/null)")" 2>/dev/null && pwd -P)"
-  if [ "$INSTALLED_AT" != "$CLONE" ] &&
-     "$LSREG" -dump 2>/dev/null | grep -qF "$CLONE/Claude HTML.app"; then leaked=$((leaked + 1)); fi
+# registered with macOS, or the real delete button launches a ghost. Only
+# this run's: its suites' temp folders are all under $RUNTMP, and an app
+# another run left (another worktree's gate, at the same time) is not this
+# one's failure. Nor this clone's own, unless it is the installed copy.
+if [ -x /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister ]; then
+  leaked="$(bash "$HERE/app-leaks.sh" "$RUNTMP" "$CLONE")"
   printf '%-9s ' "leaks"
-  if [ "${leaked:-0}" = 0 ]; then echo "no helper app registered from a temp folder or this clone"
-  else echo "FAIL  $leaked helper app(s) registered from temp folders or this clone"; failed=1; fi
+  if [ "${leaked:-0}" = 0 ]; then echo "no helper app registered from this run's temp folders or this clone"
+  else echo "FAIL  $leaked helper app(s) registered from this run's temp folders or this clone"; failed=1; fi
 fi
 
 # The same on Linux: a handler registered from a temp folder would leave
@@ -107,9 +142,17 @@ if [ "$(uname -s)" = Linux ]; then
   else echo "no link handler registered from a temp folder"; fi
 fi
 
+# Whatever a suite showed, or would have shown, without a stand-in of its own.
+printf '%-9s ' "visible"
+if [ -s "$OUTD/shown" ] || [ -s "$OUTD/shown.by-name" ]; then
+  echo "FAIL  a suite reached a real page, window or banner; without the switch it would be on the screen:"
+  cat "$OUTD/shown" "$OUTD/shown.by-name" 2>/dev/null | head -10 | cut -c1-160 | sed 's/^/            /'
+  failed=1
+else echo "nothing opened, no window, no banner"; fi
+
 echo
 SLOW="$(for t in $SUITES $QUICK; do printf '%s %s\n' "$(cat "$OUTD/$t.secs" 2>/dev/null || echo 0)" "$t"; done |
         sort -rn | head -3 | awk '{ printf "%s%s %ss", (NR > 1 ? ", " : ""), $2, $1 }')"
-echo "$(( $(date +%s) - T0 ))s, $JOBS at a time; longest: $SLOW"
+echo "$(( $(date +%s) - T0 ))s, $JOBS at a time$([ "$NICE" = 0 ] || echo ", nice $NICE"); longest: $SLOW"
 [ "$failed" = 0 ] && echo "all suites passed" || echo "SOMETHING FAILED"
 exit "$failed"

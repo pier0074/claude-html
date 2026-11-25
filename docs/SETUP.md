@@ -758,6 +758,7 @@ Knobs the tests set; nothing needs them day to day.
 | -------- | ------------ |
 | `CLAUDE_HTML_FORCE_NODE` | pretend there is no `osascript`, so node does everything |
 | `CLAUDE_HTML_NO_REGISTER` | register nothing, and build no helper app in place: macOS registers any app it sees appear (set by the test runner itself) |
+| `CLAUDE_HTML_NO_SCREEN` | a file: nothing is put on the screen (no index, project or terminal opened, no window asking, no banner); each that would have been is added to the file instead (set by the test runner itself) |
 | `CLAUDE_HTML_UNAME` | what `uname -s` would say |
 | `CLAUDE_HTML_OS_RELEASE` | the os-release file to read |
 | `CLAUDE_HTML_PROC_VERSION` | the kernel version string, for WSL detection |
@@ -772,4 +773,5 @@ Knobs the tests set; nothing needs them day to day.
 | `CLAUDE_HTML_UPDATE_LOCK_WAIT` | seconds an update waits for a save's lock, instead of 60 |
 | `CLAUDE_HTML_LOCK_WAIT` | seconds a session-end save waits for the lock before saving without it, instead of 50 |
 | `CLAUDE_HTML_TEST_JOBS` | how many suites `tests/run-all.sh` runs at once (default: half the CPUs, 2 to 6; `1` runs them one after another) |
+| `CLAUDE_HTML_TEST_NICE` | the priority `tests/run-all.sh` runs each suite at, as `nice -n` takes it (default `10`, so the machine stays quick while they run; `0` for full priority) |
 | `CH_DRY` | print the command a terminal, opener or dialog would be given, and run nothing (what `--doctor` and the `-plan` commands show) |

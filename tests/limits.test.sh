@@ -63,7 +63,7 @@ EOF
 }
 sl() {   # payload [env…]
   local f="$1"; shift
-  env -i PATH="$T/stub:$PATH" HOME="$H" TZ="$TZ" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_TEST_NOW="$NOW" "$@" \
+  env -i CLAUDE_HTML_NO_SCREEN= PATH="$T/stub:$PATH" HOME="$H" TZ="$TZ" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_TEST_NOW="$NOW" "$@" \
     /bin/bash "$HERE/statusline.sh" < "$f"
 }
 
@@ -122,7 +122,7 @@ rm -f "$STATE"
 check "no rate_limits, no budget: this session's cost" "$(sl "$T/api1" | plain)" "claude-html · this session \$0.50"
 check "nothing at all: a minimal line" "$(sl "$T/bare" | plain)" "claude-html"
 check "not JSON: the same, and exit 0" "$(sl "$T/junk" | plain | tr -d '\n'; echo " ${PIPESTATUS[0]}")" "claude-html 0"
-check "no stdin: the same" "$(env -i PATH="$PATH" HOME="$H" CLAUDE_HTML_CONF="$CONFF" /bin/bash "$HERE/statusline.sh" </dev/null | plain)" "claude-html"
+check "no stdin: the same" "$(env -i CLAUDE_HTML_NO_SCREEN="${CLAUDE_HTML_NO_SCREEN:-}" PATH="$PATH" HOME="$H" CLAUDE_HTML_CONF="$CONFF" /bin/bash "$HERE/statusline.sh" </dev/null | plain)" "claude-html"
 printf '{"session_id":"s1","cost":{"total_cost_usd":1.2e-05}}' > "$T/tiny"
 check "a cost in exponent form: nothing worth a cent" "$(sl "$T/tiny" | plain)" "claude-html · this session \$0.00"
 payload "$T/five" 34 81 ; node -e 'var f=require("fs"),o=JSON.parse(f.readFileSync(process.argv[1],"utf8")); delete o.rate_limits.seven_day; f.writeFileSync(process.argv[1],JSON.stringify(o))' "$T/five"
@@ -148,19 +148,19 @@ check "it never started node or osascript" "$(started)" 0
 # Theirs first: the same note on its stdin, its output whole, then ours.
 conf "$RULES"; rm -f "$STATE"
 W="$(sl "$T/p1" | plain)"
-O="$(env -i PATH="$T/stub:$PATH" HOME="$H" TZ="$TZ" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_TEST_NOW="$NOW" \
+O="$(env -i CLAUDE_HTML_NO_SCREEN= PATH="$T/stub:$PATH" HOME="$H" TZ="$TZ" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_TEST_NOW="$NOW" \
      /bin/bash "$HERE/statusline.sh" --wrap "cat > '$T/inner.in'; printf 'theirs one\ntheirs \"two\"'" < "$T/p1" | plain)"
 check "wrapped: their lines first, then ours" "$O" "theirs one
 theirs \"two\"
 $W"
 check "  theirs read the same note" "$(cmp -s "$T/inner.in" "$T/p1" && echo same)" same
-O="$(env -i PATH="$PATH" HOME="$H" TZ="$TZ" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_TEST_NOW="$NOW" \
+O="$(env -i CLAUDE_HTML_NO_SCREEN="${CLAUDE_HTML_NO_SCREEN:-}" PATH="$PATH" HOME="$H" TZ="$TZ" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_TEST_NOW="$NOW" \
      /bin/bash "$HERE/statusline.sh" --wrap "echo half; exit 3" < "$T/p1" | plain; echo "rc ${PIPESTATUS[0]}")"
 check "  theirs failing: what it printed, ours, exit 0" "$O" "half
 $W
 rc 0"
 S0=$(date +%s)
-O="$(env -i PATH="$PATH" HOME="$H" TZ="$TZ" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_TEST_NOW="$NOW" CLAUDE_HTML_STATUSLINE_TEST_LIMIT=1 \
+O="$(env -i CLAUDE_HTML_NO_SCREEN="${CLAUDE_HTML_NO_SCREEN:-}" PATH="$PATH" HOME="$H" TZ="$TZ" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_TEST_NOW="$NOW" CLAUDE_HTML_STATUSLINE_TEST_LIMIT=1 \
      /bin/bash "$HERE/statusline.sh" --wrap "sleep 30; echo late" < "$T/p1" | plain)"
 check "  theirs hanging: ours, after its limit" "$O $([ $(( $(date +%s) - S0 )) -lt 20 ] && echo promptly)" "$W promptly"
 check "  and nothing of either left behind" "$(ls -A "$H/.claude" | grep -c 'statusline-')" 0
@@ -169,7 +169,7 @@ check "  and nothing of either left behind" "$(ls -A "$H/.claude" | grep -c 'sta
 echo "weeks"
 lim() {   # now, then bash run with limits.sh loaded and settings read
   local n="$1"; shift
-  env -i PATH="$PATH" HOME="$H" TZ="$TZ" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_TEST_NOW="$n" \
+  env -i CLAUDE_HTML_NO_SCREEN="${CLAUDE_HTML_NO_SCREEN:-}" PATH="$PATH" HOME="$H" TZ="$TZ" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_TEST_NOW="$n" \
     /bin/bash -c '. "$0/lib/platform.sh"; . "$0/lib/limits.sh"; ch_lim_settings; ch_lim_now; ch_lim_read_state; '"$*" "$HERE"
 }
 rm -f "$STATE"
@@ -225,7 +225,7 @@ note() { printf '{"session_id":"sess-1","prompt":"%s","hook_event_name":"UserPro
 fig() { printf 'asof=%s\nweek_pct=%s\nweek_reset=%s\nfive_pct=10\nfive_reset=%s\nplan_seen=%s\n' "$1" "$2" "$R" "$FIVE" "$1" > "$STATE"; }
 words() {   # prompt [env…] — no one at the screen: the answer is the next prompt
   local p="$1"; shift
-  note "$p" | env -i PATH="$T/stub:$PATH" HOME="$H" TZ="$TZ" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_TEST_NOW="$NOW" \
+  note "$p" | env -i CLAUDE_HTML_NO_SCREEN= PATH="$T/stub:$PATH" HOME="$H" TZ="$TZ" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_TEST_NOW="$NOW" \
     CLAUDE_HTML_REDACT_FILE="$T/none" CLAUDE_HTML_GUARD_DIALOG=off "$@" /bin/bash "$HERE/guard.sh" prompt
 }
 reason() { node -e 'var s=require("fs").readFileSync(0,"utf8"); if (!s.trim()) { console.log("(passed)"); process.exit(); }
@@ -287,7 +287,7 @@ EOF
 chmod +x "$T/stub/zenity"
 dlg() {   # answer prompt [env…]
   local a="$1" p="$2"; shift 2
-  note "$p" | env -i PATH="$T/stub:$PATH" HOME="$H" TZ="$TZ" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_TEST_NOW="$NOW" \
+  note "$p" | env -i CLAUDE_HTML_NO_SCREEN= PATH="$T/stub:$PATH" HOME="$H" TZ="$TZ" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_TEST_NOW="$NOW" \
     CLAUDE_HTML_REDACT_FILE="$T/none" CLAUDE_HTML_UNAME=Linux DISPLAY=:9 XDG_CURRENT_DESKTOP=GNOME \
     STUB_ARGS="$T/stub.args" STUB_ANSWER="$a" CLAUDE_HTML_GUARD_TEST_LIMIT=120 "$@" /bin/bash "$HERE/guard.sh" prompt
 }
@@ -326,9 +326,10 @@ check "kdialog: a radio list, Cancel on" \
 check "xmessage: four buttons, Cancel the default" \
   "$(CH_DIALOG=xmessage CH_DRY=1 ch_choose_limit h k1 v1 k2 v2 c3 c4 | grep -c "'-buttons' 'Cancel:1,Allow once:2,Until the reset:3,Stop:4' '-default' 'Cancel'")" 1
 if [ "$HAVE_OSASCRIPT" = true ]; then
-  # A picture, and the window closes at once: nothing waits on anyone.
-  osascript -l JavaScript "$HERE/mac/dialog.js" --limit 8 --snap "$T/stop.png" limits "Weekly limit rule reached" "Used:" "81 % of the week" "Rule:" "from Fri 20:00, stop at 80 %" c3 c4 >/dev/null 2>&1
-  osascript -l JavaScript "$HERE/mac/dialog.js" --limit 8 --snap "$T/confirm.png" confirm "Change claude-html limits?" "Asked by the Token usage page." "$(printf 'Stop rules:\tfrom Fri 20:00, stop at 80 %%')" >/dev/null 2>&1
+  # A picture, and the window closes at once: nothing waits on anyone, and
+  # --offscreen: nobody sees it.
+  osascript -l JavaScript "$HERE/mac/dialog.js" --offscreen --limit 8 --snap "$T/stop.png" limits "Weekly limit rule reached" "Used:" "81 % of the week" "Rule:" "from Fri 20:00, stop at 80 %" c3 c4 >/dev/null 2>&1
+  osascript -l JavaScript "$HERE/mac/dialog.js" --offscreen --limit 8 --snap "$T/confirm.png" confirm "Change claude-html limits?" "Asked by the Token usage page." "$(printf 'Stop rules:\tfrom Fri 20:00, stop at 80 %%')" >/dev/null 2>&1
   check "macOS: both windows draw" "$(head -c 4 "$T/stop.png" | od -c | head -1 | grep -c 'P   N   G') $(head -c 4 "$T/confirm.png" | od -c | head -1 | grep -c 'P   N   G')" "1 1"
 fi
 
@@ -352,7 +353,7 @@ echo "$STUB_ANSWER"
 STUB
 printf '#!/bin/sh\necho Aqua\n' > "$T/mac/launchctl"; chmod +x "$T/mac/osascript" "$T/mac/launchctl"
 macdlg() {   # answer prompt
-  note "$2" | env -i PATH="$T/mac:$T/stub:$PATH" HOME="$H" TZ="$TZ" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_TEST_NOW="$NOW" \
+  note "$2" | env -i CLAUDE_HTML_NO_SCREEN= PATH="$T/mac:$T/stub:$PATH" HOME="$H" TZ="$TZ" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_TEST_NOW="$NOW" \
     CLAUDE_HTML_REDACT_FILE="$T/none" CLAUDE_HTML_UNAME=Darwin TMPDIR="$T/mtmp" STUB_REC="$T/mrec" STUB_ANSWER="$1" \
     CLAUDE_HTML_GUARD_TEST_LIMIT=120 /bin/bash "$HERE/guard.sh" prompt
 }
@@ -397,7 +398,7 @@ echo "announcements"
 stophook() {   # now [env…]
   local n="$1"; shift
   printf '{"session_id":"sess-1","hook_event_name":"Stop","transcript_path":"%s/none.jsonl"}' "$T" |
-    (cd "$T" && env -i PATH="$T/stub:$PATH" HOME="$H" TZ="$TZ" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_TEST_NOW="$n" \
+    (cd "$T" && env -i CLAUDE_HTML_NO_SCREEN= PATH="$T/stub:$PATH" HOME="$H" TZ="$TZ" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_TEST_NOW="$n" \
       CLAUDE_HTML_UPDATE_CHECK=off CLAUDE_HTML_NO_REGISTER=1 "$@" /bin/bash "$HERE/save-conversation.sh" --background)
 }
 msg() { node -e 'var s=require("fs").readFileSync(0,"utf8").trim(); console.log(s ? JSON.parse(s).systemMessage : "(nothing)")'; }
@@ -461,7 +462,7 @@ echo "command"
 cli() {
   local e=() a=() x
   for x in "$@"; do if [[ "$x" =~ ^[A-Z_]+= ]]; then e+=("$x"); else a+=("$x"); fi; done
-  env -i PATH="$PATH" HOME="$H" TZ="$TZ" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_TEST_NOW="$NOW" CLAUDE_HTML_NO_REGISTER=1 \
+  env -i CLAUDE_HTML_NO_SCREEN="${CLAUDE_HTML_NO_SCREEN:-}" PATH="$PATH" HOME="$H" TZ="$TZ" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_TEST_NOW="$NOW" CLAUDE_HTML_NO_REGISTER=1 \
     CLAUDE_HTML_UPDATE_CHECK=off CLAUDE_HTML_UNAME=Linux CLAUDE_HTML_GUARD_TEST_LIMIT=2 \
     ${e[@]+"${e[@]}"} /bin/bash "$HERE/claude-html" ${a[@]+"${a[@]}"} 2>&1
 }
@@ -552,7 +553,7 @@ v1/fri-2000-80/none/80-95/on"
 BAD="$(printf '%s\n' "$BAD" | sed '$d' | sed '$d')"
 printf '%s\n' "$GOOD" > "$T/link.good"; printf '%s\n' "$BAD" > "$T/link.bad"
 printf 'v1/fri-2000-80/none/80-95/on\nx' > "$T/link.nl"; printf 'v1/fri-2000-80/none/80-95/on ' > "$T/link.sp"
-lok() { env -i PATH="$PATH" HOME="$H" /bin/bash -c '. "$0/lib/limits-cli.sh"; ch_lim_link_ok "$1" && echo ok || echo no' "$HERE" "$1"; }
+lok() { env -i CLAUDE_HTML_NO_SCREEN="${CLAUDE_HTML_NO_SCREEN:-}" PATH="$PATH" HOME="$H" /bin/bash -c '. "$0/lib/limits-cli.sh"; ch_lim_link_ok "$1" && echo ok || echo no' "$HERE" "$1"; }
 n=0; while IFS= read -r g; do [ "$(lok "$g")" = ok ] && n=$((n + 1)); done < "$T/link.good"
 check "the grammar takes the good ones (4)" "$n" 4
 n=0; m=0; while IFS= read -r b; do m=$((m + 1)); [ "$(lok "$b")" = no ] && n=$((n + 1)); done < "$T/link.bad"
@@ -573,7 +574,7 @@ check "  listing every value, the new rule marked" \
 check "  and nothing written while it was only shown" "$(cmp -s "$CONFF" "$T/conf.before" && echo same)" same
 rm -f "$T"/mrec.*
 check "on a Mac: the window, Cancel; nothing changed" \
-  "$(cli --limits-apply "v1/fri-2000-80.sun-1200-95/20-day/70-90/on" CLAUDE_HTML_UNAME=Darwin PATH="$T/mac:$T/stub:$PATH" TMPDIR="$T/mtmp" STUB_REC="$T/mrec" STUB_ANSWER=cancel) $(cmp -s "$CONFF" "$T/conf.before" && echo same)" \
+  "$(cli --limits-apply "v1/fri-2000-80.sun-1200-95/20-day/70-90/on" CLAUDE_HTML_UNAME=Darwin PATH="$T/mac:$T/stub:$PATH" TMPDIR="$T/mtmp" STUB_REC="$T/mrec" STUB_ANSWER=cancel CLAUDE_HTML_NO_SCREEN=) $(cmp -s "$CONFF" "$T/conf.before" && echo same)" \
   "Nothing was changed. same"
 check "  the arrow on File: opens the very lines Apply writes" "$(cat "$T/mrec.content")" \
   'CLAUDE_HTML_LIMIT_RULES="fri 20:00 80% · sun 12:00 95%"
@@ -586,7 +587,8 @@ check "  by a private file, gone after; the window counts down the same limit" \
 # A folder with the stand-in zenity alone: the rebuild after Apply needs
 # the real engines.
 mkdir -p "$T/zen"; cp "$T/stub/zenity" "$T/zen/"
-apply() { cli --limits-apply "$1" CLAUDE_HTML_UNAME=Linux DISPLAY=:9 XDG_CURRENT_DESKTOP=GNOME PATH="$T/zen:$PATH" STUB_ARGS="$T/stub.args" STUB_ANSWER="$2" CLAUDE_HTML_GUARD_TEST_LIMIT=120 "${@:3}"; }
+# The window is a stand-in's: CLAUDE_HTML_NO_SCREEN off for it.
+apply() { cli --limits-apply "$1" CLAUDE_HTML_UNAME=Linux DISPLAY=:9 XDG_CURRENT_DESKTOP=GNOME PATH="$T/zen:$PATH" STUB_ARGS="$T/stub.args" STUB_ANSWER="$2" CLAUDE_HTML_GUARD_TEST_LIMIT=120 CLAUDE_HTML_NO_SCREEN= "${@:3}"; }
 check "Cancel: nothing changed" "$(apply "v1/none/none/80-95/off" no) $(cmp -s "$CONFF" "$T/conf.before" && echo same)" "Nothing was changed. same"
 check "  the window closed for want of an answer: the same" \
   "$(apply "v1/none/none/80-95/off" sleep CLAUDE_HTML_GUARD_TEST_LIMIT=1) $(cmp -s "$CONFF" "$T/conf.before" && echo same)" "Nothing was changed. same"
@@ -673,7 +675,7 @@ check "the templates have a place for it" \
 # A build with nothing set writes pages exactly as before: no limits in them.
 for ENG in $([ "$HAVE_OSASCRIPT" = true ] && echo osascript) node; do
   rm -rf "$T/out" "$STATE" "$SPEND"; conf
-  env -i PATH="$PATH" HOME="$H" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_ENGINE=$ENG /bin/bash -c \
+  env -i CLAUDE_HTML_NO_SCREEN="${CLAUDE_HTML_NO_SCREEN:-}" PATH="$PATH" HOME="$H" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_ENGINE=$ENG /bin/bash -c \
     'HERE="$0"; . "$HERE/lib/conf.sh"; . "$HERE/lib/platform.sh"; ch_pick_engine; ch_js "$HERE/build/convert.js" "$(ch_js_opts "$HERE" :cache false)"' "$HERE" >/dev/null 2>&1
   check "$ENG: nothing set: no limits in the pages" "$(grep -c '"limits":' "$T/out/usage.html" "$T/out/index.html" | grep -c ':0')" 2
 done

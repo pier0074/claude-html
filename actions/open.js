@@ -113,7 +113,13 @@ function run(argv) {
   }
 
   if (opt.mode === "apply") {
-    if (!P.open(where, String(opt.opener || ""))) throw new Error("could not open " + where);
+    // CLAUDE_HTML_NO_SCREEN=<file>, as platform.sh's ch_screen_off has it:
+    // nothing is opened, what would have been is added to that file. The
+    // test suites set it, so none of them leaves a window on the screen.
+    var noOpen = env("CLAUDE_HTML_NO_SCREEN");
+    if (noOpen) {
+      write(noOpen, (read(noOpen) || "") + "open " + String(opt.opener || "") + " " + where + "\n");
+    } else if (!P.open(where, String(opt.opener || ""))) throw new Error("could not open " + where);
     // This runs inside the helper app, where nothing is visible if it goes
     // wrong, so it leaves a note behind saying what it did.
     write(OUT + "/.last-open", sh("/bin/date", ["+%Y-%m-%d %H:%M:%S"]).replace(/\s+$/, "") +

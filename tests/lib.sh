@@ -56,3 +56,9 @@ export CLAUDE_HTML_REDACT_FILE="${TMPDIR:-/tmp}/claude-html-tests-no-such.redact
 # update.test.sh turns it on against repositories of its own.
 export CLAUDE_HTML_UPDATE_CHECK=off
 export CLAUDE_HTML_UPDATE_REMOTE="${TMPDIR:-/tmp}/claude-html-tests-no-such-remote"
+
+# Nothing on the screen of whoever runs a suite: no page, folder or terminal
+# opened, no window, no banner (ch_screen_off in platform.sh). run-all.sh
+# points it at a file it checks; a suite run alone throws the record away.
+# One that tests showing something unsets it for its own stand-ins.
+export CLAUDE_HTML_NO_SCREEN="${CLAUDE_HTML_NO_SCREEN:-/dev/null}"

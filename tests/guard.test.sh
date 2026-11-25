@@ -282,10 +282,11 @@ fi
 
 # Where the answer is kept while the dialog is up: a folder of its own,
 # made by mktemp, and gone after. No name next to it that another user of
-# a shared /tmp could guess and make first.
+# a shared /tmp could guess and make first. The window is a stand-in's, so
+# CLAUDE_HTML_NO_SCREEN is off for it.
 mkdir -p "$T/bin2" "$T/gtmp"
 printf '#!/bin/sh\nls -l "$TMPDIR" | grep -v "^total" > "%s/tmp-seen"\necho "Cancel — do not send"\n' "$T" > "$T/bin2/zenity"; chmod +x "$T/bin2/zenity"
-A_="$(PATH="$T/bin2:$PATH" TMPDIR="$T/gtmp" CH_DIALOG=zenity ch_choose prompt P "GitHub token (1)")"
+A_="$(PATH="$T/bin2:$PATH" TMPDIR="$T/gtmp" CH_DIALOG=zenity CLAUDE_HTML_NO_SCREEN= ch_choose prompt P "GitHub token (1)")"
 check "the dialog's answer is kept in a folder of its own, gone after" \
   "$A_ $(grep -c '^d' "$T/tmp-seen") $(grep -c . "$T/tmp-seen") $(ls -A "$T/gtmp" | wc -l | tr -d ' ')" "cancel 1 1 0"
 
@@ -302,13 +303,14 @@ esac
 EOF
 chmod +x "$T/bin/zenity"
 ENG=node
+# The window is a stand-in's, so CLAUDE_HTML_NO_SCREEN (lib.sh) is off for it.
 # An answered dialog is given a long limit: only the two "nobody answers"
 # cases set a short one, so a busy machine cannot turn an answer into a timeout.
 dlg() {  # answer kind note [env…]
   local a="$1" k="$2" f="$3"; shift 3
   env HOME="$H" PATH="$T/bin:$PATH" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_REDACT_FILE="$LIST" \
     CLAUDE_HTML_ENGINE=node CLAUDE_HTML_UNAME=Linux DISPLAY=:9 XDG_CURRENT_DESKTOP=GNOME \
-    SSH_CONNECTION= SSH_TTY= STUB_ARGS="$T/stub.args" STUB_ANSWER="$a" CLAUDE_HTML_GUARD_TEST_LIMIT=120 "$@" \
+    SSH_CONNECTION= SSH_TTY= STUB_ARGS="$T/stub.args" STUB_ANSWER="$a" CLAUDE_HTML_GUARD_TEST_LIMIT=120 CLAUDE_HTML_NO_SCREEN= "$@" \
     /bin/bash "$HERE/guard.sh" "$k" < "$f" 2>>"$LOG.err" | tee -a "$LOG"
 }
 reset; : > "$T/stub.args"
@@ -409,13 +411,14 @@ case "$STUB_ANSWER" in
 esac
 STUB
 chmod +x "$T/binmac/osascript" "$T/binmac/launchctl" "$T/binlin/zenity"
+# A stand-in's window again: CLAUDE_HTML_NO_SCREEN off for it.
 win() {  # mac|linux answer kind note [env…]
   local os="$1" a="$2" k="$3" f="$4"; shift 4
   rm -rf "$REC"; mkdir -p "$REC"
   if [ "$os" = mac ]; then set -- CLAUDE_HTML_UNAME=Darwin PATH="$T/binmac:$PATH" "$@"
   else set -- CLAUDE_HTML_UNAME=Linux DISPLAY=:9 XDG_CURRENT_DESKTOP=GNOME PATH="$T/binlin:$PATH" "$@"; fi
   env HOME="$H" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_REDACT_FILE="$LIST" CLAUDE_HTML_ENGINE=node \
-    SSH_CONNECTION= SSH_TTY= TMPDIR="$GT" STUB_REC="$REC" STUB_ANSWER="$a" STUB_DETAILS= STUB_KEEP= \
+    SSH_CONNECTION= SSH_TTY= TMPDIR="$GT" STUB_REC="$REC" STUB_ANSWER="$a" STUB_DETAILS= STUB_KEEP= CLAUDE_HTML_NO_SCREEN= \
     CLAUDE_HTML_GUARD_TEST_LIMIT=120 "$@" /bin/bash "$HERE/guard.sh" "$k" < "$f" 2>>"$LOG.err" | tee -a "$LOG"
 }
 # What must hold after every window: nothing of it left, and no secret

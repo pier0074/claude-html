@@ -34,11 +34,13 @@ mkdir -p "$H/.claude/projects/-p"
 printf '{"type":"user","sessionId":"%s","cwd":"%s","timestamp":"2026-11-01T10:00:00Z","message":{"role":"user","content":"fix the build"}}\n' \
   "$SID" "$T/root/proj" > "$H/.claude/projects/-p/$SID.jsonl"
 
-# The command, in a home of its own and nothing of this shell's.
+# The command, in a home of its own and nothing of this shell's. A build
+# that names no session opens the index, by /usr/bin/open on a Mac: noted
+# in this suite's own file instead (CLAUDE_HTML_NO_SCREEN), and checked.
 cli() {
   local e=() a=() x
   for x in "$@"; do if [[ "$x" =~ ^[A-Z_]+= ]]; then e+=("$x"); else a+=("$x"); fi; done
-  env -i PATH="$PATH" HOME="$H" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_NO_REGISTER=1 \
+  env -i CLAUDE_HTML_NO_SCREEN="$T/shown" PATH="$PATH" HOME="$H" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_NO_REGISTER=1 \
     CLAUDE_HTML_REDACT_FILE="$LIST" ${e[@]+"${e[@]}"} /bin/bash "$HERE/claude-html" ${a[@]+"${a[@]}"} 2>&1
 }
 # claude-html --config <words…> [-- <environment…>]
@@ -46,11 +48,11 @@ cfg() {
   local a=()
   while [ $# -gt 0 ] && [ "$1" != -- ]; do a+=("$1"); shift; done
   [ $# -gt 0 ] && shift
-  env -i PATH="$PATH" HOME="$H" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_NO_REGISTER=1 \
+  env -i CLAUDE_HTML_NO_SCREEN="$T/shown" PATH="$PATH" HOME="$H" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_NO_REGISTER=1 \
     CLAUDE_HTML_REDACT_FILE="$LIST" "$@" /bin/bash "$HERE/claude-html" --config ${a[@]+"${a[@]}"} 2>&1
 }
 # The shell's own pieces, as the command loads them.
-sh_() { local c="$1"; shift; env -i PATH="$PATH" HOME="$H" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_REDACT_FILE="$LIST" /bin/bash -c \
+sh_() { local c="$1"; shift; env -i CLAUDE_HTML_NO_SCREEN="$T/shown" PATH="$PATH" HOME="$H" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_REDACT_FILE="$LIST" /bin/bash -c \
   'set +u; HERE="$0"; . "$HERE/lib/conf.sh"; . "$HERE/lib/platform.sh"; . "$HERE/lib/limits.sh"; . "$HERE/lib/settings.sh"; '"$c" "$HERE" "$@"; }
 data() {   # page field-expression — what the Settings page carries
   node -e 'var h=require("fs").readFileSync(process.argv[1],"utf8");
@@ -120,7 +122,7 @@ check "  said without what the list says" "$(printf '%s\n' "$R" | grep -c 'forgo
 
 # ── the link's grammar ───────────────────────────────────────────────
 echo "link"
-lok() { env -i PATH="$PATH" HOME="$H" /bin/bash -c 'HERE="$0"; . "$HERE/lib/settings.sh"; ch_set_link_ok "$1" && echo ok || echo no' "$HERE" "$1"; }
+lok() { env -i CLAUDE_HTML_NO_SCREEN="$T/shown" PATH="$PATH" HOME="$H" /bin/bash -c 'HERE="$0"; . "$HERE/lib/settings.sh"; ch_set_link_ok "$1" && echo ok || echo no' "$HERE" "$1"; }
 n=0; m=0
 for p in "v1/none/GUARD=off" "v1/0123456789abcdef/GUARD_WAIT=2m/ENGINE/forget-safe" \
          "v1/none/WEEK_RESET=tue%2007%3A00%20UTC" "v1/none/PRICES=%2FUsers%2Fme%2Fp%20q.tsv" "v1/none/EXPORT=~%2Fx.json"; do
@@ -268,7 +270,8 @@ done
 echo "$STUB_ANSWER"
 STUB
 printf '#!/bin/sh\necho Aqua\n' > "$T/mac/launchctl"; chmod +x "$T/mac/osascript" "$T/mac/launchctl"
-R="$(cli --settings-apply "v1/$FP/GUARD=off" CLAUDE_HTML_UNAME=Darwin PATH="$T/mac:$PATH" TMPDIR="$T/mtmp" STUB_REC="$T/mrec" STUB_ANSWER=cancel CLAUDE_HTML_GUARD_TEST_LIMIT=7)"
+# The window is the stand-in's, so CLAUDE_HTML_NO_SCREEN is off for it.
+R="$(cli --settings-apply "v1/$FP/GUARD=off" CLAUDE_HTML_UNAME=Darwin PATH="$T/mac:$PATH" TMPDIR="$T/mtmp" STUB_REC="$T/mrec" STUB_ANSWER=cancel CLAUDE_HTML_GUARD_TEST_LIMIT=7 CLAUDE_HTML_NO_SCREEN=)"
 check "on a Mac: the confirmation window, Cancel: nothing changed" "$R $(cmp -s "$CONFF" "$T/conf.before" && echo same)" "Nothing was changed. same"
 check "  its rows, its File ▸ lines in a private file gone after, the test's limit" \
   "$(grep -c '^confirm$' "$T/mrec.argv") $(grep -c 'Guard:	now prompt · asked off   ⚠ lowers protection' "$T/mrec.argv") $(cat "$T/mrec.content") $(cat "$T/mrec.modes")$(ls -A "$T/mtmp" | wc -l | tr -d ' ') $(grep -A1 -x -- '--limit' "$T/mrec.argv" | tail -1)" \
@@ -285,7 +288,8 @@ same"
 
 # ── Apply: the write, then the rebuild ───────────────────────────────
 echo "apply"
-apply() { cli --settings-apply "$1" CLAUDE_HTML_UNAME=Linux DISPLAY=:9 XDG_CURRENT_DESKTOP=GNOME PATH="$T/stub:$PATH" STUB_ARGS="$T/stub.args" STUB_ANSWER="$2" CLAUDE_HTML_GUARD_TEST_LIMIT=60 "${@:3}"; }
+# The window is the stand-in's: CLAUDE_HTML_NO_SCREEN off for it.
+apply() { cli --settings-apply "$1" CLAUDE_HTML_UNAME=Linux DISPLAY=:9 XDG_CURRENT_DESKTOP=GNOME PATH="$T/stub:$PATH" STUB_ARGS="$T/stub.args" STUB_ANSWER="$2" CLAUDE_HTML_GUARD_TEST_LIMIT=60 CLAUDE_HTML_NO_SCREEN= "${@:3}"; }
 check "Cancel: nothing changed" "$(apply "v1/$FP/GUARD=off" no) $(cmp -s "$CONFF" "$T/conf.before" && echo same)" "Nothing was changed. same"
 check "  the window closed for want of an answer: the same" \
   "$(apply "v1/$FP/GUARD=off" sleep CLAUDE_HTML_GUARD_TEST_LIMIT=1) $(cmp -s "$CONFF" "$T/conf.before" && echo same)" "Nothing was changed. same"
@@ -393,6 +397,13 @@ check "  without the file, or with a value it does not know, the page's own" "$(
 check "reset this browser: claude-html's keys go, nothing else" "$(printf '%s\n' "$PD" | sed -n 8p)" "3 other-site"
 check "opening a session page remembers nothing; only a click does" \
   "$(grep -c 'if (!opening) { try { localStorage.setItem("ch-mode", m)' "$HERE/viewer/page.js") $(grep -c 'localStorage.setItem("ch-usage-period"' "$HERE/viewer/usage.js")" "1 1"
+
+# A Mac always has a way to open a page, so the index must be noted there;
+# a Linux machine without a display (CI) has none, and nothing is tried.
+# Either way, nothing but the index may be noted.
+_ni="$(grep -c "/out/index\.html'\$" "$T/shown" 2>/dev/null)"; _no="$(grep -vc "/out/index\.html'\$" "$T/shown" 2>/dev/null)"
+check "the index was never opened, only noted, each time a build named no session" \
+  "$({ [ "${_ni:-0}" -gt 0 ] || [ "$(uname)" != Darwin ]; } && echo noted) ${_no:-0}" "noted 0"
 
 echo
 echo "  $pass passed, $fail failed"
