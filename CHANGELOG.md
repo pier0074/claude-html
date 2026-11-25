@@ -5,6 +5,12 @@ fixes, a minor adds without breaking, a major needs something from you
 (usually `./install.sh` again). To update: `claude-html --update`; before
 3.1.0, `git checkout main && git pull && ./install.sh`.
 
+## 3.6.3 — 2026-11-25
+
+- The Settings page is as wide as the other pages, and on a wide screen each
+  setting's field sits beside what it means, so it takes two or three lines
+  rather than six.
+
 ## 3.6.2 — 2026-11-25
 
 - Tests: a run of the suites no longer opens pages in your browser or brings
