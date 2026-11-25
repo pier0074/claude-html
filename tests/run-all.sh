@@ -76,6 +76,29 @@ case "$NICE" in ''|*[!0-9]*) NICE=10 ;; esac
 [ "$NICE" -le 19 ] || NICE=19
 OUTD="$(mktemp -d "${TMPDIR:-/tmp}/claude-html-tests.XXXXXX")" || exit 1
 trap 'rm -rf "$OUTD"; [ "$GLOCK" = off ] || [ "$(cat "$GLOCK/pid" 2>/dev/null)" != $$ ] || rm -rf "$GLOCK"' EXIT
+# Stopped part way (Ctrl-C, a kill, the terminal closed), it stops every
+# suite it started, with their children and theirs: each suite runs in a
+# process group of its own (set -m below), TERM first, then KILL for what is
+# left after five seconds. Then the helper apps they built go, unregistered
+# first, and the EXIT trap above takes the temp folder and the lock.
+PGIDS=""
+stopped() {   # signal, status
+  trap '' INT TERM HUP
+  local g i=0 a
+  for g in $PGIDS; do kill -TERM -- "-$g" 2>/dev/null; done
+  while [ $i -lt 25 ]; do
+    a="$(ps -A -o pgid= -o stat= 2>/dev/null | awk -v g=" $PGIDS " 'index(g, " " $1 " ") && $2 !~ /^Z/' | grep -c .)"
+    [ "$a" = 0 ] && break; sleep 0.2; i=$((i + 1))
+  done
+  for g in $PGIDS; do kill -KILL -- "-$g" 2>/dev/null; done
+  LSREG_U=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+  { [ "$HAD_APP" = no ] && [ -e "$CLONE/Claude HTML.app" ] && echo "$CLONE/Claude HTML.app"
+    find "$RUNTMP" -type d -name 'Claude HTML.app' -prune 2>/dev/null; } | while IFS= read -r a; do
+    [ -x "$LSREG_U" ] && "$LSREG_U" -u "$a" 2>/dev/null; rm -rf "$a"; done
+  echo "interrupted ($1): the suites it started are stopped; SOMETHING FAILED"
+  exit "$2"
+}
+trap 'stopped INT 130' INT; trap 'stopped TERM 143' TERM; trap 'stopped HUP 129' HUP
 # Every temp folder a suite makes is in this run's own: what it leaves
 # behind, a registered helper app above all, is known to be this run's.
 RUNTMP="$OUTD/tmp"; mkdir -p "$RUNTMP"; export TMPDIR="$RUNTMP"
@@ -108,7 +131,7 @@ T0="$(date +%s)"
 
 # The longest start first, so the last one to end is not a long one begun late.
 QUICK="viewer diff index pages docs settingspage"
-SUITES="incremental guard limits settings screen linux update layout usage prices engine install hooks backend archive redact races build agents delete open helper safety doctor"
+SUITES="incremental guard limits settings screen linux update layout usage prices engine install hooks backend archive redact races build agents delete open helper safety gate doctor"
 run_one() {   # name
   local t="$1" s rc
   s="$(date +%s)"
@@ -123,7 +146,8 @@ run_one() {   # name
 }
 for t in $SUITES $QUICK; do
   while [ "$(jobs -rp | wc -l | tr -d ' ')" -ge "$JOBS" ]; do sleep 0.2; done
-  run_one "$t" &
+  # Its own process group, stdin from /dev/null as without set -m.
+  set -m; run_one "$t" < /dev/null & PGIDS="$PGIDS $!"; set +m
 done
 wait
 

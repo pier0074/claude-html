@@ -5,6 +5,14 @@ fixes, a minor adds without breaking, a major needs something from you
 (usually `./install.sh` again). To update: `claude-html --update`; before
 3.1.0, `git checkout main && git pull && ./install.sh`.
 
+## 3.8.5 — 2026-11-25
+
+- Tests: `tests/run-all.sh` stopped part way (Ctrl-C, a kill, the terminal
+  closed) stops every suite it started, with their children, and cleans up
+  as at its end: the helper apps the suites built, its temp folder and its
+  lock. It ends with a failure and says it was interrupted. Before, the
+  suites ran on with no one waiting for them.
+
 ## 3.8.4 — 2026-11-25
 
 - Privacy: after the rules or your own list change, a session whose page

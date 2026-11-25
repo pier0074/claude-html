@@ -384,6 +384,7 @@ bash tests/open.test.sh         # a project name opens the right thing, and noth
 bash tests/helper.test.sh       # the helper app is built, and rebuilt when its source changes (macOS)
 bash tests/linux.test.sh        # every Linux desktop, simulated: detection, terminals, trash, links
 bash tests/doctor.test.sh       # --doctor's one layout: sections, padded labels, wrapping at a terminal
+bash tests/gate.test.sh         # run-all.sh stopped part way stops its suites and their children, and cleans up
 ```
 
 delete, open and helper need macOS and say so when skipped elsewhere; linux
