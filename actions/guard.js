@@ -61,6 +61,43 @@ function guard(argv) {
     try { nfs.writeFileSync(p, text, { encoding: "utf8", mode: 384 }); nfs.chmodSync(p, 384); return true; }
     catch (e) { return false; }
   }
+  // The owner's own files, the list and the conf: read whole or not at all.
+  // null when there is none; false when there is one that cannot be read,
+  // or holds a byte that is not UTF-8, which read() gives as nothing (or,
+  // under node, with the byte replaced). Written again from that, the
+  // answer's one line was all that was left of the file.
+  function readOwn(p) {
+    if (JXA) {
+      if (!fm.fileExistsAtPath(p)) return null;
+      var s = $.NSString.stringWithContentsOfFileEncodingError(p, 4, null);
+      var t = s ? $.CFMakeCollectable(s).js : null;
+      return typeof t === "string" ? t : false;
+    }
+    var buf;
+    try { buf = nfs.readFileSync(p); } catch (e) { return e && e.code === "ENOENT" ? null : false; }
+    var text = buf.toString("utf8");
+    return Buffer.from(text, "utf8").equals(buf) ? text : false;
+  }
+  // And written whole: beside the file it is (a link followed, so a file
+  // kept as a symlink stays one), then moved over it, readable by its
+  // owner only. A write that fails leaves the file as it was.
+  function writeOwn(p, text) {
+    if (JXA) {
+      var dest = $(p).stringByResolvingSymlinksInPath.js || p;
+      var ok = $.NSString.alloc.initWithUTF8String(text).writeToFileAtomicallyEncodingError(dest, true, 4, null);
+      fm.setAttributesOfItemAtPathError({ NSFilePosixPermissions: 384 }, dest, null);
+      return !!ok;
+    }
+    var target = p, tmp;
+    try { target = nfs.realpathSync(p); } catch (e) { target = p; }
+    tmp = target + ".tmp" + process.pid;
+    try {
+      nfs.writeFileSync(tmp, text, { encoding: "utf8", mode: 384 });
+      nfs.chmodSync(tmp, 384);
+      nfs.renameSync(tmp, target);
+      return true;
+    } catch (e) { try { nfs.unlinkSync(tmp); } catch (e2) {} return false; }
+  }
   function remove(p) {
     if (JXA) { fm.removeItemAtPathError(p, null); return; }
     try { nfs.unlinkSync(p); } catch (e) {}
@@ -158,18 +195,25 @@ function guard(argv) {
   }
   function today() { return new Date(now).toISOString().slice(0, 10); }
   function recordSafe(p) {
-    var list = read(LIST) || "";
+    if (!LIST) return false;
+    var list = readOwn(LIST);
+    if (list === false) return false;
+    list = list || "";
     if (list && list.slice(-1) !== "\n") list += "\n";
     p.entries.forEach(function (e) {
       list += "safe:" + e.salt + ":" + e.hash + "   # " + e.rule + ", " + today() + "\n";
     });
-    return write(LIST, list);
+    return writeOwn(LIST, list);
   }
   // The conf's one line, changed where it stands or added.
   function turnOff() {
-    var conf = read(CONF) || "", line = 'CLAUDE_HTML_GUARD="off"', re = /^[ \t]*(export[ \t]+)?CLAUDE_HTML_GUARD=.*$/m;
+    if (!CONF) return false;
+    var conf = readOwn(CONF);
+    if (conf === false) return false;
+    conf = conf || "";
+    var line = 'CLAUDE_HTML_GUARD="off"', re = /^[ \t]*(export[ \t]+)?CLAUDE_HTML_GUARD=.*$/m;
     conf = re.test(conf) ? conf.replace(re, line) : conf + (conf && conf.slice(-1) !== "\n" ? "\n" : "") + line + "\n";
-    return write(CONF, conf);
+    return writeOwn(CONF, conf);
   }
   var TEXT = "\u26a0 claude-html: your prompt has been interrupted \u2014 sensitive information detected (%).\n" +
       "  Nothing was sent. Retype it without it, or answer:\n\n" +
@@ -395,7 +439,10 @@ function guard(argv) {
         return block("Recorded as not sensitive. Press \u2191 and Enter to send it again. " +
                      "Saved pages will show it after the next save.");
       }
-      turnOff();
+      if (!turnOff()) {
+        save();
+        return block("Could not write " + CONF + "; the check stays on. claude-html --guard off turns it off.");
+      }
       save();
       return block("The secret check is off. claude-html --guard on turns it back on.");
     }

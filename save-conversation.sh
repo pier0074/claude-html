@@ -64,7 +64,9 @@ if [ "${1:-}" = "--background" ]; then
     if [ -f "$_here/lib/version.sh" ] && . "$_here/lib/version.sh" &&
        ch_update_notice "$_here" "$_ver" && [ "$CH_UP_TOLD" != "$CH_UP_NOTICE" ]; then
       _msg="claude-html $CH_UP_NOTICE is out · update with: claude-html --update"
-      CH_UP_TOLD="$CH_UP_NOTICE"; ch_update_write
+      # Not noted (a full disk, a folder it may not write in), it is told
+      # again next time; under set -e a failure here stopped every save.
+      CH_UP_TOLD="$CH_UP_NOTICE"; ch_update_write || true
     fi
   fi
   # The owner's stop rules and API budget, told once each in the same
@@ -239,6 +241,9 @@ function run(argv) {
   // The format this release writes, from lib/version.sh, by the save.
   var FORMAT = Number(argv[8]) || 0;
   if (!FORMAT) throw new Error("no archive format given: nothing archived");
+  // Where to say how many bytes the archive is, so the save can tell the
+  // whole of it from a part: optional, as for a test that runs this alone.
+  var lenPath = argv[9] || "";
 
   // ── the platform ──
   var JXA = typeof $ !== "undefined";
@@ -594,7 +599,24 @@ function run(argv) {
     if (d) writeText(statePath + ".md5", d + "\n");
     else removeFile(statePath + ".md5");
   }
+  // Its length in UTF-8, the newline the engine ends it with included: what
+  // the save must find in the file before it may replace the last archive.
+  // Not said, nothing is moved.
+  if (lenPath && !writeText(lenPath, String(utf8Length(archive) + 1) + "\n")) {
+    throw new Error("could not note the archive's length: nothing archived");
+  }
   return archive;
+}
+// Bytes in UTF-8. JSON.stringify leaves no lone surrogate, so each half of a
+// pair is two of a character's four.
+function utf8Length(s) {
+  if (typeof Buffer !== "undefined") return Buffer.byteLength(s, "utf8");
+  var rest = s.replace(/[\x00-\x7f]+/g, ""), n = s.length;
+  for (var i = 0; i < rest.length; i++) {
+    var c = rest.charCodeAt(i);
+    n += c >= 0xD800 && c <= 0xDFFF ? 1 : c >= 0x800 ? 2 : 1;
+  }
+  return n;
 }
 // osascript calls run() by itself; node has to be asked.
 if (typeof $ === "undefined" && typeof require !== "undefined" &&
@@ -703,6 +725,20 @@ newer_there() {   # archive, bytes this save read
   was="$(head -c 300 "$1" | sed -n 's/^{"sourceBytes":\([0-9][0-9]*\),.*/\1/p')"
   [ -n "$was" ] && [ "$was" -gt "$2" ]
 }
+# Whether the archive just written is the whole of what the archiver made:
+# as many bytes as it said, made from as much transcript as this save read,
+# and ending as its object ends. A full disk cuts it anywhere, just after a
+# "}" too, and the engine still exits cleanly; moved over the last good
+# archive, a part would replace it, and the size check would then skip it
+# for good.
+whole() {   # file, the archiver's length file, bytes this save read
+  local want=""
+  [ -f "$2" ] && read -r want < "$2"
+  case "$want" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$(size_of "$1")" = "$want" ] &&
+    [[ "$(head -c 40 "$1")" == "{\"sourceBytes\":$3,"* ]] &&
+    [[ "$(tail -c 2 "$1")" == *"}" ]]
+}
 for jsonl in "${CANDIDATES[@]+"${CANDIDATES[@]}"}"; do
   [[ -f "$jsonl" ]] || continue
 
@@ -735,9 +771,9 @@ for jsonl in "${CANDIDATES[@]+"${CANDIDATES[@]}"}"; do
   # run must leave the last good archive alone, since the transcript it came
   # from may already be gone. Not ending in .json keeps the build from reading
   # a half-written one.
-  # Complete means it ends as the archiver's object ends. That rules out the
-  # empty result of a transcript it cannot read, and the cut-off one a full
-  # disk leaves, which osascript does not report as a failure.
+  # Complete means whole() says so: the length the archiver gave, which rules
+  # out the empty result of a transcript it cannot read, and the cut-off one
+  # a full disk leaves, which osascript does not report as a failure.
   # A name of its own: two saves of one session, one without the lock, must
   # never write the same file, or the one still writing spoils the other's.
   PARTIAL="$CONV_DIR/.${SESSION_ID}.json.partial.$$.$RANDOM"
@@ -745,9 +781,10 @@ for jsonl in "${CANDIDATES[@]+"${CANDIDATES[@]}"}"; do
   # build's cache, which only a save holding the lock may write.
   STATE=""
   [ "$OWN_LOCK" = 1 ] && STATE="$OUT/.cache/$SESSION_ID.archive"
+  rm -f "$ARCHIVE_TMP/len"
   if run_js "$ARCHIVER" "$jsonl" "$SESSION_ID" "$PROJ" "$SIZE" "$OUTPUT_FILE" "$STATE" \
-       "$RSIG" "$CLAUDE_HTML_REDACT_FILE" "$CH_ARCHIVE_FORMAT" \
-       > "$PARTIAL" 2>"$ARCHIVE_TMP/err" && [[ "$(tail -c 2 "$PARTIAL")" == *"}" ]] &&
+       "$RSIG" "$CLAUDE_HTML_REDACT_FILE" "$CH_ARCHIVE_FORMAT" "$ARCHIVE_TMP/len" \
+       > "$PARTIAL" 2>"$ARCHIVE_TMP/err" && whole "$PARTIAL" "$ARCHIVE_TMP/len" "$SIZE" &&
      { newer_there "$OUTPUT_FILE" "$SIZE" || mv -f "$PARTIAL" "$OUTPUT_FILE"; }; then
     rm -f "$PARTIAL"
     rm -f "$ERRDIR/$SESSION_ID.json"

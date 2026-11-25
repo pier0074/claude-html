@@ -142,6 +142,64 @@ check "  under the new signature" \
   "$(head -c 200 "$CONV/$S2.json" | grep -c "\"redact\":\"$(CLAUDE_HTML_REDACT_FILE="$T/home/.claude/claude-html.redact" ch_redact_sig "$HERE")\"")" 1
 check "a list it cannot fully use never fails a save" "$(ls "$OUT/.archive-errors" 2>/dev/null | wc -l | tr -d ' ')" 0
 
+# ── nothing left behind under the old list ───────────────────────────
+# A build of the pages alone, as a save makes it: by the engine this machine
+# tests with, or by node, which a stand-in can make fail on purpose.
+OWNL="$T/home/.claude/claude-html.redact"
+pages() {   # [node] [:cache false]
+  local eng="${CLAUDE_HTML_ENGINE:-}"; [ "${1:-}" = node ] && { eng=node; shift; }
+  sandbox env CLAUDE_HTML_ENGINE="$eng" /bin/bash -c 'HERE="$1"; shift; . "$HERE/lib/conf.sh"; . "$HERE/lib/platform.sh"
+    ch_pick_engine; ch_js "$HERE/build/convert.js" "$(ch_js_opts "$HERE" "$@")"' _ "$HERE" "$@" >/dev/null 2>&1
+}
+# The list taken away and the pages built: the cache then holds its strings,
+# as it does for anyone before they write the list.
+without_list() { mv "$OWNL" "$T/list.aside"; pages; mv "$T/list.aside" "$OWNL"; }
+JT="$PROJ/$(printf '%s' "$APP" | tr '/' '-')/$S1.jsonl"
+without_list
+check "without the list, the cache holds its strings (the case below)" "$([ "$(leaky "$OUT/.cache")" -gt 0 ] && echo yes)" yes
+# A build without the cache (one that ran while a save held the lock) masked
+# the pages and left the cache as it was, the old text in it.
+pages :cache false
+check "the list back, a build without the cache leaves no cache with the old text" "$(leaky "$OUT")" 0
+# A build that gives up keeping a session's cache (its transcript changed
+# while it was built) took away only the cache's md5, and left its text.
+without_list
+cp -p "$JT" "$T/jt.before"
+cat > "$T/change-during.js" <<HOOK
+var fs = require("fs"), rn = fs.renameSync, done = false;
+fs.renameSync = function (a, b) {
+  var r = rn.apply(fs, arguments);
+  if (!done && /\/sessions\/$S1\.html\$/.test(String(b))) {
+    done = true;
+    var t = fs.readFileSync("$JT", "utf8"), i = t.indexOf('"timestamp":"2') + 13;
+    fs.writeFileSync("$JT", t.slice(0, i) + (t.charAt(i) === "2" ? "3" : "2") + t.slice(i + 1));
+  }
+  return r;
+};
+HOOK
+NODE_OPTIONS="--require $T/change-during.js" pages node
+cp -p "$T/jt.before" "$JT"
+check "a cache given up on, its transcript changed during the build, goes whole" "$(leaky "$OUT/.cache")" 0
+# A page that could not be written (a full disk) was recorded as current
+# under the new list, and kept its old text through every later build.
+without_list
+RS_OLD="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))[process.argv[2]].rsig)' "$OUT/.manifest.json" "$S1")"
+cat > "$T/full-disk.js" <<HOOK
+var fs = require("fs"), wf = fs.writeFileSync;
+fs.writeFileSync = function (p) {
+  if (/\/sessions\/$S1\.html\.tmp/.test(String(p))) {
+    var e = new Error("ENOSPC: no space left on device"); e.code = "ENOSPC"; throw e;
+  }
+  return wf.apply(fs, arguments);
+};
+HOOK
+NODE_OPTIONS="--require $T/full-disk.js" pages node
+check "a page that could not be written is said, and not recorded as current" \
+  "$(grep -c "\"id\":\"$S1\"" "$OUT/.build-errors.json" 2>/dev/null) $(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))[process.argv[2]].rsig === process.argv[3])' "$OUT/.manifest.json" "$S1" "$RS_OLD") $(ls "$OUT/sessions" | grep -c '\.tmp')" "1 true 0"
+pages
+check "  so the next build writes it, masked" "$(leaky "$OUT") $([ -f "$OUT/.build-errors.json" ] && echo errors)" "0 "
+save
+
 # ── off ──────────────────────────────────────────────────────────────
 OFF="$T/off"; mkdir -p "$OFF"
 sandbox env CLAUDE_HTML_OUT="$OFF" CLAUDE_HTML_REDACT=off /bin/bash "$HERE/claude-html" >/dev/null 2>&1

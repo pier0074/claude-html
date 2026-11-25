@@ -78,6 +78,36 @@ printf '%s' "$NOTE" | save "--try"
 check "the next good save replaces it" "$(grep -c '"more"' "$A")" 1
 check "  and clears the failure" "$(exists "$ROOT/pages/.archive-errors/$ID.json")" no
 
+# Cut just after a "}", the end the old check looked for: the full archive
+# made, then only part of it written, the engine exiting cleanly. Moved over
+# the good one, it was never made again: its size said it was up to date.
+GOOD="$(cat "$A")"
+REAL_NODE="$(command -v node)"
+cat > "$T/shim/node" <<SHIM
+#!/bin/sh
+case "\$1" in
+  */archive.js) out="\$("$REAL_NODE" "\$@")" || exit \$?
+    out="\${out%\}*}"; printf '%s}\n' "\${out%\}*}"; exit 0 ;;
+esac
+exec "$REAL_NODE" "\$@"
+SHIM
+chmod +x "$T/shim/node"
+printf '%s\n' '{"type":"user","cwd":"/somewhere/old","timestamp":"2026-09-11T10:02:00Z","message":{"role":"user","content":"and more"}}' >> "$J"
+rm -f "$ROOT/pages/.archive-errors/$ID.json"
+printf '%s' "$NOTE" | env PATH="$T/shim:$PATH" CLAUDE_HTML_FORCE_NODE=1 \
+  HOME="$T/home" /bin/bash -c "cd '$APP' && /bin/bash '$HERE/save-conversation.sh' --try" >/dev/null 2>&1
+check "a save cut off just after a } keeps the previous archive" "$(cat "$A" 2>/dev/null)" "$GOOD"
+check "  and records the failure" "$(exists "$ROOT/pages/.archive-errors/$ID.json")" yes
+printf '%s' "$NOTE" | save "--try"
+check "  and the next save makes it whole" \
+  "$(node -e 'var a=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); console.log(a.messageCount)' "$A" 2>&1)" 3
+# The length is counted in bytes, whichever engine counts it: two, three
+# and four bytes to a character are all whole.
+printf '%s\n' '{"type":"user","cwd":"/somewhere/old","timestamp":"2026-09-11T10:03:00Z","message":{"role":"user","content":"caf\u00e9 \u2713 \ud83d\ude00"}}' >> "$J"
+printf '%s' "$NOTE" | save "--try"
+check "  as is one with characters of every width" \
+  "$(node -e 'var a=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); console.log(a.messages[3].text)' "$A" 2>&1) $(exists "$ROOT/pages/.archive-errors/$ID.json")" "café ✓ 😀 no"
+
 # An archive written before the format carried tokens and thinking is
 # written again once while its transcript is still here, though the
 # transcript has not grown — and only once.
@@ -236,6 +266,31 @@ if [ "$HAVE_OSASCRIPT" = true ]; then
   rm -f "$T/helper-calls"; hsave CLAUDE_HTML_UNAME=Darwin
   check "  on a Mac both keep it in step" "$(grep -c -- '--register --if-stale' "$T/helper-calls" 2>/dev/null)" 2
 fi
+
+# ── a state file that cannot be written ─────────────────────────────
+# The reply's hook tells of a newer release and notes that it did. A note
+# it cannot write (a full disk, a folder it may not write in) stopped the
+# hook under set -e, before it started the save: no save after any reply.
+for _ in $(seq 1 1200); do [ -d "$T/home/.claude/.claude-html.lock" ] || break; sleep 0.1; done
+printf 'checked=%s\nnewest=99.0.0\nhere=%s\ntold=\n' "$(date +%s)" "$(cd -P "$HERE" && pwd)" \
+  > "$T/home/.claude/.claude-html.update"
+rm -f "$ROOT/pages/.last-save"
+chmod 555 "$T/home/.claude"
+if ( : > "$T/home/.claude/.w" ) 2>/dev/null; then
+  rm -f "$T/home/.claude/.w"; chmod 755 "$T/home/.claude"
+  echo "  skip  a state file that cannot be written: this user writes anywhere"
+else
+  out="$(printf '%s' "$NOTE" | env HOME="$T/home" CLAUDE_HTML_UPDATE_CHECK=on \
+    /bin/bash -c "cd '$APP' && /bin/bash '$HERE/save-conversation.sh' --background" 2>/dev/null; echo "exit=$?")"
+  # The save it starts finds the lock's folder shut too, and gives way: said
+  # in .last-save, which is outside it.
+  for _ in $(seq 1 600); do [ -s "$ROOT/pages/.last-save" ] && break; sleep 0.2; done
+  chmod 755 "$T/home/.claude"
+  check "a reply's hook that cannot note the notice still tells it, and exits cleanly" \
+    "$(printf '%s' "$out" | tr '\n' '|')" '{"systemMessage":"claude-html 99.0.0 is out · update with: claude-html --update"}|exit=0'
+  check "  and still starts the save" "$([ -s "$ROOT/pages/.last-save" ] && echo started || echo none)" started
+fi
+rm -f "$T/home/.claude/.claude-html.update"
 
 # ── archive failures of sessions that are gone ──────────────────────
 GONE_ID=ffffffff-0000-0000-0000-00000000dead

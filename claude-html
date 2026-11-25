@@ -104,7 +104,8 @@ case "${1:-}" in
     [ "$_rc" = 10 ] || exit "$_rc"
     rebuild_pages
     [ "$_how" = --config ] || echo "$OUT/settings.html"
-    exit 0 ;;
+    # What could not be written (the own list, for forget-safe) is said above.
+    exit "${CH_SET_EXIT:-0}" ;;
 esac
 
 if [ -n "$UPDATE" ]; then

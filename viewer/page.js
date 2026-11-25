@@ -444,7 +444,7 @@
     if (meta.models && meta.models.length) {
       // The three that did most of the work; naming six wraps the line.
       var names = meta.models.slice(0, 3).map(function (m) {
-        return m.replace(/^claude-/, "").replace(/-20\d{6}$/, "");
+        return CH.esc(String(m).replace(/^claude-/, "").replace(/-20\d{6}$/, ""));
       });
       var more = meta.models.length - names.length;
       parts.push(names.join(", ") + (more > 0 ? " +" + more : ""));

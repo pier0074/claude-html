@@ -104,6 +104,7 @@ if [ "$UNINSTALL" = 1 ]; then
   RESULT="$(run_js "$HERE/actions/settings-hooks.js" "$SETTINGS" "$HERE" remove 2>/dev/null || true)"
   case "$RESULT" in
     unparseable) say "settings.json is not valid JSON — left alone" ;;
+    unreadable)  say "settings.json could not be read — left alone, remove the hooks yourself" ;;
     removed*)    _sl=""; [ "${RESULT#*;}" != "$RESULT" ] && _sl=";${RESULT#*;}"
                  say "${RESULT%%;*} hook(s)$_sl; everything else in settings.json is untouched" ;;
     *)           say "could not update $SETTINGS — remove the hooks yourself" ;;
@@ -247,6 +248,9 @@ case "$RESULT" in
   unparseable)
     HOOKED=0
     say "hooks:    settings.json is not valid JSON — left alone, add them yourself" ;;
+  unreadable)
+    HOOKED=0
+    say "hooks:    settings.json could not be read — left alone, add them yourself" ;;
   unwritable|"")
     HOOKED=0
     say "hooks:    could not write $SETTINGS — add them yourself" ;;

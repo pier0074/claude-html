@@ -178,6 +178,38 @@ for ENG in $ENGINES; do
   check "$ENG: with the guard on for prompts only, commands pass" "$(hook bash "$T/note.bash_mysql" CLAUDE_HTML_GUARD=prompt)" ""
   check "$ENG: and with it off, prompts too" "$(hook prompt "$T/note.secret" CLAUDE_HTML_GUARD=off)" ""
 
+  # ── a list or conf it cannot read as text ─────────────────────────
+  # One byte that is not UTF-8 made the read come back empty, and the
+  # answer wrote the file again holding only its own new line: the owner's
+  # list, or their whole conf, gone. Now nothing is written, and it says so.
+  reset
+  printf '# mine\nMy-Own-Entry-\377-kept\n' > "$LIST"; cp "$LIST" "$T/list.bad"
+  hook prompt "$T/note.secret" >/dev/null
+  R="$(hook prompt "$T/note.w_safe")"
+  check "$ENG: safe, with a list it cannot read as text: the list left byte for byte" \
+    "$(cmp -s "$LIST" "$T/list.bad" && echo same || echo changed)" same
+  check "$ENG:   and said: nothing recorded" "$(printf '%s' "$R" | grep -c 'nothing was recorded')" 1
+  reset
+  printf 'CLAUDE_HTML_ROOT="%s"\nCLAUDE_HTML_OUT="%s"\n# caf\351\n' "$T/root" "$T/out" > "$CONFF"; cp "$CONFF" "$T/conf.bad"
+  hook prompt "$T/note.secret" >/dev/null
+  R="$(hook prompt "$T/note.w_stop")"
+  check "$ENG: stop, with a conf it cannot read as text: the conf left byte for byte" \
+    "$(cmp -s "$CONFF" "$T/conf.bad" && echo same || echo changed)" same
+  check "$ENG:   and said: the check stays on" "$(printf '%s' "$R" | grep -c 'the check stays on')" 1
+  check "$ENG:   which it does" "$(blocked "$(hook prompt "$T/note.secret")")" blocked
+  # And an answer from the dialog, the same.
+  reset
+  printf '# mine\nMy-Own-Entry-\377-kept\n' > "$LIST"
+  printf 'CLAUDE_HTML_ROOT="%s"\nCLAUDE_HTML_OUT="%s"\n# caf\351\n' "$T/root" "$T/out" > "$CONFF"
+  for ans in safe stop; do
+    hook prompt "$T/note.secret" >/dev/null
+    printf '%s' "$(cat "$T/note.secret")" | env HOME="$H" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_REDACT_FILE="$LIST" \
+      CLAUDE_HTML_ENGINE="$ENG" bash -c '. "$1/lib/platform.sh"; ch_pick_engine; ch_js "$1/actions/guard.js" answer-prompt "$1" "$2" "$3" "$4" "$5" 60' _ \
+      "$HERE" "$STATE" "$LIST" "$CONFF" "$ans" >/dev/null 2>&1
+  done
+  check "$ENG: the dialog's safe and stop, the same: both left byte for byte" \
+    "$(cmp -s "$LIST" "$T/list.bad" && echo same) $(cmp -s "$CONFF" "$T/conf.bad" && echo same)" "same same"
+
   # ── it fails open, quietly ─────────────────────────────────────────
   reset
   mkdir -p "$T/broken/lib" "$T/broken/actions" "$T/broken/build"; cp "$HERE"/guard.sh "$T/broken/"

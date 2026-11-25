@@ -48,7 +48,7 @@ function run(argv) {
     write = function (path, text) {
       var dir = $.NSString.alloc.initWithUTF8String(path).stringByDeletingLastPathComponent;
       fm.createDirectoryAtPathWithIntermediateDirectoriesAttributesError(dir, true, $(), null);
-      return $.NSString.alloc.initWithUTF8String(text)
+      return !!$.NSString.alloc.initWithUTF8String(text)
         .writeToFileAtomicallyEncodingError(path, true, 4, null);
     };
     list = function (dir) {
@@ -201,7 +201,11 @@ function run(argv) {
         nfs.writeFileSync(tmp, text, "utf8");
         nfs.renameSync(tmp, path);
         return true;
-      } catch (e) { return false; }
+      } catch (e) {
+        // Not a half-written file left beside the page (a full disk).
+        try { nfs.unlinkSync(path + ".tmp" + process.pid); } catch (e2) {}
+        return false;
+      }
     };
     list = function (dir) {
       try { return nfs.readdirSync(dir).sort(); } catch (e) { return []; }
@@ -1346,7 +1350,9 @@ function run(argv) {
       try { info = JSON.parse(read(a.metaPath) || "{}") || {}; } catch (e) { info = {}; }
       // Its own time, not the parent's: the parent's changes with every reply,
       // and would have every sub-agent's page written again with it.
-      write(page, sessionPage({
+      // Not written (a full disk): the parent fails with it, and keeps what
+      // the last build recorded, so the next build tries again.
+      if (!write(page, sessionPage({
         id: a.agentId, project: parentMeta.project, cwd: "", kind: "sub-agent",
         open: parentMeta.open || "",
         title: red(info.description) || "a sub-agent",
@@ -1355,7 +1361,7 @@ function run(argv) {
         agentType: info.agentType || "", model: info.model || "",
         parent: { id: s.id, title: parentMeta.title || "",
                   href: "../" + s.id + ".html" }
-      }, msgs, []));
+      }, msgs, []))) throw new Error("a sub-agent's page could not be written");
       var item = {
         id: a.agentId, href: rel, toolUseId: info.toolUseId || "",
         description: red(info.description) || "", agentType: info.agentType || "",
@@ -1682,14 +1688,22 @@ function run(argv) {
   // was being built: what was read no longer matches the file.
   function saveKept(id, path, sc, agents) {
     var file = cacheFile(id);
-    if (!sc.fp || sc.fp !== fingerprint(path, sc.off)) { remove(file + ".md5"); return; }
+    if (!sc.fp || sc.fp !== fingerprint(path, sc.off)) { dropKept(id); return; }
     var head = '{"key":' + JSON.stringify(CACHE_KEY) + ',"id":' + JSON.stringify(id) +
       ',"path":' + JSON.stringify(path) + ',"fp":' + JSON.stringify(sc.fp) +
       ',"scan":' + sc.keep + ',"lens":[' + sc.msgs.length + "," + sc.rows.length + "]" +
       ',"agents":' + JSON.stringify(agents) + "}";
     var d = write(file, head + "\n" + sc.msgs + sc.rows) ? digest(file) : "";
-    if (d) write(file + ".md5", d + "\n");
-    else remove(file + ".md5");
+    if (!d || !write(file + ".md5", d + "\n")) dropKept(id);
+  }
+  // The cache of one session taken away, its text with its md5: an md5
+  // alone made the cache unread, and left the text there, under whatever
+  // list it was masked by. The md5 first, so what is left is never read.
+  function dropKept(id) {
+    var file = cacheFile(id);
+    remove(file + ".md5");
+    remove(file);
+    delete keptMemo[id];
   }
 
   // ── build ───────────────────────────────────────────────────────────
@@ -2035,8 +2049,15 @@ function run(argv) {
         meta.models = Object.keys(per).filter(function (m) { return per[m] > 0; })
           .sort(function (a, b) { return per[b] - per[a]; });
       }
-      write(page, sc ? pageText(meta, sc.fin.msgs, agents) : sessionPage(meta, msgs, agents));
-      write(OUT + "/search/" + s.id + ".js", searchText(s.id, sc ? sc.fin.rows : rowsJsonOf(msgs)));
+      // A page or search file not written (a full disk) is an error, and the
+      // last build's record stays: recorded as current, it was never tried
+      // again, and kept what it said under the old rules and list.
+      if (!write(page, sc ? pageText(meta, sc.fin.msgs, agents) : sessionPage(meta, msgs, agents))) {
+        throw new Error("its page could not be written");
+      }
+      if (!write(OUT + "/search/" + s.id + ".js", searchText(s.id, sc ? sc.fin.rows : rowsJsonOf(msgs)))) {
+        throw new Error("its search file could not be written");
+      }
       if (resumable(meta)) writeLaunchers(meta);
       else removeLaunchers(meta);
 
@@ -2067,9 +2088,13 @@ function run(argv) {
         rowsOf[s.id] = null;
       }
       fresh[s.id] = meta;
+      // A cache not written by this build holds what an earlier one read,
+      // masked by its rules and list, which may not be these: it goes.
       if (sc && USE_CACHE) saveKept(s.id, s.path, sc, nowAgents);
+      else dropKept(s.id);
       built++;
     } catch (e) {
+      dropKept(s.id);
       // A session that will not build is reported, never quietly missing — and
       // keeps its last good page and its place on the index. Without this it
       // would fall out of the list and be pruned, so one failed attempt would

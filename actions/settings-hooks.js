@@ -48,19 +48,27 @@ function run(argv) {
     try { return nfs.realpathSync(path); } catch (e) { return path; }
   }
 
+  // The text; null when there is no file; false when there is one that
+  // cannot be read, or holds a byte that is not UTF-8. Read as missing, such
+  // a file was written again as our hooks alone; read with the byte
+  // replaced, it came back changed.
   function readFile(path) {
     if (!JXA) {
-      try { return nfs.readFileSync(path, "utf8"); } catch (e) { return null; }
+      var buf;
+      try { buf = nfs.readFileSync(path); } catch (e) { return e && e.code === "ENOENT" ? null : false; }
+      var t = buf.toString("utf8");
+      return Buffer.from(t, "utf8").equals(buf) ? t : false;
     }
     // A missing file yields an ObjC nil that is truthy in JS and whose .js is
-    // undefined, so check it exists first and guard the unwrap.
+    // undefined, so check it exists first and guard the unwrap. A link that
+    // points nowhere is not there either.
     if (!fm.fileExistsAtPath(path)) return null;
     try {
       var s = $.NSString.stringWithContentsOfFileEncodingError(path, 4, null);
       var text = s ? $.CFMakeCollectable(s).js : null;
-      return (typeof text === "string") ? text : null;
+      return (typeof text === "string") ? text : false;
     } catch (e) {
-      return null;
+      return false;
     }
   }
 
@@ -90,6 +98,8 @@ function run(argv) {
 
   var data = {};
   var raw = readFile(settingsPath);
+  // There but not to be read: nothing is written, the file stays as it is.
+  if (raw === false) return "unreadable";
   if (raw !== null && raw.trim() !== "") {
     try {
       data = JSON.parse(raw);

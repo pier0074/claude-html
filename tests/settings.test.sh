@@ -149,6 +149,32 @@ done
 R="$(cfg forget-safe "$ID1" "$ID3")"
 check "  two ids at once: both go" "$(grep -c 'safe:' "$LIST") $(grep -cx "$SECRET" "$LIST") $(grep -c '^# my list$' "$LIST")" "0 1 1"
 
+# A list in a folder it cannot write a temp file in (full, or not its own):
+# the list was emptied, every entry of the owner's lost. Now nothing is
+# changed, and it says so.
+echo "forget-safe that cannot write"
+LIST0="$LIST"; LIST="$T/ro/claude-html.redact"; mkdir -p "$T/ro"
+list; cp "$LIST" "$T/list.before"; chmod 555 "$T/ro"
+if ( : > "$T/ro/.w" ) 2>/dev/null; then
+  rm -f "$T/ro/.w"; echo "  skip  forget-safe that cannot write: this user writes anywhere"
+else
+  R="$(cfg forget-safe)"; RC=$?
+  check "forget-safe, the temp file not written: the list as it was" "$(cmp -s "$LIST" "$T/list.before" && echo same || echo changed)" same
+  check "  said, and not as done" "$RC $(printf '%s\n' "$R" | grep -c 'could not') $(printf '%s\n' "$R" | grep -c 'forgot 2')" "1 1 0"
+  R="$(cfg forget-safe "$ID2")"; RC=$?
+  check "forget-safe <id>, the same: the list as it was" "$(cmp -s "$LIST" "$T/list.before" && echo same || echo changed)" same
+  check "  said, and not as done" "$RC $(printf '%s\n' "$R" | grep -c 'could not') $(printf '%s\n' "$R" | grep -c 'forgot the safe value')" "1 1 0"
+fi
+chmod 755 "$T/ro"
+# A list kept as a link stays one, and forgetting writes where it points.
+ln -s "$T/ro/claude-html.redact" "$T/ro/link.redact"; LIST="$T/ro/link.redact"
+R="$(cfg forget-safe "$ID2")"
+check "forget-safe <id> through a link: the link kept, the line gone where it points" \
+  "$([ -L "$LIST" ] && echo link) $(grep -c 'safe:' "$T/ro/claude-html.redact") $(grep -cx "$SECRET" "$T/ro/claude-html.redact")" "link 1 1"
+R="$(cfg forget-safe)"
+check "  and forget-safe alone too" "$([ -L "$LIST" ] && echo link) $(grep -c 'safe:' "$T/ro/claude-html.redact") $(grep -cx "$SECRET" "$T/ro/claude-html.redact")" "link 0 1"
+LIST="$LIST0"
+
 # ── the own list, in the text editor ─────────────────────────────────
 echo "edit-list"
 # A Linux desktop with its opener, a stand-in that is never reached: the

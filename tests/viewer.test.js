@@ -487,6 +487,21 @@ test("a windowed page builds every row before it prints", () => {
   assert.ok(/if \(windowed\) window\.addEventListener\("beforeprint"[\s\S]{0,120}for \(var b = 0; b < NB; b\+\+\) fillBlock\(b\)/.test(src));
 });
 
+// A planted archive can name any model; the token line puts it in innerHTML,
+// and an unescaped name ran its script on the session page.
+test("the token line escapes the model names", () => {
+  const vm = require("vm");
+  const src = fs.readFileSync(path.join(__dirname, "..", "viewer", "page.js"), "utf8");
+  const at = src.indexOf("(function tokens() {"), end = src.indexOf("\n  })();\n", at) + 8;
+  const el = { innerHTML: "", hidden: true };
+  const ctx = { CH: CH, meta: { tok: [1, 2, 3, 4, 5], models: ['claude-<img src=x onerror="alert(1)">-x', "claude-a&b"] },
+                document: { getElementById: () => el } };
+  vm.runInNewContext(src.slice(at, end), ctx);
+  assert.ok(!/<img/.test(el.innerHTML), el.innerHTML);
+  assert.ok(el.innerHTML.includes("&lt;img src=x onerror=&quot;alert(1)&quot;&gt;-x"), el.innerHTML);
+  assert.ok(el.innerHTML.includes("a&amp;b"), "every name, not just the first");
+});
+
 // ── the usage week ───────────────────────────────────
 // Every date here is built and read in local time, so these hold in any
 // timezone the tests happen to run in.

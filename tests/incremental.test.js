@@ -482,7 +482,8 @@ expectSame("with stray files left in the cache", cutThenWhole(function (o) {
 })();
 
 // A forced rebuild, and one without the cache, write what a build from
-// nothing writes; the second leaves the cache as it was.
+// nothing writes; the second takes away the cache of what it built, whose
+// text may be masked by another list than this build's.
 (function () {
   var o = out();
   setMain(WHOLE.subarray(0, MID), T_CUT); build(o);
@@ -490,7 +491,6 @@ expectSame("with stray files left in the cache", cutThenWhole(function (o) {
   expectSame("a forced rebuild over a cache", o, SCRATCH);
   var o2 = out();
   setMain(WHOLE.subarray(0, MID), T_CUT); build(o2);
-  var before = fs.readFileSync(cacheOf(o2));
   // What a deleted conversation left behind: it holds that conversation's
   // text, so it goes even when the build does without the cache.
   var GONE = "99999999-0000-0000-0000-000000000001";
@@ -500,7 +500,11 @@ expectSame("with stray files left in the cache", cutThenWhole(function (o) {
   setMain(WHOLE, T_WHOLE); build(o2, { cache: false });
   var d = same(o2, SCRATCH).filter(function (f) { return f.indexOf(".cache/") !== 0; });
   check("a build without the cache writes the same pages", d.length === 0, d.join(", "));
-  check("  and leaves the cache alone", before.equals(fs.readFileSync(cacheOf(o2))));
+  check("  and takes away the cache of what it built, text and md5",
+        !fs.existsSync(cacheOf(o2)) && !fs.existsSync(cacheOf(o2) + ".md5"));
+  build(o2);
+  var d2 = same(o2, SCRATCH);
+  check("  which the next build with it writes again, as from nothing", d2.length === 0, d2.join(", "));
   check("  but not that of a conversation that is gone", fs.readdirSync(path.join(o2, ".cache"))
     .filter(function (f) { return f.indexOf(GONE) === 0; }).length === 0);
 })();

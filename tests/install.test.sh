@@ -211,6 +211,33 @@ check "remove takes out this clone's hooks only" "$(sh_js remove) $(grep -cF "$C
 mk_settings
 sh_js remove >/dev/null
 check "  and never another clone's" "$(grep -cF "$OLD/" "$S2") $(theirs3)" "4 1 1 1"
+# A settings.json that is there but cannot be read, or holds a byte that is
+# not UTF-8, is the user's still: read as missing or empty, it was written
+# again as {} plus our hooks, or with the byte replaced. Under both engines.
+S3="$T/hooks/unreadable.json"
+printf '{"model":"x\377y","hooks":{}}\n' > "$S3"; cp "$S3" "$T/hooks/unreadable.before"
+for eng in lib node; do
+  if [ "$eng" = node ]; then sj3() { HOME="$H" CLAUDE_HTML_FORCE_NODE=1 node "$C/actions/settings-hooks.js" "$S3" "$C" "$@"; }
+  else sj3() { HOME="$H" run_js "$C/actions/settings-hooks.js" "$S3" "$C" "$@"; }; fi
+  check "$eng: a settings.json with a byte that is not UTF-8 is refused, add and remove" \
+    "$(sj3 add 2>/dev/null) $(sj3 remove 2>/dev/null)" "unreadable unreadable"
+  check "$eng:   and left byte for byte" "$(cmp -s "$S3" "$T/hooks/unreadable.before" && echo same || echo changed)" same
+done
+printf '{"model":"mine","hooks":{}}\n' > "$S3"; cp "$S3" "$T/hooks/unreadable.before"; chmod 000 "$S3"
+if cat "$S3" >/dev/null 2>&1; then
+  echo "  skip  a settings.json this user cannot read: this user reads anything"
+else
+  for eng in lib node; do
+    if [ "$eng" = node ]; then sj3() { HOME="$H" CLAUDE_HTML_FORCE_NODE=1 node "$C/actions/settings-hooks.js" "$S3" "$C" "$@"; }
+    else sj3() { HOME="$H" run_js "$C/actions/settings-hooks.js" "$S3" "$C" "$@"; }; fi
+    check "$eng: a settings.json that cannot be read is refused, add and remove" \
+      "$(sj3 add 2>/dev/null) $(sj3 remove 2>/dev/null)" "unreadable unreadable"
+    chmod 600 "$S3"
+    check "$eng:   and left as it was" "$(cmp -s "$S3" "$T/hooks/unreadable.before" && echo same || echo changed)" same
+    chmod 000 "$S3"
+  done
+fi
+chmod 600 "$S3"
 # Another clone laid out in folders, as this one is, is a copy of claude-html too.
 NEWC="$T/new clone"; mkdir -p "$NEWC/build" "$NEWC/actions"
 : > "$NEWC/build/convert.js"; : > "$NEWC/actions/guard.js"

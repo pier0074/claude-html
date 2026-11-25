@@ -5,6 +5,28 @@ fixes, a minor adds without breaking, a major needs something from you
 (usually `./install.sh` again). To update: `claude-html --update`; before
 3.1.0, `git checkout main && git pull && ./install.sh`.
 
+## 3.7.2 — 2026-11-25
+
+- A session page escapes the model names in its token line. A planted
+  archive could run a script there.
+- A save replaces an archive only with a whole one: as many bytes as the
+  archiver made, from as much transcript as it read. One cut short by a
+  full disk, even just after a `}`, no longer replaces the good one.
+- After a reply, a state file that cannot be written no longer stops the
+  save.
+- `./install.sh` leaves a settings.json it cannot read, or that holds a byte
+  that is not UTF-8, exactly as it is, and says so.
+- Forgetting safe values writes the own list whole or not at all. A failed
+  write left it empty; now it is left as it was, and the command says so.
+- The guard's answers `safe` and `stop` leave the own list or the conf as
+  they are when they cannot read them as text, and say so. Both are written
+  whole, then moved into place.
+- A page or search file that could not be written is an error, and is
+  written again by the next build. It was recorded as current, and kept the
+  text of the old list.
+- A build that does not keep a session's cache takes the cache away, its
+  text and all. One under the old list stayed behind.
+
 ## 3.7.1 — 2026-11-25
 
 - Settings page: the status line's preview wraps a long line inside its box

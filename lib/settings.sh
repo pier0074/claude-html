@@ -282,17 +282,40 @@ ch_set_plan_add() {   # set|unset|forget|forget1|edit [name] [value]
 "; fi
 }
 
+# The own list rewritten from a temp file, whole or not at all: written
+# beside the file it is, a link followed (so a list kept as a symlink stays
+# one), then moved over it. A temp file that could not be written, or a
+# move that fails, leaves the list exactly as it was. Copying the temp file
+# back over the list emptied it when the temp file was not there.
+ch_set_list_real() {   # path -> _SLR, links followed
+  local p="$1" l n=0
+  while [ -L "$p" ] && [ "$n" -lt 40 ]; do
+    l="$(readlink "$p")" || break
+    case "$l" in /*) p="$l" ;; *) p="${p%/*}/$l" ;; esac
+    n=$((n + 1))
+  done
+  _SLR="$p"
+}
+ch_set_list_swap() {   # temp file, list
+  [ -f "$1" ] && mv -f "$1" "$2" 2>/dev/null && return 0
+  rm -f "$1"; return 1
+}
 # The safe values, the guard's, out of the own list: the lines that start
-# safe:, and nothing else, the rest as it was, copied back so a list kept as
-# a symlink stays one. Into CH_SAFE_GONE, how many went.
+# safe:, and nothing else, the rest as it was. Into CH_SAFE_GONE, how many
+# went; none, and a return of 1, when the list could not be written.
 ch_set_safe_count() { grep -c '^[[:space:]]*safe:' "$CLAUDE_HTML_REDACT_FILE" 2>/dev/null || true; }
 ch_set_own_count() { grep -cvE '^[[:space:]]*(#|safe:|$)' "$CLAUDE_HTML_REDACT_FILE" 2>/dev/null || true; }
 ch_forget_safe() {
-  local f="$CLAUDE_HTML_REDACT_FILE" tmp
+  local tmp rc
   CH_SAFE_GONE="$(ch_set_safe_count)"; CH_SAFE_GONE="${CH_SAFE_GONE:-0}"
   [ "$CH_SAFE_GONE" -gt 0 ] || return 0
-  tmp="$f.tmp.$$"
-  grep -v '^[[:space:]]*safe:' "$f" > "$tmp"; cat "$tmp" > "$f"; rm -f "$tmp"
+  ch_set_list_real "$CLAUDE_HTML_REDACT_FILE"; tmp="$_SLR.tmp.$$"
+  # grep -v says 1 when no line is left, every line a safe one: still whole.
+  grep -v '^[[:space:]]*safe:' "$_SLR" > "$tmp" 2>/dev/null; rc=$?
+  if [ "$rc" -gt 1 ] || ! ch_set_list_swap "$tmp" "$_SLR"; then
+    rm -f "$tmp" 2>/dev/null; CH_SAFE_GONE=0; CH_SAFE_FAILED=1; return 1
+  fi
+  CH_SAFE_READ=""
 }
 
 # Each safe value, as the Settings page shows it: an id, its kind and its
@@ -343,23 +366,28 @@ ch_set_safe_words() {   # id -> _SW
 $CH_SAFE_ROWS
 EOF
 }
-# The lines of those ids out of the list, and nothing else, copied back in
-# place. Into CH_SAFE_GONE, how many went.
+# The lines of those ids out of the list, and nothing else, the list
+# replaced whole (ch_set_list_swap). Into CH_SAFE_GONE, how many went; none,
+# and a return of 1, when the list could not be written.
 ch_forget_safe_ids() {   # id…
-  local f="$CLAUDE_HTML_REDACT_FILE" tmp line t
+  local tmp line t ok=0
   CH_SAFE_GONE=0
-  [ -f "$f" ] || return 0
-  tmp="$f.tmp.$$"
-  while IFS= read -r line || [ -n "$line" ]; do
-    t="${line#"${line%%[![:space:]]*}"}"
-    if [[ "$t" =~ $CH_SAFE_RE ]]; then
-      ch_set_safe_id "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
-      case " $* " in *" $_SID "*) CH_SAFE_GONE=$((CH_SAFE_GONE + 1)); continue ;; esac
-    fi
-    printf '%s\n' "$line"
-  done < "$f" > "$tmp" && cat "$tmp" > "$f"
-  rm -f "$tmp"
+  [ -f "$CLAUDE_HTML_REDACT_FILE" ] || return 0
+  ch_set_list_real "$CLAUDE_HTML_REDACT_FILE"; tmp="$_SLR.tmp.$$"
+  # ok only once every line is written: a temp file that cannot be made
+  # never runs the loop, and one that fills up stops it.
+  { while IFS= read -r line || [ -n "$line" ]; do
+      t="${line#"${line%%[![:space:]]*}"}"
+      if [[ "$t" =~ $CH_SAFE_RE ]]; then
+        ch_set_safe_id "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+        case " $* " in *" $_SID "*) CH_SAFE_GONE=$((CH_SAFE_GONE + 1)); continue ;; esac
+      fi
+      printf '%s\n' "$line" || { ok=2; break; }
+    done < "$_SLR" > "$tmp" && [ "$ok" = 0 ] && ok=1; } 2>/dev/null
   CH_SAFE_READ=""
+  if [ "$ok" != 1 ] || ! ch_set_list_swap "$tmp" "$_SLR"; then
+    rm -f "$tmp" 2>/dev/null; CH_SAFE_GONE=0; CH_SAFE_FAILED=1; return 1
+  fi
 }
 ch_set_safe_show() {
   ch_set_safe_rows
@@ -402,13 +430,14 @@ ch_set_edit_list() {
 # Writes CH_SET_OPS, and keeps the shell's copy of each in step, so the
 # build after it in this same command sees the new values.
 ch_set_write() {
-  local op k v
+  local op k v _wrc=0
+  CH_SAFE_FAILED=""
   while IFS='	' read -r op k v; do
     case "$op" in
       set) ch_conf_set "$k" "$v"
            ch_set_now "$k"; [ "$_SS" = environment ] || { eval "$k=\$v; CH_SRC_$k=conf"; export "$k"; } ;;
       unset) ch_conf_unset "$k"; ch_set_now "$k"; [ "$_SS" = environment ] || eval "unset $k; CH_SRC_$k=default" ;;
-      forget) ch_forget_safe ;;
+      forget) ch_forget_safe || _wrc=1 ;;
       forget1) ;;
       *) continue ;;
     esac
@@ -426,13 +455,21 @@ EOF
   [ -z "${ids// /}" ] || { ch_set_safe_rows; CH_SAFE_WORDS=""
     for k in $ids; do ch_set_safe_words "$k"; CH_SAFE_WORDS="$CH_SAFE_WORDS$k	$_SW
 "; done
-    ch_forget_safe_ids $ids; }
+    ch_forget_safe_ids $ids || _wrc=1; }
+  return "$_wrc"
 }
 
 # What --config set and unset say they did, a line each.
 ch_set_said() {
-  local op k v w
+  local op k v w failed_said=""
   while IFS='	' read -r op k v; do
+    # The list not written: said once, and nothing as forgotten.
+    case "$op" in forget|forget1)
+      if [ -n "${CH_SAFE_FAILED:-}" ]; then
+        [ -n "$failed_said" ] || echo "could not write $(ch_set_tilde "$CLAUDE_HTML_REDACT_FILE"): no safe value forgotten, the list is as it was"
+        failed_said=1; continue
+      fi ;;
+    esac
     case "$op" in
       set) echo "$k=$v" ;;
       unset) ch_set_f "$k" def; echo "$k: its line is out of the conf; the default applies ($_SF)" ;;
@@ -480,9 +517,12 @@ ch_set_cli() {
     echo "nothing was written" >&2
     return 2
   fi
-  ch_set_write
+  local wrc=0
+  ch_set_write || wrc=1
   echo "In $(ch_set_tilde "$CONF"):"
   ch_set_said | sed 's/^/  /'
+  # What was written is rebuilt for all the same; the exit says the rest was not.
+  [ "$wrc" = 0 ] || CH_SET_EXIT=1
   return 10
 }
 
@@ -663,8 +703,11 @@ forget1	"*) q="Forget these safe values?" ;; "forget1	"*) q="Forget this safe va
   fi
   if [ -n "${CH_DRY:-}" ]; then printf '%s\n' "$ans"; return 0; fi
   if [ "$ans" != apply ]; then echo "Nothing was changed."; return 0; fi
-  ch_set_write
-  echo "Applied."
+  if ch_set_write; then echo "Applied."
+  else
+    echo "could not write $(ch_set_tilde "$CLAUDE_HTML_REDACT_FILE"): no safe value forgotten, the list is as it was" >&2
+    CH_SET_EXIT=1
+  fi
   return 10   # the caller rebuilds the pages
 }
 
