@@ -231,6 +231,10 @@ words() {   # prompt [env…] — no one at the screen: the answer is the next p
 reason() { node -e 'var s=require("fs").readFileSync(0,"utf8"); if (!s.trim()) { console.log("(passed)"); process.exit(); }
   var o=JSON.parse(s); console.log(o.decision + ": " + o.reason.split("\n")[0])'; }
 conf "$RULES"; fig "$NOW" 81; rm -f "$MARKS"
+shape() { node -e 'var o; try { o=JSON.parse(require("fs").readFileSync(0,"utf8")); } catch (e) { console.log("not JSON"); process.exit(); }
+  var h=o.hookSpecificOutput||{}; console.log([o.decision, h.hookEventName, h.suppressOriginalPrompt===true, "suppressOriginalPrompt" in o].join(" "))'; }
+check "the stop leaves the prompt out of the message (hookSpecificOutput)" "$(words "fix the bug" | shape)" "block UserPromptSubmit true false"
+check "  and so does its answer" "$(words cancel | shape)" "block UserPromptSubmit true false"
 check "in force and reached: the prompt is stopped, in words" "$(words "fix the bug" | reason)" \
   "block: ⚠ claude-html: your prompt has been interrupted — weekly limit rule reached (81 % of the week, resets Tue 08:00; rule: from Fri 20:00, stop at 80 %)."
 check "  with the four answers" "$(words "fix the bug" | node -e 'console.log(JSON.parse(require("fs").readFileSync(0,"utf8")).reason.split("\n").slice(3).join("|"))')" \

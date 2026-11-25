@@ -91,6 +91,12 @@ if (args[0] === "fixture") {
     secret2: note({ session_id: "sess-2", prompt: "deploy with " + gh.text + " and " + url.text }),
     other: note({ prompt: "and " + F.cases[0].text }),
     clean2: note({ session_id: "sess-2", prompt: "please fix the failing test in src/app.js" }),
+    // A sub-agent's report, as Claude Code hands it over: passes; text
+    // typed before or after one does not.
+    notify: note({ prompt: "<task-notification>\n<task-id>a1</task-id>\n<result>run it with " + gh.text +
+      "</result>\n</task-notification>\n<task-notification>\n<task-id>a2</task-id>\n</task-notification>\n" }),
+    notify_after: note({ prompt: "<task-notification>\n<result>ok</result>\n</task-notification>\nand " + gh.text }),
+    notify_before: note({ prompt: gh.text + "\n<task-notification>\n<result>ok</result>\n</task-notification>" }),
     w_cancel: note({ prompt: "cancel" }), w_allow: note({ prompt: " Allow " }), w_safe: note({ prompt: "safe" }),
     w_stop: note({ prompt: "STOP" }), w_stop2: note({ session_id: "sess-2", prompt: "stop" }),
     bash_mysql: JSON.stringify({ session_id: "sess-1", hook_event_name: "PreToolUse", tool_name: "Bash",

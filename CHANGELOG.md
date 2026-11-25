@@ -5,6 +5,18 @@ fixes, a minor adds without breaking, a major needs something from you
 (usually `./install.sh` again). To update: `claude-html --update`; before
 3.1.0, `git checkout main && git pull && ./install.sh`.
 
+## 3.6.1 — 2026-11-25
+
+- Fixed: a prompt the guard stops is no longer repeated back by Claude Code as
+  "Original prompt: …", which also kept it in the session's transcript; the
+  limits stop leaves it out too. (Claude Code may still keep a prompt in its
+  own files; a blocking hook cannot prevent that.)
+- Fixed: a sub-agent's report, which Claude Code hands the session as a
+  prompt, is no longer stopped by the guard or a limit rule: Claude wrote it,
+  and once stopped it was lost. Anything typed with it is still checked.
+- Fixed: `\$(cat file)` in a heredoc, and `$$(…)` in a Makefile, are commands
+  like `$(cat file)`, not a secret.
+
 ## 3.6.0 — 2026-11-25
 
 - **A Settings page** (`settings.html`), linked from the index and the Token

@@ -65,6 +65,9 @@ function claudeHtmlRedactor(ownText, on, compiled, only) {
   function standIn(v) {
     if (v.indexOf(MASK) > -1) return true;                       // done already
     if (/^\$[A-Za-z_{(]|^%[A-Za-z_]+%$/.test(v)) return true;     // $VAR ${VAR} $(cmd) %VAR%
+    // The same, written for a shell to expand later: \$(cat pw) in a
+    // heredoc, $$(cat pw) or $${PW} in a Makefile.
+    if (/^(\\|\$)\$[A-Za-z_{(]/.test(v)) return true;
     if (/^<[^>]*>$|^\{\{|^\{[^}]*\}$|^\[[^\]]*\]$/.test(v)) return true;  // <token> {{x}} {x} [x]
     if (/^(process\.env|os\.environ|os\.getenv|import\.meta\.env|env\.|ENV\[|System\.getenv)/i.test(v)) return true;
     if (/^(.)\1*$/.test(v)) return true;                          // xxxxxxxx, ********, ........

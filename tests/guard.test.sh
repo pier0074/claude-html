@@ -35,7 +35,34 @@ hook() {  # kind note-file [env…]
 reset() { rm -f "$STATE" "$LIST" "$H/.claude/.claude-html.guard-engine"
           printf 'CLAUDE_HTML_ROOT="%s"\nCLAUDE_HTML_OUT="%s"\n' "$T/root" "$T/out" > "$CONFF"; }
 blocked() { case "$1" in *'"decision":"block"'*) echo blocked ;; "") echo passed ;; *) echo other ;; esac; }
-leaks() { grep -rlF -f "$T/probes.txt" "$H" "$LOG" "$LOG.err" 2>/dev/null | wc -l | tr -d ' '; }
+# A block's shape as Claude Code reads it: the prompt is left out of the
+# message only by hookSpecificOutput.suppressOriginalPrompt; at the top
+# level it is ignored, and the prompt is echoed and kept in the transcript.
+shape() { node -e 'var o; try { o=JSON.parse(require("fs").readFileSync(0,"utf8")); } catch (e) { console.log("not JSON"); process.exit(); }
+  var h=o.hookSpecificOutput||{}; console.log([o.decision, h.hookEventName, h.suppressOriginalPrompt===true, "suppressOriginalPrompt" in o].join(" "))'; }
+# How many files printed or kept hold a probe. The guard keeps salts and
+# fingerprints (its state, the safe lines), random hex by design; a short
+# probe made of hex letters alone turns up in one now and then, which is no
+# secret kept. Those fields are blanked first; the rest of each file is read.
+leaks() {
+  local n=0 f
+  while IFS= read -r -d '' f; do
+    sed -E 's/"(salt|hash)":"[0-9a-f]*"/"\1":""/g; s/^([[:space:]]*safe:)[0-9a-f]*:[0-9a-f]*/\1:/' "$f" 2>/dev/null |
+      grep -qF -f "$T/probes.txt" && n=$((n + 1))
+  done < <(find "$H" "$LOG" "$LOG.err" -type f -print0 2>/dev/null)
+  echo "$n"
+}
+# leaks() itself: a fingerprint that happens to hold a probe is not a leak,
+# the probe as a value beside it is.
+HP="$(grep -xE '[0-9a-f]+' "$T/probes.txt" | awk '{ print length, $0 }' | sort -n | head -1 | cut -d' ' -f2)"
+mkdir -p "$H/.claude/.claude-html-guard"
+printf '{"pending":{"time":1,"entries":[{"rule":"github","salt":"0%s","hash":"%s0"}]},"session":"sess-x"}' "$HP" "$HP" \
+  > "$H/.claude/.claude-html-guard/sess-x"
+printf 'safe:0%s:%s0   # github, 2026-11-19\n' "$HP" "$HP" > "$H/.claude/leaks-check.redact"
+L1="$(leaks)"; printf 'pw=%s\n' "$HP" >> "$H/.claude/leaks-check.redact"; L2="$(leaks)"
+rm -f "$H/.claude/.claude-html-guard/sess-x" "$H/.claude/leaks-check.redact"
+check "a fingerprint holding a hex-only probe is not counted as a secret kept, the probe itself is" "$L1 $L2" "0 1"
+unset HP L1 L2
 
 # ── the quick look never skips what the rules catch ─────────────────
 A="$(node "$HERE/tests/guard.test.js" anchors)"
@@ -68,14 +95,21 @@ for ENG in $ENGINES; do
   check "$ENG: a clean prompt passes, saying nothing" "$(hook prompt "$T/note.clean")" ""
   check "$ENG: the weak form and prose pass" "$(hook prompt "$T/note.weak")" ""
   check "$ENG: nothing is pending after them" "$([ -f "$STATE" ] && echo yes || echo no)" no
+  check "$ENG: a sub-agent's report passes, whatever it holds" "$(hook prompt "$T/note.notify")" ""
+  check "$ENG:   but not with a secret typed after it, or before" \
+    "$(blocked "$(hook prompt "$T/note.notify_after")") $(rm -f "$STATE"; blocked "$(hook prompt "$T/note.notify_before")")" "blocked blocked"
+  rm -f "$STATE"
 
   # ── the four words ─────────────────────────────────────────────────
   R="$(hook prompt "$T/note.secret")"
   check "$ENG: a prompt with two kinds is stopped, by kind and count" \
     "$(printf '%s' "$R" | grep -c 'GitHub token (1), password in a URL (1)')" 1
+  check "$ENG:   leaving the prompt out of the message" "$(printf '%s' "$R" | shape)" "block UserPromptSubmit true false"
   check "$ENG:   leaving its fingerprints pending, readable by its owner only" \
     "$(ls -l "$STATE" | cut -c1-10) $(grep -c '"rule":"github"' "$STATE")" "-rw------- 1"
-  check "$ENG: cancel drops it" "$(hook prompt "$T/note.w_cancel" | grep -c 'Dropped. Nothing was sent.')" 1
+  R="$(hook prompt "$T/note.w_cancel")"
+  check "$ENG: cancel drops it" "$(printf '%s' "$R" | grep -c 'Dropped. Nothing was sent.')" 1
+  check "$ENG:   its answer leaving the word out too" "$(printf '%s' "$R" | shape)" "block UserPromptSubmit true false"
   check "$ENG:   and nothing is pending" "$([ -f "$STATE" ] && echo yes || echo no)" no
 
   hook prompt "$T/note.secret" >/dev/null
@@ -594,6 +628,7 @@ check "  allowed once, the secret check still stops it" \
 rm -f "$H/.claude/.claude-html-guard/limits-$SIDL"
 check "  and with the guard off, the rule still stops a prompt" \
   "$(hook prompt "$T/note.clean" CLAUDE_HTML_TEST_NOW="$LNOW" TZ=Europe/Zurich CLAUDE_HTML_GUARD=off | grep -c 'weekly limit rule reached')" 1
+check "  a sub-agent's report is never stopped by a rule" "$(lh "$T/note.notify")" ""
 check "  a command is never stopped by a rule" "$(hook bash "$T/note.bash_clean" CLAUDE_HTML_TEST_NOW="$LNOW" TZ=Europe/Zurich)" ""
 rm -f "$H/.claude/.claude-html.limits" "$H/.claude/.claude-html.limits-marks"; rm -rf "$H/.claude/.claude-html-guard"
 

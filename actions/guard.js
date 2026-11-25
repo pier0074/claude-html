@@ -123,8 +123,12 @@ function guard(argv) {
     for (var i = 0; i < 16; i++) h += Math.floor(Math.random() * 16).toString(16);
     return h;
   }
+  // The prompt is left out of the message only from inside
+  // hookSpecificOutput: at the top level Claude Code ignores it, echoes
+  // the prompt and keeps the echo in the transcript.
   function block(reason) {
-    return JSON.stringify({ decision: "block", reason: reason, suppressOriginalPrompt: true });
+    return JSON.stringify({ decision: "block", reason: reason,
+      hookSpecificOutput: { hookEventName: "UserPromptSubmit", suppressOriginalPrompt: true } });
   }
   // What the text holds, less what a one-time allow lets through.
   function matches(text) {

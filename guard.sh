@@ -16,6 +16,14 @@ case "$KIND" in prompt|bash) ;; *) exit 0 ;; esac
 NOTE=""
 IFS= read -r -t 5 -d '' NOTE || true
 [ -n "$NOTE" ] || exit 0
+# A sub-agent's report, which Claude Code hands the session as a prompt
+# made only of <task-notification> blocks: Claude wrote it and has seen
+# it, so neither check has anything to protect, and a block would lose
+# the report for good (it cannot be sent again). Text typed with it is
+# not exempt: the note must start and end with the tags.
+_re='"prompt"[[:space:]]*:[[:space:]]*"(\\n|[[:space:]])*<task-notification>'
+_re2='</task-notification>(\\n|[[:space:]])*"'
+[[ "$NOTE" =~ $_re ]] && [[ "$NOTE" =~ $_re2 ]] && exit 0
 
 # Every fork costs a few milliseconds on every prompt, so the common path
 # takes none it can do without.

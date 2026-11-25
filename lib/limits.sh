@@ -651,7 +651,9 @@ ch_lim_json() {
 ch_lim_block() {
   local r="$1"
   r="${r//\\/\\\\}"; r="${r//\"/\\\"}"; r="${r//$'\n'/\\n}"
-  printf '{"decision":"block","reason":"%s","suppressOriginalPrompt":true}\n' "$r"
+  # Left out of the message only from inside hookSpecificOutput; at the top
+  # level Claude Code ignores it and keeps the prompt in the transcript.
+  printf '{"decision":"block","reason":"%s","hookSpecificOutput":{"hookEventName":"UserPromptSubmit","suppressOriginalPrompt":true}}\n' "$r"
 }
 ch_lim_conf_rules_without() {   # canonical rule text -> the conf line without it
   local i=1 out=""
