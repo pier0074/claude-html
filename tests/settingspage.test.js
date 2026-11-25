@@ -7,12 +7,7 @@
 "use strict";
 var fs = require("fs"), path = require("path"), vm = require("vm");
 var HERE = path.resolve(__dirname, "..");
-var pass = 0, fail = 0;
-function check(name, got, want) {
-  if (got === want) { pass++; return; }
-  fail++;
-  console.log("  FAIL  " + name + "\n        expected: " + want + "\n        got:      " + got);
-}
+var check = require("./lib.js").checkEq;
 function src(f) { return fs.readFileSync(path.join(HERE, f), "utf8"); }
 
 // ── a stand-in document ──────────────────────────────────────────────
@@ -143,5 +138,4 @@ check("  auto: no colour on a figure", /<span class="sl-(g|a|r|cyan)">/.test(P.h
 var old = JSON.parse(JSON.stringify(base)); old.values.CLAUDE_HTML_STATUSLINE_COLOR = { v: "off", src: "conf" };
 check("  off in the conf, from an earlier 3.7.0: shown as auto", /data-v="auto" class="on"/.test(page(old).html()), true);
 
-console.log("  " + pass + " passed, " + fail + " failed");
-process.exitCode = fail ? 1 : 0;
+require("./lib.js").done();

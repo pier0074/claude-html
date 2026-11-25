@@ -484,7 +484,7 @@ var CH = (function () {
           '<span class="ts">' + ts + '</span></div><div class="t">' + esc(m.text) + "</div></div>";
       }
       return "<div" + at + ' class="m user prompt" data-p="' + plan.prompt[r] +
-        '"><div class="who"><span class="pn">#' + plan.prompt[r] + "</span>You " +
+        '"><div class="who" role="heading" aria-level="2"><span class="pn">#' + plan.prompt[r] + "</span>You " +
         '<span class="ts">' + ts + '</span></div><div class="t">' + esc(m.text) + "</div></div>";
     }
     if (m.role === "assistant") {
@@ -670,9 +670,9 @@ var CH = (function () {
   }
 
   return {
-    esc: esc, cap: cap, when: when, inline: inline, prose: prose,
+    esc: esc, cap: cap, prose: prose,
     markdownish: markdownish, diffOps: diffOps, applyOps: applyOps,
-    renderDiff: renderDiff, toolLabel: toolLabel, renderTool: renderTool,
+    renderDiff: renderDiff, renderTool: renderTool,
     pairBareTools: pairBareTools, renderMessages: renderMessages,
     renderRows: renderRows, planRows: planRows, renderRow: renderRow,
     estimateRow: estimateRow, linesIn: linesIn, rowText: rowText, countIn: countIn,

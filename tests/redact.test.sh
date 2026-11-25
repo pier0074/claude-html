@@ -15,11 +15,6 @@ set -u
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 AF="$(. "$HERE/lib/version.sh"; printf "%s" "$CH_ARCHIVE_FORMAT")"
-pass=0; fail=0
-check() {
-  if [ "$2" = "$3" ]; then pass=$((pass + 1)); printf '  ok    %s\n' "$1"
-  else fail=$((fail + 1)); printf '  FAIL  %s (expected %s, got %s)\n' "$1" "$3" "$2"; fi
-}
 
 # The unit half first, under the engine this machine tests with.
 ENGINE=node; [ "$HAVE_OSASCRIPT" = true ] && ENGINE=osascript
@@ -268,5 +263,4 @@ check "the index was never opened, only noted, each time a build named no sessio
   "$({ [ "${_ni:-0}" -gt 0 ] || [ "$(uname)" != Darwin ]; } && echo noted) ${_no:-0}" "noted 0"
 
 echo
-echo "  $pass passed, $fail failed"
-[ "$fail" -eq 0 ]
+verdict

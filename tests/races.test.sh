@@ -12,11 +12,6 @@ set -u
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 . "$(dirname "$0")/lib.sh"
-pass=0; fail=0
-check() {
-  if [ "$2" = "$3" ]; then pass=$((pass + 1)); printf '  ok    %s\n' "$1"
-  else fail=$((fail + 1)); printf '  FAIL  %s (expected %s, got %s)\n' "$1" "$3" "$2"; fi
-}
 # A JS object literal holding an NSDate does not bridge to the NSDictionary
 # this call wants — it throws, and the timestamp silently stays unset — so the
 # dictionary is built explicitly. The check after it makes that failure loud.
@@ -181,5 +176,4 @@ kill "$HOLDER" 2>/dev/null; wait "$HOLDER" 2>/dev/null
 rm -rf "$HC/.claude/.claude-html.lock"
 
 echo
-echo "  $pass passed, $fail failed"
-[ "$fail" -eq 0 ]
+verdict

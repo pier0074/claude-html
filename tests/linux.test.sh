@@ -17,11 +17,7 @@ set -u
 . "$(dirname "$0")/lib.sh"
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
-pass=0; fail=0
-check() {
-  if [ "$2" = "$3" ]; then pass=$((pass + 1)); printf '  ok    %s\n' "$1"
-  else fail=$((fail + 1)); printf '  FAIL  %s\n        expected: %s\n        got:      %s\n' "$1" "$3" "$2"; fi
-}
+check() { check_long "$@"; }
 T="$(cd "$(tmpdir chlinux)" && pwd)"
 trap 'rm -rf "$T"' EXIT
 
@@ -151,6 +147,18 @@ stub "$T/env/wsl/bin" wt.exe; stub "$T/env/wsl/bin" wslview
 
 # ── 1. what --doctor sees ───────────────────────────────────────────
 echo "doctor"
+mkenv custom ubuntu 24.04 debian "Ubuntu"
+var custom XDG_CURRENT_DESKTOP=GNOME; var custom WAYLAND_DISPLAY=w; var custom TERMINAL=kitty
+stub "$T/env/custom/bin" kitty; stub "$T/env/custom/bin" gnome-terminal
+# Each desktop's --doctor, as it is and 60 columns wide, run once and side
+# by side: what this section checks is what they print, read from here.
+mkdir -p "$T/doc"
+for e in ubuntu fedora fedora40 kde xfce bare headless wsl custom; do
+  inenv "$e" bash "$HERE/claude-html" --doctor > "$T/doc/$e" 2>&1 &
+  inenv "$e" CLAUDE_HTML_DOCTOR_COLUMNS=60 bash "$HERE/claude-html" --doctor > "$T/doc/$e.60" 2>&1 &
+done
+wait
+doctor() { cat "$T/doc/$1"; }
 D="$(doctor ubuntu)"
 check "ubuntu: system" "$(printf '%s\n' "$D" | field system)" \
   "linux · ubuntu 24.04 (like debian) · Ubuntu 24.04.1 LTS"
@@ -209,9 +217,6 @@ check "wsl: wslview opens things" "$(printf '%s\n' "$D" | first opener)" wslview
 check "wsl: links cannot reach it" "$(printf '%s\n' "$D" | field links)" \
   "unavailable: WSL without a Linux desktop - the browser runs on Windows and cannot reach this"
 
-mkenv custom ubuntu 24.04 debian "Ubuntu"
-var custom XDG_CURRENT_DESKTOP=GNOME; var custom WAYLAND_DISPLAY=w; var custom TERMINAL=kitty
-stub "$T/env/custom/bin" kitty; stub "$T/env/custom/bin" gnome-terminal
 check "\$TERMINAL wins over the desktop's own" "$(doctor custom | first terminal)" kitty
 
 # The same layout as on a Mac, whatever the desktop has or lacks; the
@@ -219,7 +224,7 @@ check "\$TERMINAL wins over the desktop's own" "$(doctor custom | first terminal
 # 60 wide would be (doctor.test.sh has the rest of the layout).
 for e in ubuntu fedora fedora40 kde xfce bare headless wsl custom; do
   check "$e: the doctor's layout" "$(doctor "$e" | doctor_layout)" ok
-  check "  and at 60 columns" "$(inenv "$e" CLAUDE_HTML_DOCTOR_COLUMNS=60 bash "$HERE/claude-html" --doctor 2>&1 | doctor_layout header 60)" ok
+  check "  and at 60 columns" "$(doctor_layout header 60 < "$T/doc/$e.60")" ok
 done
 check "ubuntu: the terminal and its command, readable" "$(doctor ubuntu | field terminal)" \
   "gnome-terminal · gnome-terminal -- sh <launcher>"
@@ -231,6 +236,8 @@ check "xfce: a delete asks in a terminal, said the same way" "$(doctor xfce | fi
   "terminal · a delete link asks in a terminal window"
 check "the trash tool and how it is called" "$(doctor kde | field trash)" \
   "kioclient5 · kioclient5 --noninteractive move <file> trash:/"
+
+doctor() { inenv "$1" bash "$HERE/claude-html" --doctor 2>&1; }
 
 # ── 2. launchers ────────────────────────────────────────────────────
 echo "launchers"
@@ -530,7 +537,7 @@ echo "handler"
 # A copy of the handler beside a stand-in command, so what it would ask the
 # command to do is written down instead of done.
 HD="$T/handler"; mkdir -p "$HD/linux" "$HD/lib"
-cp "$HERE/linux/handler.sh" "$HD/linux/"; cp "$HERE/lib/platform.sh" "$HD/lib/"
+cp "$HERE/linux/handler.sh" "$HD/linux/"; cp "$HERE/lib/platform.sh" "$HERE/lib/common.sh" "$HD/lib/"
 cat > "$HD/claude-html" <<'SH'
 #!/bin/sh
 { printf 'cli'; for a in "$@"; do printf ' [%s]' "$a"; done; echo; } >> "$STUB_LOG"
@@ -753,7 +760,7 @@ mkdir -p "$T/odd dir"; printf 'x' > "$T/odd dir/a b%c ü.txt"
 spec_trash() {
   HOME="$H" XDG_DATA_HOME="${2:-$H/.local/share}" node -e '
     var src = require("fs").readFileSync(process.argv[1], "utf8");
-    var platform = new Function("require", "process", src + "\nreturn platform;")(require, process);
+    var platform = new Function("require", "process", "__dirname", src + "\nreturn platform;")(require, process, require("path").dirname(process.argv[1]));
     process.stdout.write(String(platform().trash(process.argv[2], "spec")));' "$HERE/actions/delete.js" "$1" 2>&1
 }
 spec_trash "$T/odd dir/a b%c ü.txt" > "$T/r"
@@ -785,19 +792,23 @@ check "headless, unconfirmed: nothing moves" \
 
 # ── 8. registering the handler ───────────────────────────────────────
 echo "register"
-reg() { inenv ubuntu XDG_DATA_HOME="$T/xdg" XDG_CONFIG_HOME="$T/xdgc" sh -c '. "$1/lib/platform.sh"; ch_detect; '"$1" sh "$HERE"; }
+# As the link handler runs: under sh, which is dash on Debian and Ubuntu. dash
+# where it is here (macOS has it at /bin/dash), so this machine sees what CI
+# would; sh knows the clone only from HERE, as the handler sets it.
+SH="$(command -v dash 2>/dev/null || echo sh)"
+reg() { inenv ubuntu XDG_DATA_HOME="$T/xdg" XDG_CONFIG_HOME="$T/xdgc" "$SH" -c 'HERE="$1"; . "$1/lib/platform.sh"; ch_detect; '"$1" sh "$HERE"; }
 clearlog ubuntu
 check "CLAUDE_HTML_NO_REGISTER is honoured" "$(reg 'ch_register_handler "$1"')" \
   "not registered: CLAUDE_HTML_NO_REGISTER is set"
 check "a handler in a temp folder is refused" \
-  "$(inenv ubuntu sh -c '. "$1/lib/platform.sh"; ch_detect; unset CLAUDE_HTML_NO_REGISTER CLAUDE_HTML_TEMP_DIRS; ch_register_handler /tmp/x' sh "$HERE")" \
+  "$(inenv ubuntu "$SH" -c 'HERE="$1"; . "$1/lib/platform.sh"; ch_detect; unset CLAUDE_HTML_NO_REGISTER CLAUDE_HTML_TEMP_DIRS; ch_register_handler /tmp/x' sh "$HERE")" \
   "not registered: /tmp/x is a temporary folder"
 check "  and so is one in a folder CLAUDE_HTML_TEMP_DIRS names" \
-  "$(inenv ubuntu sh -c '. "$1/lib/platform.sh"; ch_detect; unset CLAUDE_HTML_NO_REGISTER; ch_register_handler "$2/x"' sh "$HERE" "$TEMPS")" \
+  "$(inenv ubuntu "$SH" -c 'HERE="$1"; . "$1/lib/platform.sh"; ch_detect; unset CLAUDE_HTML_NO_REGISTER; ch_register_handler "$2/x"' sh "$HERE" "$TEMPS")" \
   "not registered: $TEMPS/x is a temporary folder"
 check "  which then replaces the built-in list" \
-  "$(inenv ubuntu sh -c '. "$1/lib/platform.sh"; ch_is_temp /tmp/x && echo temp || echo kept' sh "$HERE")" kept
-regok() { inenv ubuntu XDG_DATA_HOME="$T/xdg" XDG_CONFIG_HOME="$T/xdgc" sh -c '. "$1/lib/platform.sh"; ch_detect; unset CLAUDE_HTML_NO_REGISTER; '"$1" sh "$HERE"; }
+  "$(inenv ubuntu "$SH" -c 'HERE="$1"; . "$1/lib/platform.sh"; ch_is_temp /tmp/x && echo temp || echo kept' sh "$HERE")" kept
+regok() { inenv ubuntu XDG_DATA_HOME="$T/xdg" XDG_CONFIG_HOME="$T/xdgc" "$SH" -c 'HERE="$1"; . "$1/lib/platform.sh"; ch_detect; unset CLAUDE_HTML_NO_REGISTER; '"$1" sh "$HERE"; }
 # The clone itself is the one place that is not temporary; everything this
 # writes still goes into the fake XDG folders, and xdg-mime is a stand-in.
 check "registering writes the handler" "$(regok 'ch_register_handler "$1"')" \
@@ -817,7 +828,7 @@ check "  and only our line from mimeapps.list" "$(cat "$T/xdgc/mimeapps.list")" 
   "$(printf '[Default Applications]\ntext/html=firefox.desktop')"
 P2="$T/a \"clone\" \$x \`y\` back\\slash 100%"
 check "an awkward clone path survives Exec quoting" \
-  "$(inenv ubuntu sh -c '. "$1/lib/platform.sh"; printf "[Desktop Entry]\nType=Application\nName=x\nExec=%s %%u\n" "$(ch_desktop_arg "$2/linux/handler.sh")"' sh "$HERE" "$P2" > "$T/p2.desktop"; desk "$T/p2.desktop" argv)" \
+  "$(inenv ubuntu "$SH" -c 'HERE="$1"; . "$1/lib/platform.sh"; printf "[Desktop Entry]\nType=Application\nName=x\nExec=%s %%u\n" "$(ch_desktop_arg "$2/linux/handler.sh")"' sh "$HERE" "$P2" > "$T/p2.desktop"; desk "$T/p2.desktop" argv)" \
   "$(node -e 'console.log(JSON.stringify([process.argv[1] + "/linux/handler.sh", "%u"]))' "$P2")"
 
 # install.sh on a fake Ubuntu: registers, and the pages then offer actions.
@@ -832,5 +843,4 @@ inenv headless HOME="$H2" sh -c 'unset CLAUDE_HTML_NO_REGISTER; exec bash "$1/in
 check "install.sh headless says why there are no links" "$(grep -c 'links:    not registered: unavailable: no display' "$T/install3.out")" 1
 
 echo
-echo "  $pass passed, $fail failed"
-[ "$fail" -eq 0 ]
+verdict

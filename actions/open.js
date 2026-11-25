@@ -225,7 +225,7 @@ function platform() {
     }
     return "";
   };
-  var stat = function (p) { try { return nfs.statSync(p); } catch (e) { return null; } };
+  var F = require(__dirname + "/../build/fs.js")(nfs);
   var OPENERS = {
     "xdg-open": function (w) { return ["xdg-open", [w]]; },
     gio: function (w) { return ["gio", ["open", w]]; },
@@ -238,13 +238,14 @@ function platform() {
     sh: sh,
     lsof: which("lsof", ["/usr/sbin", "/sbin"]),
     curl: which("curl"),
-    exists: function (p) { return !!stat(p); },
-    read: function (p) { try { return nfs.readFileSync(p, "utf8"); } catch (e) { return null; } },
+    exists: F.exists,
+    read: F.read,
     write: function (p, text) {
       try { nfs.writeFileSync(p, text, "utf8"); return true; } catch (e) { return false; }
     },
-    isDir: function (p) { var st = stat(p); return !!st && st.isDirectory(); },
-    isFile: function (p) { var st = stat(p); return !!st && st.isFile(); },
+    isDir: F.isDir,
+    isFile: F.isFile,
+    // As readdir gives them, not sorted: the order is not this one's to change.
     list: function (d) { try { return nfs.readdirSync(d); } catch (e) { return []; } },
     real: function (p) {
       try { return nfs.realpathSync(p).replace(/\/+$/, ""); } catch (e) { return p; }

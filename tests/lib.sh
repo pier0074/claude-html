@@ -9,6 +9,11 @@
 #   size_of file            bytes, from either stat
 #   mtime_of file           whole seconds, from either stat
 #   need_osascript          end a macOS-only suite as a clean skip
+#   check name got want     one check, counted in pass and fail
+#   check_long …            the same, a failure's two values on lines of their own
+#   has / hasnt name text t whether the text holds t
+#   gitx …                  git in the sandbox's home ($H), nothing of the machine's
+#   verdict                 the count, as run-all.sh reads it; fails on a failure
 
 # CLAUDE_HTML_FORCE_NODE=1 pretends osascript is not there, so the Linux
 # code paths, and node doing the data work, can be exercised on a Mac. The GNU userland it cannot fake is
@@ -105,4 +110,35 @@ doctor_layout() {
       if (!NR) err = "nothing at all"
       print err ? err : "ok"
     }'
+}
+
+# ── the checks ───────────────────────────────────────────────────────
+pass=0; fail=0
+check() {
+  if [ "$2" = "$3" ]; then pass=$((pass + 1)); printf '  ok    %s\n' "$1"
+  else fail=$((fail + 1)); printf '  FAIL  %s (expected %s, got %s)\n' "$1" "$3" "$2"; fi
+}
+# For values long or many-lined: a suite that has them sets
+#   check() { check_long "$@"; }
+check_long() {
+  if [ "$2" = "$3" ]; then pass=$((pass + 1)); printf '  ok    %s\n' "$1"
+  else fail=$((fail + 1)); printf '  FAIL  %s\n        expected: %s\n        got:      %s\n' "$1" "$3" "$2"; fi
+}
+# Whether a text holds a string. (A few suites have a has of their own, for
+# a file, defined after this.)
+has() {   # name, text, what it must hold
+  case "$2" in *"$3"*) pass=$((pass + 1)); printf '  ok    %s\n' "$1" ;;
+    *) fail=$((fail + 1)); printf '  FAIL  %s (no "%s" in: %s)\n' "$1" "$3" "$2" ;; esac
+}
+hasnt() {
+  case "$2" in *"$3"*) fail=$((fail + 1)); printf '  FAIL  %s ("%s" in: %s)\n' "$1" "$3" "$2" ;;
+    *) pass=$((pass + 1)); printf '  ok    %s\n' "$1" ;; esac
+}
+# git with the sandbox's home ($H, read when it is run) for its config.
+gitx() { HOME="$H" XDG_CONFIG_HOME="$H/.config" git -c user.name=tester -c user.email=tester@example.invalid \
+           -c init.defaultBranch=main -c advice.detachedHead=false "$@"; }
+# The suite's last line, which run-all.sh reads, and its status.
+verdict() {
+  echo "  $pass passed, $fail failed"
+  [ "$fail" -eq 0 ]
 }

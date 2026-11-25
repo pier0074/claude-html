@@ -149,8 +149,8 @@ function claudeHtmlSettings(tsv, parseReset) {
     return out.join("\n");
   }
 
-  return { list: list, groups: groups, byKey: byKey, check: check, waitSecs: waitSecs,
-           linkFor: linkFor, commandFor: commandFor, MAX: MAX };
+  return { list: list, groups: groups, byKey: byKey, check: check,
+           linkFor: linkFor, commandFor: commandFor };
 }
 
 if (typeof module !== "undefined" && module.exports) module.exports = claudeHtmlSettings;

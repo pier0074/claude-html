@@ -16,19 +16,6 @@ set -u
 . "$(dirname "$0")/lib.sh"
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
-pass=0; fail=0
-check() {
-  if [ "$2" = "$3" ]; then pass=$((pass + 1)); printf '  ok    %s\n' "$1"
-  else fail=$((fail + 1)); printf '  FAIL  %s (expected %s, got %s)\n' "$1" "$3" "$2"; fi
-}
-has() {   # name, text, what it must hold
-  case "$2" in *"$3"*) pass=$((pass + 1)); printf '  ok    %s\n' "$1" ;;
-    *) fail=$((fail + 1)); printf '  FAIL  %s (no "%s" in: %s)\n' "$1" "$3" "$2" ;; esac
-}
-hasnt() {
-  case "$2" in *"$3"*) fail=$((fail + 1)); printf '  FAIL  %s ("%s" in: %s)\n' "$1" "$3" "$2" ;;
-    *) pass=$((pass + 1)); printf '  ok    %s\n' "$1" ;; esac
-}
 T="$(cd "$(tmpdir chupdate)" && pwd -P)"
 SLEEPERS=""
 trap 'for p in $SLEEPERS; do kill "$p" 2>/dev/null; done; rm -rf "$T"' EXIT
@@ -39,8 +26,6 @@ printf '# a comment of the owner\nCLAUDE_HTML_WEEK_RESET="tue 09:00"\n' > "$CONF
 
 # git with nothing of the machine's own configuration in it.
 export GIT_CONFIG_NOSYSTEM=1
-gitx() { HOME="$H" XDG_CONFIG_HOME="$H/.config" git -c user.name=tester -c user.email=tester@example.invalid \
-           -c init.defaultBranch=main -c advice.detachedHead=false "$@"; }
 
 # ── the release repository ───────────────────────────────────────────
 # A release's tree: this one's files, its own VERSION and changelog, and a
@@ -167,8 +152,11 @@ printf '{"type":"user","cwd":"%s","timestamp":"2026-11-20T10:00:00Z","message":{
   "$PROJ/app" "$PROJ/app" > "$H/.claude/projects/$D/$ID.jsonl"
 build() { (cd / && run bash "$INST/claude-html" "$ID" </dev/null 2>&1); }
 # Saves detached by a test finish before the next step.
+# A detached save is already a process when the one that started it
+# returns (save-conversation.sh starts it with nohup before it ends), so
+# there is nothing to wait for before looking.
 settle() {
-  local i; sleep 0.3
+  local i
   for i in $(seq 1 300); do
     ps ax -o command= 2>/dev/null | grep -F "$INST/save-conversation.sh" | grep -qv grep || return 0
     sleep 0.1
@@ -547,5 +535,4 @@ check "--config set AUTO_UPDATE=on: one line in the conf" "$(grep -c '^CLAUDE_HT
 ch --config unset AUTO_UPDATE >/dev/null
 
 echo
-echo "  $pass passed, $fail failed"
-[ "$fail" = 0 ]
+verdict

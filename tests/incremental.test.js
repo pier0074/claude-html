@@ -19,12 +19,7 @@ var HERE = path.resolve(__dirname, "..");
 var args = process.argv.slice(2);
 var ENGINE = args.indexOf("--engine") > -1 ? args[args.indexOf("--engine") + 1] : "node";
 var QUICK = args.indexOf("--quick") > -1;
-var pass = 0, fail = 0;
-function check(name, ok, detail) {
-  if (ok) { pass++; return; }
-  fail++;
-  console.log("  FAIL  " + name + (detail ? "\n        " + detail : ""));
-}
+var check = require("./lib.js").check;
 
 var T = fs.mkdtempSync(path.join(fs.realpathSync(process.env.TMPDIR || os.tmpdir()), "chincr."));
 process.on("exit", function () { try { fs.rmSync(T, { recursive: true, force: true }); } catch (e) {} });
@@ -692,5 +687,4 @@ if (ENGINE === "osascript") {
         r + " / " + fs.readFileSync(file, "utf8").slice(0, 80));
 })();
 
-console.log("  " + ENGINE + ": " + chosen.length + " split points; " + pass + " passed, " + fail + " failed");
-process.exitCode = fail ? 1 : 0;
+require("./lib.js").done(ENGINE + ": " + chosen.length + " split points; ");

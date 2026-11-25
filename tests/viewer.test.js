@@ -5,11 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const CH = require("../viewer/viewer.js");
 
-let ran = 0, failed = [];
-function test(name, fn) {
-  ran++;
-  try { fn(); } catch (e) { failed.push([name, e.message]); }
-}
+const { test } = require("./lib.js");
 
 // ── prose ────────────────────────────────────────────────────────────
 test("inline code and bold survive escaping", () => {
@@ -623,6 +619,7 @@ test("short drops the cents from ten dollars, for a narrow column", () => {
 });
 
 // ── report ───────────────────────────────────────────────────────────
+const { ran, failed } = require("./lib.js").tests();
 if (failed.length) {
   failed.forEach(([n, m]) => console.log(`  FAIL  ${n}\n        ${m}`));
   console.log(`\n  ${ran - failed.length}/${ran} passed, ${failed.length} failed`);

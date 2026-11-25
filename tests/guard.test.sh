@@ -10,11 +10,6 @@ set -u
 . "$(dirname "$0")/lib.sh"
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
-pass=0; fail=0
-check() {
-  if [ "$2" = "$3" ]; then pass=$((pass + 1)); printf '  ok    %s\n' "$1"
-  else fail=$((fail + 1)); printf '  FAIL  %s (expected %s, got %s)\n' "$1" "$3" "$2"; fi
-}
 T="$(mktemp -d /tmp/chredact-guard.XXXXXX)"; T="$(cd "$T" && pwd -P)"
 trap 'rm -rf "$T"' EXIT
 node "$HERE/tests/guard.test.js" fixture "$T"
@@ -91,34 +86,55 @@ check "  an own /regex/: every prompt goes to the rules" \
   "$([ -e "$H/.claude/.claude-html.guard-engine" ] && echo engine || echo none)" engine
 reset
 
+# Each case's prompt and command as the notes the hook is handed, written
+# once for both engines.
+mkdir -p "$T/case"
+node -e 'var fs=require("fs"), d=process.argv[2];
+  fs.readFileSync(process.argv[1],"utf8").split("\n").filter(Boolean).forEach(function (l, i) {
+    var o=JSON.parse(l); fs.writeFileSync(d+"/"+(i+1)+".p.json", JSON.stringify(o.prompt));
+    fs.writeFileSync(d+"/"+(i+1)+".b.json", JSON.stringify(o.bash)); });' "$T/cases.jsonl" "$T/case"
+NCASES="$(grep -c . "$T/cases.jsonl")"
 for ENG in $ENGINES; do
   reset
   # ── every rule it is sure of, as a prompt and as a command ──────────
-  n=0; np=0; nb=0; nl=0; nt=0; npl=0; nbl=0
-  while IFS= read -r line; do
-    n=$((n + 1))
-    printf '%s' "$line" | node -e 'var o=JSON.parse(require("fs").readFileSync(0,"utf8"));
-      require("fs").writeFileSync(process.argv[1]+"/p.json", JSON.stringify(o.prompt));
-      require("fs").writeFileSync(process.argv[1]+"/b.json", JSON.stringify(o.bash));' "$T"
-    rm -f "$STATE"
-    R="$(hook prompt "$T/p.json")"
-    [ "$(blocked "$R")" = blocked ] && np=$((np + 1))
-    case "$R" in *"Nothing was sent. Retype it without it"*"cancel  do not send"*) nl=$((nl + 1)) ;; esac
-    rm -f "$STATE"
-    B="$(hook bash "$T/b.json")"
-    case "$B" in *'"permissionDecision":"ask"'*) nb=$((nb + 1)) ;; esac
-    # The reason Claude reads: how to speak of the command, and the command
-    # masked, its value as ***; never a probe, there or in a prompt's block.
-    case "$B" in *"write each sensitive value as *** — never the value itself. The command, masked: "*'***'*) nt=$((nt + 1)) ;; esac
-    printf '%s' "$R" | grep -qF -f "$T/probes.txt" && npl=$((npl + 1))
-    printf '%s' "$B" | grep -qF -f "$T/probes.txt" && nbl=$((nbl + 1))
-  done < "$T/cases.jsonl"
+  # In four workers side by side, each in a home of its own (its own
+  # pending state, conf, list and log), taking every fourth case: each
+  # case is asked alone, as before, and every home is searched after.
+  for k in 1 2 3 4; do
+    ( H="$T/w$k/home"; LOG="$T/w$k/log"; mkdir -p "$H/.claude"; : > "$LOG"
+      LIST="$H/.claude/claude-html.redact"; CONFF="$H/.claude/claude-html.conf"; STATE="$H/.claude/.claude-html-guard/sess-1"
+      reset
+      i=$k; np=0; nb=0; nl=0; nt=0; npl=0; nbl=0
+      while [ "$i" -le "$NCASES" ]; do
+        rm -f "$STATE"
+        R="$(hook prompt "$T/case/$i.p.json")"
+        [ "$(blocked "$R")" = blocked ] && np=$((np + 1))
+        case "$R" in *"Nothing was sent. Retype it without it"*"cancel  do not send"*) nl=$((nl + 1)) ;; esac
+        rm -f "$STATE"
+        B="$(hook bash "$T/case/$i.b.json")"
+        case "$B" in *'"permissionDecision":"ask"'*) nb=$((nb + 1)) ;; esac
+        # The reason Claude reads: how to speak of the command, and the command
+        # masked, its value as ***; never a probe, there or in a prompt's block.
+        case "$B" in *"write each sensitive value as *** — never the value itself. The command, masked: "*'***'*) nt=$((nt + 1)) ;; esac
+        printf '%s' "$R" | grep -qF -f "$T/probes.txt" && npl=$((npl + 1))
+        printf '%s' "$B" | grep -qF -f "$T/probes.txt" && nbl=$((nbl + 1))
+        i=$((i + 4))
+      done
+      echo "$np $nb $nl $nt $npl $nbl $(leaks)" > "$T/w$k/counts" ) &
+  done
+  wait
+  n="$NCASES"; np=0; nb=0; nl=0; nt=0; npl=0; nbl=0; nk=0
+  for k in 1 2 3 4; do
+    read -r a1 a2 a3 a4 a5 a6 a7 < "$T/w$k/counts" || { a1=0 a2=0 a3=0 a4=0 a5=0 a6=0 a7=99; }
+    np=$((np + a1)); nb=$((nb + a2)); nl=$((nl + a3)); nt=$((nt + a4)); npl=$((npl + a5)); nbl=$((nbl + a6)); nk=$((nk + a7))
+  done
+  rm -rf "$T"/w[1-4]
   check "$ENG:   telling Claude to write each value as ***, and giving it the command masked" "$nt" "$n"
   check "$ENG:   the prompt's block never holds the prompt's secret, the command's reason never the command's" "$npl $nbl" "0 0"
   check "$ENG: each of $n secrets of the rules it is sure of stops the prompt" "$np" "$n"
   check "$ENG:   with the message and its four answers" "$nl" "$n"
   check "$ENG:   and asks before the command runs" "$nb" "$n"
-  check "$ENG:   and nothing printed or kept holds one" "$(leaks)" 0
+  check "$ENG:   and nothing printed or kept holds one" "$nk $(leaks)" "0 0"
 
   reset
   check "$ENG: a clean prompt passes, saying nothing" "$(hook prompt "$T/note.clean")" ""
@@ -235,7 +251,7 @@ for ENG in $ENGINES; do
   # ── it fails open, quietly ─────────────────────────────────────────
   reset
   mkdir -p "$T/broken/lib" "$T/broken/actions" "$T/broken/build"; cp "$HERE"/guard.sh "$T/broken/"
-  cp "$HERE"/lib/conf.sh "$HERE"/lib/platform.sh "$T/broken/lib/"; cp "$HERE"/actions/guard.js "$T/broken/actions/"
+  cp "$HERE"/lib/common.sh "$HERE"/lib/conf.sh "$HERE"/lib/platform.sh "$T/broken/lib/"; cp "$HERE"/actions/guard.js "$T/broken/actions/"; cp "$HERE"/build/fs.js "$T/broken/build/"
   printf 'syntax error (' > "$T/broken/build/redact.js"
   R="$(env HOME="$H" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_REDACT_FILE="$LIST" CLAUDE_HTML_ENGINE="$ENG" \
        CLAUDE_HTML_GUARD_DIALOG=off /bin/bash "$T/broken/guard.sh" prompt < "$T/note.secret" 2>&1; echo "exit $?")"
@@ -768,5 +784,4 @@ node "$HERE/actions/settings-hooks.js" "$S" "$HERE" remove >/dev/null
 check "uninstall removes only its own" "$(grep -c 'guard.sh\|save-conversation' "$S") $(grep -c 'theirs.sh' "$S")" "0 1"
 
 echo
-echo "  $pass passed, $fail failed"
-[ "$fail" -eq 0 ]
+verdict

@@ -26,6 +26,14 @@
 #   CH_TRASH       gio | kioclient | kioclient5 | trash-put | spec | finder
 #   CH_DIALOG      zenity | kdialog | yad | xmessage | osascript | terminal | none
 
+# ch_is_off, ch_with_limit and the rest every lib file shares, beside this
+# file: bash knows where that is, sh is told by HERE (the link handler's).
+if [ -n "${BASH_VERSION:-}" ]; then
+  eval 'case "${BASH_SOURCE[0]}" in */*) _ch_lib="${BASH_SOURCE[0]%/*}" ;; *) _ch_lib=. ;; esac'
+else _ch_lib="$HERE/lib"; fi
+# shellcheck source=lib/common.sh
+. "$_ch_lib/common.sh"
+
 ch_have() { command -v "$1" >/dev/null 2>&1; }
 
 # The first of its arguments that is a command here.
@@ -262,25 +270,19 @@ CH_NODE_PROBE_LIMIT="${CH_NODE_PROBE_LIMIT:-5}"
 # node, run from / and not from the project, so a version manager cannot
 # pick a node by the project's files, and told not to fetch one either.
 # Every path handed to it is a full one.
-ch_node_run() {
-  (cd / && VOLTA_BYPASS=1 MISE_NOT_FOUND_AUTO_INSTALL=false exec "$@")
-}
+ch_node_run() { (ch_node_exec "$@"); }
+# The same, in place of the shell it is called in: only in a subshell, or
+# as a command started in the background (ch_with_limit's).
+ch_node_exec() { cd / && VOLTA_BYPASS=1 MISE_NOT_FOUND_AUTO_INSTALL=false exec "$@"; }
 
 # Asked to run, not only found: a node that cannot start, or one too old for
-# the code, is not one. Prints its version when it will do. macOS has no
-# timeout command, so a watcher in the background stops one that hangs.
+# the code, is not one. Prints its version when it will do; one that hangs
+# is stopped after CH_NODE_PROBE_LIMIT seconds.
 ch_node_version() {
   [ -n "$1" ] && [ -x "$1" ] || return 1
-  (cd / && VOLTA_BYPASS=1 MISE_NOT_FOUND_AUTO_INSTALL=false exec "$1" -e \
+  ch_with_limit "$CH_NODE_PROBE_LIMIT" ch_node_exec "$1" -e \
     'if (typeof require("fs").rmSync !== "function") process.exit(3);
-    process.stdout.write(process.versions.node)') 2>/dev/null &
-  _pid=$!
-  ( _n=0
-    while [ "$_n" -lt $((CH_NODE_PROBE_LIMIT * 10)) ]; do
-      sleep 0.1; kill -0 "$_pid" 2>/dev/null || exit 0; _n=$((_n + 1))
-    done
-    kill "$_pid" ) >/dev/null 2>&1 &
-  wait "$_pid"
+    process.stdout.write(process.versions.node)' 2>/dev/null
 }
 
 # A version manager's stand-in for node, which picks a version by the folder
@@ -443,10 +445,7 @@ ch_md5() {
   elif [ -x /sbin/md5 ]; then /sbin/md5 -q "$1" 2>/dev/null
   else md5 -q "$1" 2>/dev/null; fi
 }
-ch_redact_off() {
-  case "$(ch_lower "${CLAUDE_HTML_REDACT:-}")" in off|0|no|false) return 0 ;; esac
-  return 1
-}
+ch_redact_off() { ch_is_off "${CLAUDE_HTML_REDACT:-}"; }
 ch_redact_sig() {
   if ch_redact_off; then printf off; return 0; fi
   printf 'on:%s:%s' "$(ch_md5 "$1/build/redact.js")" "$(ch_md5 "${CLAUDE_HTML_REDACT_FILE:-$HOME/.claude/claude-html.redact}")"
@@ -457,7 +456,7 @@ ch_redact_sig() {
 # session over ssh, and not switched off with CLAUDE_HTML_GUARD_DIALOG=off.
 # Call after ch_detect.
 ch_can_ask() {
-  case "$(ch_lower "${CLAUDE_HTML_GUARD_DIALOG:-on}")" in off|0|no|false) return 1 ;; esac
+  ! ch_is_off "${CLAUDE_HTML_GUARD_DIALOG:-on}" || return 1
   [ -z "${SSH_CONNECTION:-}${SSH_TTY:-}" ] || return 1
   case "$CH_DIALOG" in
     osascript)
@@ -669,21 +668,12 @@ ch_dialog_wait() {
   ch_screen_off window "$@" && return 1
   [ "$CH_DIALOG" = osascript ] && _lim=$((_lim + 5))
   _dir="$(mktemp -d "${TMPDIR:-/tmp}/chguard.XXXXXX")" || return 1
-  _out="$_dir/answer"; _late="$_dir/late"
-  "$@" >"$_out" 2>/dev/null &
-  _pid=$!
-  # Past the limit it is closed, and that is noted, so the answer is known
-  # to be "nobody", not "Cancel".
-  ( _n=0
-    while [ "$_n" -lt $((_lim * 10)) ]; do
-      sleep 0.1; kill -0 "$_pid" 2>/dev/null || exit 0; _n=$((_n + 1))
-    done
-    : > "$_late"; kill "$_pid" ) >/dev/null 2>&1 &
-  _watch=$!
-  wait "$_pid"; _rc=$?
-  wait "$_watch" 2>/dev/null
+  _out="$_dir/answer"
+  # Past the limit it is closed, and that is known, so the answer is
+  # "nobody", not "Cancel".
+  ch_with_limit "$_lim" "$@" >"$_out" 2>/dev/null; _rc=$?
   _ans="$(tr -d '\n' < "$_out")"
-  [ -f "$_late" ] && _ans=timeout
+  [ -n "$CH_LIMIT_HIT" ] && _ans=timeout
   rm -rf "$_dir"
   return 0
 }
@@ -764,7 +754,7 @@ ch_confirm() {
   _text="$1
 $2
 
-$(printf '%s\n' "$3" | awk -F'\t' '{ if ($1 != "") printf "%s  %s\n", $1, $2; else printf "      %s\n", $2 }')
+$(printf '%s\n' "$3" | awk -F'\t' '$0 == "" { next } { if ($1 != "") printf "%s  %s\n", $1, $2; else printf "      %s\n", $2 }')
 "
   [ -n "$_box" ] && _text="$_text
 Written to the file:

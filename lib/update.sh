@@ -39,23 +39,6 @@ g() { git -C "$HERE" "$@"; }
 TAGRE='^v[0-9]+\.[0-9]+\.[0-9]+$'
 CLONE_HINT="git clone $CH_RELEASE_URL ~/claude-html && cd ~/claude-html && ./install.sh"
 
-# Runs a command for at most $1 seconds. macOS has no timeout command, so a
-# watcher in the background stops it, as platform.sh does for the node probe.
-with_limit() {
-  local secs="$1" pid w rc; shift
-  "$@" &
-  pid=$!
-  ( _n=0
-    while [ "$_n" -lt $((secs * 10)) ]; do
-      sleep 0.1; kill -0 "$pid" 2>/dev/null || exit 0; _n=$((_n + 1))
-    done
-    kill "$pid" ) >/dev/null 2>&1 &
-  w=$!
-  wait "$pid"; rc=$?
-  kill "$w" 2>/dev/null; wait "$w" 2>/dev/null
-  return "$rc"
-}
-
 # A repository's address as something two spellings of it agree on: the
 # https, ssh and scp forms of one GitHub repository, with or without .git,
 # are the same; a local path is its physical path.
@@ -140,7 +123,7 @@ release_list() { printf '%s' "$RELEASES" | awk '{ print $1 }' | tr '\n' ' ' | se
 fetch_releases() {
   local err
   err="$(mktemp "${TMPDIR:-/tmp}/claude-html-fetch.XXXXXX")"
-  if ! with_limit 60 git -C "$HERE" -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=20 \
+  if ! ch_with_limit 60 git -C "$HERE" -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=20 \
        fetch --quiet --tags --no-recurse-submodules "$R" "+refs/heads/main:refs/remotes/$R/main" \
        </dev/null >/dev/null 2>"$err"; then
     echo "could not reach the releases ($(g config --get "remote.$R.url")): $(head -c 200 "$err" | tr '\n' ' ' | sed 's/ *$//')" >&2
@@ -181,7 +164,7 @@ archive_format() {
 
 # The state the daily check keeps, brought up to date from a fetch made by hand.
 remember_newest() {
-  ch_update_setting; ch_update_is_off "$CH_UP_SETTING" && return 0
+  ch_update_setting; ch_is_off "$CH_UP_SETTING" && return 0
   ch_update_read
   CH_UP_CHECKED="$(date +%s)"; CH_UP_NEWEST="$NEWEST"; CH_UP_HERE="$HERE"
   ch_update_write
@@ -192,14 +175,14 @@ ENVSPEC="unset"
 check_line() {
   local conf_v env_v
   conf_v="$(unset CLAUDE_HTML_UPDATE_CHECK; ch_update_setting; printf '%s' "$CH_UP_SETTING")"
-  if ch_update_is_off "$conf_v"; then printf 'the daily check is off'; else printf 'the daily check is on'; fi
+  if ch_is_off "$conf_v"; then printf 'the daily check is off'; else printf 'the daily check is on'; fi
   case "$ENVSPEC" in
     set:*)
       env_v="${ENVSPEC#set:}"
-      if { ch_update_is_off "$env_v" && ! ch_update_is_off "$conf_v"; } ||
-         { ! ch_update_is_off "$env_v" && ch_update_is_off "$conf_v"; }; then
+      if { ch_is_off "$env_v" && ! ch_is_off "$conf_v"; } ||
+         { ! ch_is_off "$env_v" && ch_is_off "$conf_v"; }; then
         printf ' in the conf, but CLAUDE_HTML_UPDATE_CHECK=%s in the environment wins: it is %s here' \
-          "$env_v" "$(ch_update_is_off "$env_v" && echo off || echo on)"
+          "$env_v" "$(ch_is_off "$env_v" && echo off || echo on)"
       fi ;;
   esac
 }
@@ -219,7 +202,7 @@ last_line() {
 # checkout; what it learns goes into the state, so nothing else ever needs
 # the network.
 daily() {
-  ch_update_setting; ch_update_is_off "$CH_UP_SETTING" && return 0
+  ch_update_setting; ch_is_off "$CH_UP_SETTING" && return 0
   ch_update_read
   local now; now="$(date +%s)"
   if [ "$CH_UP_HERE" = "$HERE" ] && [ $((now - ${CH_UP_CHECKED:-0})) -lt 86400 ] &&
@@ -240,7 +223,7 @@ daily() {
   # at main's last commit, or at a commit already here and on main; a tag
   # elsewhere, or at a commit not here, is no release to tell about.
   local c tip=""
-  if with_limit 5 git -C "$HERE" -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=5 \
+  if ch_with_limit 5 git -C "$HERE" -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=5 \
        ls-remote "$R" </dev/null >"$out" 2>/dev/null; then
     tip="$(awk '$2 == "refs/heads/main" { print $1; exit }' "$out")"
     # The commit a tag names: the peeled line of an annotated one wins.
@@ -277,7 +260,7 @@ doctor_line() {
     esac
     return
   fi
-  if ch_update_is_off "$CH_UP_SETTING"; then printf '%s · checks off\n' "$INSTALLED"; return; fi
+  if ch_is_off "$CH_UP_SETTING"; then printf '%s · checks off\n' "$INSTALLED"; return; fi
   ch_update_read
   local newest="$INSTALLED"
   [ "$CH_UP_HERE" = "$HERE" ] && [ -n "$CH_UP_NEWEST" ] && newest="$CH_UP_NEWEST"
@@ -307,7 +290,7 @@ at_release() {
   return 1
 }
 auto_due() {
-  ch_update_setting; ch_update_is_off "$CH_UP_SETTING" && return 1
+  ch_update_setting; ch_is_off "$CH_UP_SETTING" && return 1
   ch_update_auto_on || return 1
   ch_update_read || return 1
   [ "$CH_UP_HERE" = "$HERE" ] && [ -n "$CH_UP_NEWEST" ] && ch_ver_gt "$CH_UP_NEWEST" "$INSTALLED" || return 1
@@ -326,7 +309,7 @@ auto_maybe() {
   auto_due || return 0
   local tmp
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/claude-html-autoupdate.XXXXXX")" || return 0
-  cp "$SELF/update.sh" "$SELF/version.sh" "$SELF/lock.sh" "$tmp/" 2>/dev/null || { rm -rf "$tmp"; return 0; }
+  cp "$SELF/update.sh" "$SELF/version.sh" "$SELF/common.sh" "$SELF/lock.sh" "$tmp/" 2>/dev/null || { rm -rf "$tmp"; return 0; }
   # Its own session, its output to a log, nothing on a terminal.
   CH_AUTO_TMP="$tmp" nohup "${BASH:-bash}" "$tmp/update.sh" "$HERE" --auto </dev/null >/dev/null 2>&1 &
   return 0

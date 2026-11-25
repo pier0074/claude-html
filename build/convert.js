@@ -193,12 +193,12 @@ function run(argv) {
     // and saying otherwise hides delete and open buttons that would work.
     MAC = process.platform === "darwin";
     var nfs = require("fs"), npath = require("path");
-    var stat = function (p) { try { return nfs.statSync(p); } catch (e) { return null; } };
+    // The helpers the action scripts share (build/fs.js), handed this fs.
+    var F = require((typeof __dirname === "string" ? __dirname : opt.here + "/build") + "/fs.js")(nfs);
+    var stat = F.stat;
     env = function (name) { return process.env[name] || null; };
     defaultHome = function () { return require("os").homedir(); };
-    read = function (path) {
-      try { return nfs.readFileSync(path, "utf8"); } catch (e) { return null; }
-    };
+    read = F.read;
     write = function (path, text) {
       // Atomic for the same reason the JXA side is: a page being read while
       // half written is a broken page, and saves can overlap a build.
@@ -214,9 +214,7 @@ function run(argv) {
         return false;
       }
     };
-    list = function (dir) {
-      try { return nfs.readdirSync(dir).sort(); } catch (e) { return []; }
-    };
+    list = F.list;
     mtime = function (path) {
       var st = stat(path);
       return st ? Math.round(st.mtimeMs / 1000) : 0;
@@ -228,11 +226,8 @@ function run(argv) {
       var st = stat(path);
       return st ? st.size + ":" + Math.floor(st.mtimeMs) : "";
     };
-    isDir = function (path) {
-      var st = stat(path);
-      return !!st && st.isDirectory();
-    };
-    exists = function (path) { return !!stat(path); };
+    isDir = F.isDir;
+    exists = F.exists;
     chmodx = function (path) {
       try { nfs.chmodSync(path, 0o755); } catch (e) {}
     };
@@ -374,7 +369,7 @@ function run(argv) {
     return JSON.stringify({ error: "parse.js is missing from " + HERE + "/build, so nothing was built" });
   }
   var P = new Function(PARSE_SRC + "\nreturn claudeHtmlParse;")()(function () { return RED; });
-  var cap = P.cap, capRed = P.capRed, hashText = P.hashText;
+  var capRed = P.capRed, hashText = P.hashText;
   var cleanUserText = P.cleanUserText, blocksToText = P.blocksToText, messagesOf = P.messagesOf;
   var PEEK_LINES = P.PEEK_LINES, peekLine = P.peekLine, newReplies = P.newReplies, usageLine = P.usageLine;
   var newCost = P.newCost, costLine = P.costLine;

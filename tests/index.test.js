@@ -11,11 +11,7 @@ const V = path.join(__dirname, "..", "viewer");
 const viewerSrc = fs.readFileSync(path.join(V, "viewer.js"), "utf8");
 const indexSrc = fs.readFileSync(path.join(V, "index.js"), "utf8");
 
-let ran = 0, failed = [];
-function test(name, fn) {
-  ran++;
-  try { fn(); } catch (e) { failed.push([name, e.message]); }
-}
+const { test } = require("./lib.js");
 
 function el(id) {
   const cls = new Set(), attrs = {};
@@ -467,9 +463,4 @@ test("the group toggle says which view is on", () => {
   assert.strictEqual(p.get("gdate").attrs["aria-pressed"], "false");
 });
 
-if (failed.length) {
-  failed.forEach(([n, m]) => console.log("FAIL " + n + "\n     " + m));
-  console.log(failed.length + " of " + ran + " failed");
-  process.exit(1);
-}
-console.log(ran + " passed");
+require("./lib.js").report();

@@ -15,11 +15,6 @@ set -u
 . "$(dirname "$0")/lib.sh"
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
-pass=0; fail=0
-check() {
-  if [ "$2" = "$3" ]; then pass=$((pass + 1)); printf '  ok    %s\n' "$1"
-  else fail=$((fail + 1)); printf '  FAIL  %s (expected %s, got %s)\n' "$1" "$3" "$2"; fi
-}
 T="$(cd "$(tmpdir chscreen)" && pwd -P)"
 trap 'rm -rf "$T"' EXIT
 
@@ -91,7 +86,7 @@ check "  without it, shown (a stand-in here)" "$(called)" "notify-send -a claude
 # The link handler, beside a stand-in command that answers as an applied
 # --settings-apply does: the page it names is opened again, by ch_open_file.
 HD="$T/handler"; mkdir -p "$HD/linux" "$HD/lib"
-cp "$HERE/linux/handler.sh" "$HD/linux/"; cp "$HERE/lib/platform.sh" "$HD/lib/"
+cp "$HERE/linux/handler.sh" "$HD/linux/"; cp "$HERE/lib/platform.sh" "$HERE/lib/common.sh" "$HD/lib/"
 printf '#!/bin/sh
 [ "$1" = --settings-apply ] && printf "Applied.\\n%%s\\n" "%s/settings.html"
 exit 0
@@ -150,5 +145,4 @@ check "every env -i in a suite says what becomes of CLAUDE_HTML_NO_SCREEN" \
   "$(grep -nE '^[^#]*env -i ' -- *.sh | grep -v -e 'env -i CLAUDE_HTML_NO_SCREEN=' -e '^screen\.test\.sh:.*check ' | grep -c .)" 0
 
 echo
-echo "  $pass passed, $fail failed"
-[ "$fail" -eq 0 ]
+verdict

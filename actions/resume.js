@@ -52,17 +52,11 @@ function run(argv) {
       return $.CFMakeCollectable(items).js.map(function (x) { return x.js; }).sort();
     };
   } else {
-    var nfs = require("fs");
-    isFile = function (path) {
-      try { return nfs.statSync(path).isFile(); } catch (e) { return false; }
-    };
+    var F = require(__dirname + "/../build/fs.js")(require("fs"));
+    isFile = F.isFile;
     home = function () { return process.env.HOME || require("os").homedir(); };
-    read = function (path) {
-      try { return nfs.readFileSync(path, "utf8"); } catch (e) { return null; }
-    };
-    list = function (dir) {
-      try { return nfs.readdirSync(dir).sort(); } catch (e) { return []; }
-    };
+    read = F.read;
+    list = F.list;
   }
 
   var OUT = String(opt.out || "");

@@ -14,11 +14,7 @@ set -u
 . "$(dirname "$0")/lib.sh"
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
-pass=0; fail=0
-check() {
-  if [ "$2" = "$3" ]; then pass=$((pass + 1)); printf '  ok    %s\n' "$1"
-  else fail=$((fail + 1)); printf '  FAIL  %s\n        expected: %s\n        got:      %s\n' "$1" "$3" "$2"; fi
-}
+check() { check_long "$@"; }
 T="$(cd "$(tmpdir chsettings)" && pwd -P)"
 trap 'rm -rf "$T"' EXIT
 H="$T/home"; mkdir -p "$H/.claude" "$T/stub" "$T/root/proj" "$T/mac" "$T/mtmp"
@@ -197,7 +193,7 @@ list
 
 # ── the link's grammar ───────────────────────────────────────────────
 echo "link"
-lok() { env -i CLAUDE_HTML_NO_SCREEN="$T/shown" PATH="$PATH" HOME="$H" /bin/bash -c 'HERE="$0"; . "$HERE/lib/settings.sh"; ch_set_link_ok "$1" && echo ok || echo no' "$HERE" "$1"; }
+lok() { env -i CLAUDE_HTML_NO_SCREEN="$T/shown" PATH="$PATH" HOME="$H" /bin/bash -c '. "$0/lib/common.sh"; ch_set_link_ok "$1" && echo ok || echo no' "$HERE" "$1"; }
 n=0; m=0
 for p in "v1/none/GUARD=off" "v1/0123456789abcdef/GUARD_WAIT=2m/ENGINE/forget-safe" "v1/none/forget-safe=0123abcd" \
          "v1/none/forget-safe=0123abcd/forget-safe=89abcdef" "v1/none/edit-list" "v1/none/STATUSLINE_ITEMS=five%20ctx/STATUSLINE_WIDTH=80" \
@@ -553,5 +549,4 @@ check "the index was never opened, only noted, each time a build named no sessio
   "$({ [ "${_ni:-0}" -gt 0 ] || [ "$(uname)" != Darwin ]; } && echo noted) ${_no:-0}" "noted 0"
 
 echo
-echo "  $pass passed, $fail failed"
-[ "$fail" -eq 0 ]
+verdict

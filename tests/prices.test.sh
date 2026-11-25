@@ -13,11 +13,6 @@ set -u
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 . "$(dirname "$0")/lib.sh"
-pass=0; fail=0
-check() {
-  if [ "$2" = "$3" ]; then pass=$((pass + 1)); printf '  ok    %s\n' "$1"
-  else fail=$((fail + 1)); printf '  FAIL  %s (expected %s, got %s)\n' "$1" "$3" "$2"; fi
-}
 T="$(cd "$(tmpdir chprices)" && pwd)"
 trap 'rm -rf "$T"' EXIT
 
@@ -382,5 +377,4 @@ check "  and the recorded one where there is one" \
   "$(node "$T/tok.js" "$HERE" "$OUT/sessions/$S2.html")" '["8.0 k tokens","≈ $0.50"]'
 
 echo
-echo "  $pass passed, $fail failed"
-[ "$fail" -eq 0 ]
+verdict

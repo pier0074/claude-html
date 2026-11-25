@@ -488,4 +488,4 @@ function snapshot(win, snap) {
   win.orderOut(null);
 }
 
-if (typeof module !== "undefined" && module.exports) module.exports = { countdown: countdown, plain: plain, options: options };
+if (typeof module !== "undefined" && module.exports) module.exports = { countdown: countdown, options: options };

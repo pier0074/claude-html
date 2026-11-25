@@ -7,12 +7,7 @@
 "use strict";
 var fs = require("fs"), path = require("path");
 var HERE = path.resolve(__dirname, "..");
-var pass = 0, fail = 0;
-function check(name, ok, detail) {
-  if (ok) { pass++; return; }
-  fail++;
-  console.log("  FAIL  " + name + (detail ? "\n        " + detail : ""));
-}
+var check = require("./lib.js").check;
 
 // ── variables ──
 var code = ["claude-html", "mac/helper.applescript", "tests/run-all.sh"]
@@ -156,5 +151,4 @@ check("claude-html --version says it, reading nothing else",
 check("the README's pinned clone names it",
       fs.readFileSync(path.join(HERE, "README.md"), "utf8").indexOf("--branch v" + version) > -1);
 
-console.log("  " + pass + " passed, " + fail + " failed");
-process.exitCode = fail ? 1 : 0;
+require("./lib.js").done();

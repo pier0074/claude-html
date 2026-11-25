@@ -5,6 +5,22 @@ fixes, a minor adds without breaking, a major needs something from you
 (usually `./install.sh` again). To update: `claude-html --update`; before
 3.1.0, `git checkout main && git pull && ./install.sh`.
 
+## 3.8.0 — 2026-11-25
+
+- Linux: the link handler's windows (the delete question, and what it says
+  after) go the way every other window does: closed after the windows' wait
+  (`CLAUDE_HTML_GUARD_WAIT`), Cancel the default, and never shown while the
+  tests run.
+- Pages: the delete and hide buttons are named for screen readers; each of
+  your prompts is a heading to jump between; the search fields show a clear
+  outline when focused; sub-agent turns and older-format tool lines are no
+  longer faded below a readable contrast.
+- Inside: the helpers several scripts each had a copy of are in one place:
+  `lib/common.sh` (the off and on words, reading the conf without running
+  it, a command with a time limit, the links' grammars, a session id) and
+  `build/fs.js` (the node side's file helpers). Code nothing reached is
+  gone. The test suites share their checks (`tests/lib.sh`, `tests/lib.js`),
+  and the guard, Linux and update suites take less time, checking the same.
 ## 3.7.3 — 2026-11-25
 
 - The index's open and resume links act only on a conversation Claude Code

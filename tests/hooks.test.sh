@@ -12,11 +12,6 @@ set -u
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 AF="$(. "$HERE/lib/version.sh"; printf "%s" "$CH_ARCHIVE_FORMAT")"
-pass=0; fail=0
-check() {
-  if [ "$2" = "$3" ]; then pass=$((pass + 1)); printf '  ok    %s\n' "$1"
-  else fail=$((fail + 1)); printf '  FAIL  %s (expected %s, got %s)\n' "$1" "$3" "$2"; fi
-}
 T="$(cd "$(tmpdir chhooks)" && pwd)"
 trap 'rm -rf "$T"' EXIT
 
@@ -315,5 +310,4 @@ check "an archive failure of a session no longer there is cleared by the build, 
 rm -f "$ROOT/pages/.archive-errors/$ID.json"
 
 echo
-echo "  $pass passed, $fail failed"
-[ "$fail" -eq 0 ]
+verdict

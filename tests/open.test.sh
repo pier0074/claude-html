@@ -12,11 +12,6 @@ set -u
 need_osascript "opening projects"
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
-pass=0; fail=0
-check() {
-  if [ "$2" = "$3" ]; then pass=$((pass + 1)); printf '  ok    %s\n' "$1"
-  else fail=$((fail + 1)); printf '  FAIL  %s (expected %s, got %s)\n' "$1" "$3" "$2"; fi
-}
 T="$(cd "$(tmpdir chopen)" && pwd)"
 NC=""
 trap '[ -n "$NC" ] && kill "$NC" 2>/dev/null; rm -rf "$T"' EXIT
@@ -91,5 +86,4 @@ check "an archive in a folder its own hook archived into opens" "$(where "$G")" 
 check "Claude Code's session, sent to a planted archive's folder, is refused" "$(refused "$K")" refused
 
 echo
-echo "  $pass passed, $fail failed"
-[ "$fail" -eq 0 ]
+verdict

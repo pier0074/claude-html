@@ -12,11 +12,6 @@ set -u
 need_osascript "the Trash helper"
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
-pass=0; fail=0
-check() {
-  if [ "$2" = "$3" ]; then pass=$((pass + 1)); printf '  ok    %s\n' "$1"
-  else fail=$((fail + 1)); printf '  FAIL  %s (expected %s, got %s)\n' "$1" "$3" "$2"; fi
-}
 T="$(cd "$(tmpdir chdelete)" && pwd)"
 trap 'rm -rf "$T"' EXIT
 
@@ -111,5 +106,4 @@ check "hidden, it stays off the index even with the export unchanged" "$(listed 
 check "  and the export itself is untouched" "$(grep -c "$W" "$X")" 1
 
 echo
-echo "  $pass passed, $fail failed"
-[ "$fail" -eq 0 ]
+verdict

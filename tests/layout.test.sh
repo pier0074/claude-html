@@ -21,15 +21,6 @@ set -u
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 OLDV=3.4.0 NEWV=3.5.0
-pass=0; fail=0
-check() {
-  if [ "$2" = "$3" ]; then pass=$((pass + 1)); printf '  ok    %s\n' "$1"
-  else fail=$((fail + 1)); printf '  FAIL  %s (expected %s, got %s)\n' "$1" "$3" "$2"; fi
-}
-has() {   # name, text, what it must hold
-  case "$2" in *"$3"*) pass=$((pass + 1)); printf '  ok    %s\n' "$1" ;;
-    *) fail=$((fail + 1)); printf '  FAIL  %s (no "%s" in: %s)\n' "$1" "$3" "$2" ;; esac
-}
 
 export GIT_CONFIG_NOSYSTEM=1
 if ! OLDC="$(git -C "$HERE" rev-parse -q --verify "refs/tags/v$OLDV^{commit}" 2>/dev/null)"; then
@@ -41,8 +32,6 @@ T="$(cd "$(tmpdir chlayout)" && pwd -P)"
 trap 'rm -rf "$T"' EXIT
 H="$T/home"; PROJ="$T/projects"; APP="$PROJ/app"; PAGES="$T/pages"
 mkdir -p "$H/.claude" "$APP"
-gitx() { HOME="$H" XDG_CONFIG_HOME="$H/.config" git -c user.name=tester -c user.email=tester@example.invalid \
-           -c init.defaultBranch=main -c advice.detachedHead=false "$@"; }
 # Every command below runs in the sandbox's home, against its release
 # repository, with no window: the guard's dialog is off, and nothing here
 # holds a secret for it to find anyway.
@@ -198,5 +187,4 @@ check "forward again succeeds" "$rc $(at)" "0 $NEWV"
 hooks_run "$NEWV again" new2
 
 echo
-echo "  $pass passed, $fail failed"
-[ "$fail" = 0 ]
+verdict

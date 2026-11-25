@@ -102,9 +102,10 @@
   function bin(s) {
     if (!mac) return "";
     var web = s.kind === "web";
-    return '<a class="del" href="claude-html://delete/' + esc(s.id) + '" title="' +
-      (web ? "hide this chat from the index" : "delete this conversation and its history") +
-      '">' + (web ? "⊘" : "✕") + "</a>";
+    // The icon alone says nothing to a screen reader: the label says it.
+    var what = web ? "hide this chat from the index" : "delete this conversation and its history";
+    return '<a class="del" href="claude-html://delete/' + esc(s.id) + '" title="' + what +
+      '" aria-label="' + what + '">' + (web ? "⊘" : "✕") + "</a>";
   }
 
   // The project name opens the project. A claude.ai chat has no folder, and

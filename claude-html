@@ -125,7 +125,7 @@ if [ -n "$UPDATE" ]; then
       case "$UPD_ENV" in
         set:*)
           _e="${UPD_ENV#set:}"
-          if ch_update_is_off "$_e"; then _eo=off; else _eo=on; fi
+          if ch_is_off "$_e"; then _eo=off; else _eo=on; fi
           [ "$_eo" = "$UPDWORD" ] ||
             echo "But CLAUDE_HTML_UPDATE_CHECK=$_e in your environment wins over the conf, so here it stays $_eo." ;;
       esac
@@ -134,7 +134,7 @@ if [ -n "$UPDATE" ]; then
   # The move rewrites this clone, and bash reads a script as it runs it, so
   # the update runs from a copy of itself made outside it.
   _tmp="$(mktemp -d "${TMPDIR:-/tmp}/claude-html-update.XXXXXX")" || exit 1
-  cp "$HERE/lib/update.sh" "$HERE/lib/version.sh" "$HERE/lib/lock.sh" "$_tmp/" || { rm -rf "$_tmp"; exit 1; }
+  cp "$HERE/lib/update.sh" "$HERE/lib/version.sh" "$HERE/lib/common.sh" "$HERE/lib/lock.sh" "$_tmp/" || { rm -rf "$_tmp"; exit 1; }
   case "$UPDWORD" in
     status|--check) _action=status ;;
     list) _action=list ;;
@@ -241,8 +241,7 @@ actions_setup() {
   fi
 }
 full_id() {
-  if ! printf '%s' "$ONLY" | grep -Eqx '[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}' ||
-     [ "$(printf '%s' "$ONLY" | wc -l | tr -d ' ')" != 0 ]; then
+  if ! ch_is_sid "$ONLY"; then
     echo "give the full session id, as it appears in the index's links" >&2
     exit 2
   fi

@@ -74,7 +74,7 @@ border-radius:4px;padding:3px 10px;font:inherit;font-size:11px;cursor:pointer}
 .m:target,.m.tgt{background:rgba(200,160,60,.15);border-radius:4px;box-shadow:0 0 0 8px rgba(200,160,60,.15)}
 .sys .who{color:var(--dim)}
 .sys .t{color:var(--dim);font-size:13px;border-left:2px dotted var(--line);padding-left:12px;white-space:pre-wrap}
-.side{opacity:.72;border-left:1px dashed var(--line);padding-left:12px;margin-left:2px}
+.side{border-left:1px dashed var(--line);padding-left:12px;margin-left:2px}
 .user .t{border-left:2px solid var(--u);padding:2px 0 2px 12px;white-space:pre-wrap;word-break:break-word}
 .asst .t{white-space:pre-wrap;word-break:break-word;margin-bottom:8px}
 .h{font-weight:600;margin:14px 0 4px}
@@ -96,7 +96,7 @@ details[open]>summary::before{content:"▾ "}
 details.m.res:not([open]){margin-bottom:8px}
 .think .t{color:var(--dim);font-size:13.5px;border-left:2px solid var(--line);padding-left:12px}
 .tn{font-weight:600} .td{color:var(--dim);margin-left:8px;overflow-wrap:anywhere}
-.oldfmt{font-size:12px;color:var(--dim);opacity:.75;padding:2px 0}
+.oldfmt{font-size:12px;color:var(--dim);padding:2px 0}
 .diff{border:1px solid var(--line);border-radius:4px;overflow:hidden;margin:6px 0;font-size:12.5px}
 /* Recovered output, so it can run long. 36em is 24 lines at this size:
    past the 8-line median, so most blocks never scroll, and deep enough
@@ -161,7 +161,7 @@ align-items:center;gap:5px;color:var(--dim);font-size:11px;cursor:pointer;user-s
 .find.on .group,.find.on .case{display:flex}
 #fq{flex:1;min-width:0;background:var(--code);color:var(--fg);border:1px solid var(--line);
 border-radius:4px;padding:3px 8px;font:inherit;font-size:12px}
-#fq:focus{outline:none;border-color:var(--dim)}
+#fq:focus{outline:2px solid var(--dim);outline-offset:1px;border-color:var(--dim)}
 mark.hit{background:var(--hit);color:inherit;border-radius:2px}
 mark.hit.cur{background:var(--cur);color:#1c1a17}
 a.agent{display:block;margin:6px 0 2px;padding:5px 9px;font-size:12px;

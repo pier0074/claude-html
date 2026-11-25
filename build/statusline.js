@@ -174,7 +174,7 @@ function claudeHtmlStatusline() {
              normal: text(compose(x, 0, false)), condensed: text(compose(x, n, n > 0)),
              normalHtml: html(compose(x, 0, false)), condensedHtml: html(compose(x, n, n > 0)) };
   }
-  return { ITEMS: ITEMS, DEFAULT: DEFAULT, COLORS: COLORS, settings: settings, render: render, model: model, short: short };
+  return { ITEMS: ITEMS, DEFAULT: DEFAULT, settings: settings, render: render, model: model, short: short };
 }
 
 if (typeof module !== "undefined" && module.exports) module.exports = claudeHtmlStatusline;

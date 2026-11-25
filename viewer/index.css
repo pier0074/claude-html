@@ -16,7 +16,7 @@ p.sub.upd{margin-top:-12px;color:var(--fg)}
 p.sub.upd button.cp{margin-left:4px}
 #q{width:100%;background:var(--code);color:var(--fg);border:1px solid var(--line);
 border-radius:5px;padding:8px 11px;font:inherit;font-size:13px;margin-bottom:6px}
-#q:focus{outline:none;border-color:var(--dim)}
+#q:focus{outline:2px solid var(--dim);outline-offset:1px;border-color:var(--dim)}
 #n{color:var(--dim);font-size:11px;margin:0 0 14px;min-height:14px}
 #n:empty{min-height:0;margin:0}
 h2{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);

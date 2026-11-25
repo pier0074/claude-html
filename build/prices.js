@@ -158,6 +158,6 @@ function claudeHtmlPrices(text) {
     models: function () { return Object.keys(byModel).sort(); },
     history: function (id) { return (byModel[id] || []).slice(); },
     idOf: idOf, current: current, lineAt: lineAt,
-    priceCell: priceCell, cellCost: cellCost, total: total, tokens: tokens, hourKey: hourKey
+    cellCost: cellCost, total: total, tokens: tokens, hourKey: hourKey
   };
 }

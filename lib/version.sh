@@ -7,6 +7,12 @@
 # goes to the network: the network is update.sh's, once a day, from a save
 # nobody waits on. Writing the state (ch_update_write) takes a mkdir and a mv.
 
+# ch_is_off, ch_conf_get and ch_with_limit, beside this file: the update
+# runs from a copy of the two, and the Stop hook has nothing else sourced.
+case "${BASH_SOURCE[0]}" in */*) _ch_lib="${BASH_SOURCE[0]%/*}" ;; *) _ch_lib=. ;; esac
+# shellcheck source=lib/common.sh
+. "$_ch_lib/common.sh"
+
 # Where releases come from. update.sh finds the remote whose URL this is;
 # the tests point it at a repository of their own.
 CH_RELEASE_URL="https://github.com/pier0074/claude-html"
@@ -103,49 +109,24 @@ ch_update_setting() {
   if [ -n "${CLAUDE_HTML_UPDATE_CHECK+x}" ]; then
     CH_UP_SETTING="$CLAUDE_HTML_UPDATE_CHECK"; return 0
   fi
-  CH_UP_SETTING=on
-  local conf="${CLAUDE_HTML_CONF:-$HOME/.claude/claude-html.conf}" line v
-  [ -f "$conf" ] || return 0
-  while IFS= read -r line || [ -n "$line" ]; do
-    line="${line#"${line%%[![:space:]]*}"}"; line="${line#export }"
-    case "$line" in
-      CLAUDE_HTML_UPDATE_CHECK=*)
-        v="${line#CLAUDE_HTML_UPDATE_CHECK=}"; v="${v%%#*}"
-        v="${v%"${v##*[![:space:]]}"}"; v="${v#\"}"; v="${v%\"}"; v="${v#\'}"; v="${v%\'}"
-        CH_UP_SETTING="$v" ;;
-    esac
-  done < "$conf"
+  ch_conf_get "${CLAUDE_HTML_CONF:-$HOME/.claude/claude-html.conf}" CLAUDE_HTML_UPDATE_CHECK
+  CH_UP_SETTING="${_cf_CLAUDE_HTML_UPDATE_CHECK-on}"
 }
 # CLAUDE_HTML_AUTO_UPDATE the same way, into CH_UP_AUTO_SETTING: off
 # unless it says on.
 ch_update_auto_setting() {
   if [ -n "${CLAUDE_HTML_AUTO_UPDATE+x}" ]; then CH_UP_AUTO_SETTING="$CLAUDE_HTML_AUTO_UPDATE"; return 0; fi
-  CH_UP_AUTO_SETTING=off
-  local conf="${CLAUDE_HTML_CONF:-$HOME/.claude/claude-html.conf}" line v
-  [ -f "$conf" ] || return 0
-  while IFS= read -r line || [ -n "$line" ]; do
-    line="${line#"${line%%[![:space:]]*}"}"; line="${line#export }"
-    case "$line" in
-      CLAUDE_HTML_AUTO_UPDATE=*)
-        v="${line#CLAUDE_HTML_AUTO_UPDATE=}"; v="${v%%#*}"
-        v="${v%"${v##*[![:space:]]}"}"; v="${v#\"}"; v="${v%\"}"; v="${v#\'}"; v="${v%\'}"
-        CH_UP_AUTO_SETTING="$v" ;;
-    esac
-  done < "$conf"
+  ch_conf_get "${CLAUDE_HTML_CONF:-$HOME/.claude/claude-html.conf}" CLAUDE_HTML_AUTO_UPDATE
+  CH_UP_AUTO_SETTING="${_cf_CLAUDE_HTML_AUTO_UPDATE-off}"
 }
 ch_update_auto_on() {
   ch_update_auto_setting
-  case "$CH_UP_AUTO_SETTING" in [Oo][Nn]|1|[Yy][Ee][Ss]|[Tt][Rr][Uu][Ee]) return 0 ;; esac
-  return 1
+  ch_is_on "$CH_UP_AUTO_SETTING"
 }
 # Whether going from $2 to $1 is a major release: its first number higher.
 ch_ver_major_gt() {
   ch_is_ver "$1" && ch_is_ver "$2" || return 1
   [ $((10#${1%%.*})) -gt $((10#${2%%.*})) ]
-}
-ch_update_is_off() {
-  case "$1" in [Oo][Ff][Ff]|0|[Nn][Oo]|[Ff][Aa][Ll][Ss][Ee]) return 0 ;; esac
-  return 1
 }
 
 # The release to tell about, into CH_UP_NOTICE, for the clone at $1 (its
@@ -154,7 +135,7 @@ ch_update_is_off() {
 ch_update_notice() {
   CH_UP_NOTICE=""
   ch_update_setting
-  ch_update_is_off "$CH_UP_SETTING" && return 1
+  ch_is_off "$CH_UP_SETTING" && return 1
   ch_update_read || return 1
   [ -n "$CH_UP_NEWEST" ] && [ "$CH_UP_HERE" = "$1" ] && ch_ver_gt "$CH_UP_NEWEST" "$2" || return 1
   CH_UP_NOTICE="$CH_UP_NEWEST"
@@ -165,6 +146,6 @@ ch_update_notice() {
 # build; on makes the next save look again.
 ch_update_switched() {   # on|off
   ch_update_read || return 0
-  CH_UP_CHECKED=0; ch_update_is_off "$1" && CH_UP_NEWEST=""
+  CH_UP_CHECKED=0; ch_is_off "$1" && CH_UP_NEWEST=""
   ch_update_write
 }

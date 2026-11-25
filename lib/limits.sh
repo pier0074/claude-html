@@ -20,6 +20,11 @@
 # tests, which never read the clock to decide anything.
 
 CH_LIM_LOADED=1
+# ch_is_off, ch_conf_get and the links' grammars, beside this file: the
+# status line sources this one alone.
+case "${BASH_SOURCE[0]}" in */*) _ch_lib="${BASH_SOURCE[0]%/*}" ;; *) _ch_lib=. ;; esac
+# shellcheck source=lib/common.sh
+. "$_ch_lib/common.sh"
 CH_LIM_STATE="$HOME/.claude/.claude-html.limits"        # the figures, from the status line
 CH_LIM_MARKS="$HOME/.claude/.claude-html.limits-marks"  # what was announced, what is allowed
 CH_LIM_SPEND="$HOME/.claude/.claude-html.spend"         # the period's spend, from the build
@@ -63,7 +68,7 @@ ch_lim_local() {
   z="${z#[+-]}"
   _LOFF=$(( sign * ( 10#${z:0:2} * 3600 + 10#${z:2:2} * 60 ) ))
 }
-# Days since 1970-01-01 of a civil date, and back (H. Hinnant's).
+# Days since 1970-01-01 of a civil date (H. Hinnant's).
 ch_lim_days() {   # y m d -> _DAYS
   local y=$1 m=$2 d=$3 era yoe doy doe mm
   [ "$m" -le 2 ] && y=$((y - 1))
@@ -72,15 +77,6 @@ ch_lim_days() {   # y m d -> _DAYS
   doy=$(( (153 * mm + 2) / 5 + d - 1 ))
   doe=$(( yoe * 365 + yoe / 4 - yoe / 100 + doy ))
   _DAYS=$(( era * 146097 + doe - 719468 ))
-}
-ch_lim_civil() {   # days -> _CY _CM _CD
-  local z=$(( $1 + 719468 )) era doe yoe doy mp
-  era=$(( (z >= 0 ? z : z - 146096) / 146097 )); doe=$((z - era * 146097))
-  yoe=$(( (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365 ))
-  doy=$(( doe - (365 * yoe + yoe / 4 - yoe / 100) )); mp=$(( (5 * doy + 2) / 153 ))
-  _CD=$(( doy - (153 * mp + 2) / 5 + 1 ))
-  if [ "$mp" -lt 10 ]; then _CM=$((mp + 3)); else _CM=$((mp - 9)); fi
-  _CY=$(( yoe + era * 400 )); [ "$_CM" -le 2 ] && _CY=$((_CY + 1))
 }
 # The epoch of a local day number at h:m, offset guessed by $4 and then
 # checked: two forks at most, three across a change of the clocks.
@@ -102,32 +98,17 @@ CH_LIM_KEYS="CLAUDE_HTML_LIMITS CLAUDE_HTML_LIMIT_RULES CLAUDE_HTML_BUDGET CLAUD
 # CH_LIM_EXTRA_KEYS: more keys read in the same pass, for a caller that
 # needs its own settings too (the status line's), without a second read.
 ch_lim_settings() {
-  local k unset_keys="" line v conf="${CLAUDE_HTML_CONF:-$HOME/.claude/claude-html.conf}"
+  local k unset_keys="" conf="${CLAUDE_HTML_CONF:-$HOME/.claude/claude-html.conf}"
   for k in $CH_LIM_KEYS ${CH_LIM_EXTRA_KEYS:-}; do eval "[ -n \"\${$k+x}\" ]" || unset_keys="$unset_keys $k"; done
-  if [ -n "$unset_keys" ] && [ -f "$conf" ]; then
-    while IFS= read -r line || [ -n "$line" ]; do
-      line="${line#"${line%%[![:space:]]*}"}"; line="${line#export }"
-      case "$line" in CLAUDE_HTML_[A-Z_]*=*) ;; *) continue ;; esac
-      k="${line%%=*}"
-      case " $unset_keys " in *" $k "*) ;; *) continue ;; esac
-      v="${line#*=}"
-      case "$v" in
-        \"*) v="${v#\"}"; v="${v%%\"*}" ;;
-        \'*) v="${v#\'}"; v="${v%%\'*}" ;;
-        *) v="${v%%#*}"; v="${v%"${v##*[![:space:]]}"}" ;;
-      esac
-      eval "_set_$k=\$v"
-    done < "$conf"
-  fi
+  # shellcheck disable=SC2086
+  [ -z "$unset_keys" ] || ch_conf_get "$conf" $unset_keys
   for k in $CH_LIM_KEYS ${CH_LIM_EXTRA_KEYS:-}; do
     case " $unset_keys " in
-      *" $k "*) eval "if [ -n \"\${_set_$k+x}\" ]; then $k=\"\$_set_$k\"; unset _set_$k; else $k=; fi" ;;
+      *" $k "*) eval "if [ -n \"\${_cf_$k+x}\" ]; then $k=\"\$_cf_$k\"; unset _cf_$k; else $k=; fi" ;;
     esac
   done
-  CH_LIM_ON=1
-  case "$CLAUDE_HTML_LIMITS" in [Oo][Ff][Ff]|0|[Nn][Oo]|[Ff][Aa][Ll][Ss][Ee]) CH_LIM_ON="" ;; esac
-  CH_LIM_NOTIFY=""
-  case "$CLAUDE_HTML_LIMIT_NOTIFY" in [Oo][Nn]|1|[Yy][Ee][Ss]|[Tt][Rr][Uu][Ee]) CH_LIM_NOTIFY=1 ;; esac
+  CH_LIM_ON=1; ch_is_off "$CLAUDE_HTML_LIMITS" && CH_LIM_ON=""
+  CH_LIM_NOTIFY=""; ch_is_on "$CLAUDE_HTML_LIMIT_NOTIFY" && CH_LIM_NOTIFY=1
   ch_lim_parse_rules "$CLAUDE_HTML_LIMIT_RULES"
   ch_lim_parse_budget "$CLAUDE_HTML_BUDGET"
   ch_lim_parse_warn "$CLAUDE_HTML_BUDGET_WARN" || :

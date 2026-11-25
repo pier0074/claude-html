@@ -38,6 +38,8 @@ function guard(argv) {
   var KIND = argv[0], HERE = argv[1], STATE = argv[2], LIST = argv[3], CONF = argv[4], ARG = argv[5] || "";
   var JXA = typeof $ !== "undefined";
   var fm = JXA ? $.NSFileManager.defaultManager : null, nfs = JXA ? null : require("fs");
+  // Under node, the file helpers the scripts share (build/fs.js).
+  var F = JXA ? null : require(__dirname + "/../build/fs.js")(nfs);
 
   // ── the platform ──
   function read(p) {
@@ -48,7 +50,7 @@ function guard(argv) {
       var t = s ? $.CFMakeCollectable(s).js : null;
       return typeof t === "string" ? t : null;
     }
-    try { return nfs.readFileSync(p, "utf8"); } catch (e) { return null; }
+    return F.read(p);
   }
   // Written in place, so a file kept as a symlink stays one, readable by
   // its owner only.
@@ -73,10 +75,7 @@ function guard(argv) {
       var t = s ? $.CFMakeCollectable(s).js : null;
       return typeof t === "string" ? t : false;
     }
-    var buf;
-    try { buf = nfs.readFileSync(p); } catch (e) { return e && e.code === "ENOENT" ? null : false; }
-    var text = buf.toString("utf8");
-    return Buffer.from(text, "utf8").equals(buf) ? text : false;
+    return F.readWhole(p);
   }
   // And written whole: beside the file it is (a link followed, so a file
   // kept as a symlink stays one), then moved over it, readable by its

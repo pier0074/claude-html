@@ -14,11 +14,7 @@ set -u
 . "$(dirname "$0")/lib.sh"
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
-pass=0; fail=0
-check() {
-  if [ "$2" = "$3" ]; then pass=$((pass + 1)); printf '  ok    %s\n' "$1"
-  else fail=$((fail + 1)); printf '  FAIL  %s\n        expected: %s\n        got:      %s\n' "$1" "$3" "$2"; fi
-}
+check() { check_long "$@"; }
 T="$(cd "$(tmpdir chlimits)" && pwd -P)"
 trap 'rm -rf "$T"' EXIT
 H="$T/home"; mkdir -p "$H/.claude" "$T/stub" "$T/out" "$T/root"
@@ -699,7 +695,7 @@ v1/fri-2000-80/none/80-95/on"
 BAD="$(printf '%s\n' "$BAD" | sed '$d' | sed '$d')"
 printf '%s\n' "$GOOD" > "$T/link.good"; printf '%s\n' "$BAD" > "$T/link.bad"
 printf 'v1/fri-2000-80/none/80-95/on\nx' > "$T/link.nl"; printf 'v1/fri-2000-80/none/80-95/on ' > "$T/link.sp"
-lok() { env -i CLAUDE_HTML_NO_SCREEN="${CLAUDE_HTML_NO_SCREEN:-}" PATH="$PATH" HOME="$H" /bin/bash -c '. "$0/lib/limits-cli.sh"; ch_lim_link_ok "$1" && echo ok || echo no' "$HERE" "$1"; }
+lok() { env -i CLAUDE_HTML_NO_SCREEN="${CLAUDE_HTML_NO_SCREEN:-}" PATH="$PATH" HOME="$H" /bin/bash -c '. "$0/lib/common.sh"; ch_lim_link_ok "$1" && echo ok || echo no' "$HERE" "$1"; }
 n=0; while IFS= read -r g; do [ "$(lok "$g")" = ok ] && n=$((n + 1)); done < "$T/link.good"
 check "the grammar takes the good ones (4)" "$n" 4
 n=0; m=0; while IFS= read -r b; do m=$((m + 1)); [ "$(lok "$b")" = no ] && n=$((n + 1)); done < "$T/link.bad"
@@ -827,5 +823,4 @@ for ENG in $([ "$HAVE_OSASCRIPT" = true ] && echo osascript) node; do
 done
 
 echo
-echo "  $pass passed, $fail failed"
-[ "$fail" -eq 0 ]
+verdict

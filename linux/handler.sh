@@ -27,32 +27,22 @@ URL="${1:-}"
 HERE="$(cd -P "$(dirname "$0")/.." && pwd)" || exit 2
 CLI="$HERE/claude-html"
 
-H='[0-9a-fA-F]'
-ID_GLOB="$H$H$H$H$H$H$H$H-$H$H$H$H-$H$H$H$H-$H$H$H$H-$H$H$H$H$H$H$H$H$H$H$H$H"
+# The links' grammars: a session id, the limits', the settings' shape.
+# shellcheck source=../lib/common.sh
+. "$HERE/lib/common.sh"
 
-# Every character of an id matches one bracket of the pattern, so nothing
-# else - a space, a quote, a newline, a slash - can be inside it.
 # The update takes nothing from the link: it is exactly this string, or
 # not the update at all.
-# The limits: lower case letters, digits, dots, slashes and hyphens only,
-# at most 160 of them, in exactly this order of fields.
-LIM_DAY='(mon|tue|wed|thu|fri|sat|sun)'
-LIM_RULE="$LIM_DAY-([01][0-9]|2[0-3])[0-5][0-9]-([1-9][0-9]?|100)"
-LIM_RE="v1/(none|$LIM_RULE([.]$LIM_RULE){0,7})/(none|[1-9][0-9]{0,5}([.][0-9]{1,2})?-(day|week|month))/[1-9][0-9]?-[1-9][0-9]?/(on|off)"
 if [ "$URL" = "claude-html://update" ]; then
   ACTION=update; SID=""
 elif [ "${URL#claude-html://settings/}" != "$URL" ]; then
   # From the Settings page: v1/ and then letters, digits and . _ ~ % = / -
   # only, at most 2048; the command reads the grammar whole (settings.sh).
   ACTION=settings; SID="${URL#claude-html://settings/}"
-  case "$SID" in v1/*) ;; *) echo "handler.sh: not a settings link" >&2; exit 2 ;; esac
-  case "$SID" in *[!A-Za-z0-9._~%=/-]*) echo "handler.sh: not a settings link" >&2; exit 2 ;; esac
-  [ "${#SID}" -le 2048 ] || { echo "handler.sh: not a settings link" >&2; exit 2; }
+  ch_set_link_shape "$SID" || { echo "handler.sh: not a settings link" >&2; exit 2; }
 elif [ "${URL#claude-html://limits/}" != "$URL" ]; then
   ACTION=limits; SID="${URL#claude-html://limits/}"
-  case "$SID" in ''|*[!a-z0-9./-]*) echo "handler.sh: not a limits link" >&2; exit 2 ;; esac
-  [ "${#SID}" -le 160 ] && printf '%s\n' "$SID" | grep -Eqx "$LIM_RE" ||
-    { echo "handler.sh: not a limits link" >&2; exit 2; }
+  ch_lim_link_ok "$SID" || { echo "handler.sh: not a limits link" >&2; exit 2; }
 else
   REST="${URL#claude-html://}"
   [ "$REST" != "$URL" ] || { echo "handler.sh: not a claude-html link" >&2; exit 2; }
@@ -64,26 +54,25 @@ else
     delete|open|resume) ;;
     *) echo "handler.sh: not an action it knows" >&2; exit 2 ;;
   esac
-  # shellcheck disable=SC2254
-  case "$SID" in
-    $ID_GLOB) ;;
-    *) echo "handler.sh: not a session id" >&2; exit 2 ;;
-  esac
+  ch_is_sid "$SID" || { echo "handler.sh: not a session id" >&2; exit 2; }
 fi
 
 # shellcheck source=../lib/platform.sh
 . "$HERE/lib/platform.sh"
 ch_detect
 
-# Says something to the person who clicked, in whatever this desktop has.
+# Says something to the person who clicked, in whatever this desktop has,
+# as every window is shown (platform.sh's ch_dialog_wait): closed after the
+# windows' wait, and never on the screen under CLAUDE_HTML_NO_SCREEN.
 tell() {
   case "$CH_DIALOG" in
-    zenity) zenity --info --no-markup --title=claude-html --text="$1" >/dev/null 2>&1 ;;
-    kdialog) kdialog --title claude-html --msgbox "$(plain "$1")" >/dev/null 2>&1 ;;
-    yad) yad --title=claude-html --text="$(markup "$1")" --button=OK:0 >/dev/null 2>&1 ;;
-    xmessage) printf '%s\n' "$1" | xmessage -center -title claude-html -buttons OK:0 -file - >/dev/null 2>&1 ;;
+    zenity) ch_dialog_wait "$CH_GUARD_LIMIT" zenity --info --no-markup --title=claude-html --text="$1" ;;
+    kdialog) ch_dialog_wait "$CH_GUARD_LIMIT" kdialog --title claude-html --msgbox "$(plain "$1")" ;;
+    yad) ch_dialog_wait "$CH_GUARD_LIMIT" yad --title=claude-html --text="$(markup "$1")" --button=OK:0 ;;
+    xmessage) ch_dialog_wait "$CH_GUARD_LIMIT" xmessage -center -title claude-html -buttons OK:0 "$1" ;;
     *) printf '%s\n' "$1" >&2 ;;
   esac
+  return 0
 }
 
 # yad reads markup, so a title with < or & in it is escaped first; kdialog
@@ -149,42 +138,25 @@ $PLAN"; exit 1; }
 field() { printf '%s\n' "$PLAN" | awk -F'\t' -v k="$1" '$1 == k { print $2; exit }'; }
 TITLE="$(field TITLE)"; ACT="$(field ACTION)"
 if [ "$ACT" = refuse ]; then tell "$(field REASON)"; exit 1; fi
+# Asked as every confirmation is (platform.sh's ch_confirm): Cancel the
+# default wherever the tool lets it be, closed after the windows' wait, and
+# anything but a clear yes - a closed window, a tool that failed - a no.
 if [ "$ACT" = hide ]; then
-  MSG="Hide \"$TITLE\" from the index?
-
-It lives on claude.ai, so it is only hidden here, and a new export will not bring it back."
+  Q="Hide \"$TITLE\" from the index?"
+  SUB="It lives on claude.ai, so it is only hidden here, and a new export will not bring it back."
+  ROWS=""
   OK="Hide"
 else
-  MSG="Delete \"$TITLE\"?
-
-These move to the trash, where they can be restored:
-$(printf '%s\n' "$PLAN" | awk -F'\t' '$1 == "ITEM" { n++; if (n <= 10) printf "  %s:  %s\n", $3, $2 } END { if (n > 10) printf "  ...and %d more\n", n - 10 }')"
+  Q="Delete \"$TITLE\"?"
+  SUB="These move to the trash, where they can be restored:"
+  ROWS="$(printf '%s\n' "$PLAN" | awk -F'\t' '$1 == "ITEM" { n++; if (n <= 10) printf "%s:\t%s\n", $3, $2 } END { if (n > 10) printf "\t...and %d more\n", n - 10 }')"
   N="$(field HISTORY)"
   if [ "${N:-0}" -gt 0 ] 2>/dev/null; then
-    MSG="$MSG
-
-$N prompt(s) also come out of your up-arrow history; a copy of them goes to the trash too."
+    ROWS="$ROWS
+	$N prompt(s) also come out of your up-arrow history; a copy of them goes to the trash too."
   fi
   OK="Move to Trash"
 fi
-
-# Each tool's own way of asking, with Cancel the default wherever the tool
-# lets it be. Anything but a clear yes - a closed window, a tool that
-# failed - is a no.
-confirm() {
-  case "$CH_DIALOG" in
-    zenity) zenity --question --no-markup --default-cancel --title=claude-html \
-              --ok-label="$OK" --cancel-label=Cancel --text="$MSG" >/dev/null 2>&1 ;;
-    kdialog) kdialog --title claude-html --continue-label "$OK" \
-               --warningcontinuecancel "$(plain "$MSG")" >/dev/null 2>&1 ;;
-    yad) yad --title=claude-html --text="$(markup "$MSG")" \
-           --button="Cancel:1" --button="$OK:0" >/dev/null 2>&1 ;;
-    xmessage)
-      printf '%s\n' "$MSG" | xmessage -center -title claude-html \
-        -buttons "Cancel:1,$OK:0" -default Cancel -file - >/dev/null 2>&1 ;;
-    *) return 1 ;;
-  esac
-}
 
 case "$CH_DIALOG" in
   terminal)
@@ -197,7 +169,7 @@ case "$CH_DIALOG" in
     exit 1 ;;
 esac
 
-confirm || exit 0
+[ "$(ch_confirm "$Q" "$SUB" "$ROWS" "$OK")" = apply ] || exit 0
 if OUTPUT="$("$CLI" --delete "$SID" --yes 2>&1)"; then
   tell "Done. $OUTPUT"
 else

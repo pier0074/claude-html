@@ -8,6 +8,11 @@
 # The default is what install.sh would have written — the pages in the clone,
 # the projects beside it — so a missing conf changes nothing but the file.
 
+# ch_is_off, ch_conf_get and the rest every lib file shares.
+case "${BASH_SOURCE[0]}" in */*) _ch_lib="${BASH_SOURCE[0]%/*}" ;; *) _ch_lib=. ;; esac
+# shellcheck source=lib/common.sh
+. "$_ch_lib/common.sh"
+
 # A path made whole: ~ for the home folder, a relative one from the folder
 # this is run in, without a trailing slash. What install.sh writes in the
 # conf has been through this, so every caller reads the same folder.
@@ -16,12 +21,6 @@ ch_abs_path() {
   case "$_p" in /*) ;; *) _p="$PWD/${_p#./}" ;; esac
   [ "$_p" = / ] || _p="${_p%/}"
   printf '%s' "$_p"
-}
-
-# A switch's value that means off, one way for every setting.
-ch_is_off() {
-  case "$1" in [Oo][Ff][Ff]|0|[Nn][Oo]|[Ff][Aa][Ll][Ss][Ee]) return 0 ;; esac
-  return 1
 }
 
 # A value as the conf holds it: in double quotes, which keep a space, with

@@ -10,11 +10,6 @@ set -u
 need_osascript "the helper app"
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
-pass=0; fail=0
-check() {
-  if [ "$2" = "$3" ]; then pass=$((pass + 1)); printf '  ok    %s\n' "$1"
-  else fail=$((fail + 1)); printf '  FAIL  %s (expected %s, got %s)\n' "$1" "$3" "$2"; fi
-}
 T="$(cd "$(tmpdir chhelper)" && pwd)"
 # The app built here is unregistered before it is deleted: macOS registers
 # an app it sees appear, whatever folder it is in, and one deleted while
@@ -168,5 +163,4 @@ check "the stop and confirmation windows draw, their box open" \
 check "no window of a test is left running" "$(pgrep -f "$HERE/mac/dialog.js" | wc -l | tr -d ' ')" 0
 
 echo
-echo "  $pass passed, $fail failed"
-[ "$fail" -eq 0 ]
+verdict

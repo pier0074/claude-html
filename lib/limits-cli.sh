@@ -239,27 +239,10 @@ ch_lim_cli() {
 }
 
 # ── from the page: claude-html://limits/<payload> ────────────────────
-# Any web page can open such a link, so what it carries is a fixed
-# grammar and nothing else, at most 160 characters, checked here as the
-# helper and the Linux handler check it before: version, rules, budget,
-# budget warnings, banner.
-#
-#   v1/<rules>/<budget>/<warn>/<notify>
-#   rules    none, or up to 8 of day-HHMM-pct joined by dots: fri-2000-80.sat-0000-90
-#   budget   none, or dollars-period: 50-week, 12.50-month, 5-day
-#   warn     two percentages: 80-95
-#   notify   on or off
-#
-# Nothing in it is ever run; it only picks values. And nothing is written
-# until a person says so in a window, Cancel the default.
-CH_LIM_LINK_DAY='(mon|tue|wed|thu|fri|sat|sun)'
-CH_LIM_LINK_RULE="$CH_LIM_LINK_DAY-([01][0-9]|2[0-3])[0-5][0-9]-([1-9][0-9]?|100)"
-CH_LIM_LINK_RE="^v1/(none|$CH_LIM_LINK_RULE(\\.$CH_LIM_LINK_RULE){0,7})/(none|[1-9][0-9]{0,5}(\\.[0-9]{1,2})?-(day|week|month))/[1-9][0-9]?-[1-9][0-9]?/(on|off)\$"
-ch_lim_link_ok() {
-  case "$1" in *[!a-z0-9./-]*) return 1 ;; esac
-  [ "${#1}" -le 160 ] && [[ "$1" =~ $CH_LIM_LINK_RE ]]
-}
-
+# Its grammar, and ch_lim_link_ok, are in common.sh, where the Linux
+# handler reads them too. Nothing in it is ever run; it only picks values.
+# And nothing is written until a person says so in a window, Cancel the
+# default.
 ch_lim_apply() {   # payload
   local p="${1:-}" v rules budget warn notify w1 w2 r rows newrules="" nb nw nn cmd old
   if ! ch_lim_link_ok "$p"; then echo "not a limits link" >&2; return 2; fi

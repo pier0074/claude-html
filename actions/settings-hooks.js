@@ -29,6 +29,10 @@ function run(argv) {
 
   var JXA = typeof $ !== "undefined";
   var fm = JXA ? $.NSFileManager.defaultManager : null, nfs = JXA ? null : require("fs");
+  // Under node, the file helpers the scripts share (build/fs.js), from the
+  // clone it is given: convert.js runs this through new Function, where
+  // there is no __dirname.
+  var F = JXA ? null : require(here + "/build/fs.js")(nfs);
 
   function env(name) {
     if (!JXA) return process.env[name] || "";
@@ -37,7 +41,7 @@ function run(argv) {
   }
   function exists(path) {
     if (JXA) return !!fm.fileExistsAtPath(path);
-    try { nfs.statSync(path); return true; } catch (e) { return false; }
+    return F.exists(path);
   }
   // A path as the file system has it, links followed, for comparing two
   // spellings of one folder; as given when it is not there.
@@ -53,12 +57,7 @@ function run(argv) {
   // a file was written again as our hooks alone; read with the byte
   // replaced, it came back changed.
   function readFile(path) {
-    if (!JXA) {
-      var buf;
-      try { buf = nfs.readFileSync(path); } catch (e) { return e && e.code === "ENOENT" ? null : false; }
-      var t = buf.toString("utf8");
-      return Buffer.from(t, "utf8").equals(buf) ? t : false;
-    }
+    if (!JXA) return F.readWhole(path);
     // A missing file yields an ObjC nil that is truthy in JS and whose .js is
     // undefined, so check it exists first and guard the unwrap. A link that
     // points nowhere is not there either.

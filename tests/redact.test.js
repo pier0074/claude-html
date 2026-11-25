@@ -21,12 +21,7 @@ if (args[0] === "fixture") { fixture(args[1]); process.exit(0); }
 if (args[0] === "hook-fixture") { hookFixture(args[1]); process.exit(0); }
 
 var ENGINE = args.indexOf("--engine") > -1 ? args[args.indexOf("--engine") + 1] : "node";
-var pass = 0, fail = 0;
-function check(name, ok, detail) {
-  if (ok) { pass++; return; }
-  fail++;
-  console.log("  FAIL  " + name + (detail ? "\n        " + detail : ""));
-}
+var check = require("./lib.js").check;
 function leaks(text) {
   return F.probes().filter(function (p) { return text.indexOf(p) > -1; }).length;
 }
@@ -193,8 +188,7 @@ if (ENGINE === "osascript") (function () {
   } finally { fs.rmSync(T, { recursive: true, force: true }); }
 })();
 
-console.log("  " + ENGINE + ": " + pass + " passed, " + fail + " failed");
-process.exitCode = fail ? 1 : 0;
+require("./lib.js").done(ENGINE + ": ");
 
 // ── the sandbox for redact.test.sh ──────────────────────────────────────
 // Every fake secret, everywhere a conversation can hold one, and the list

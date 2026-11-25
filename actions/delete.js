@@ -284,7 +284,9 @@ function platform() {
   }
 
   var nfs = require("fs"), npath = require("path"), cp = require("child_process");
-  var stat = function (p) { try { return nfs.lstatSync(p); } catch (e) { return null; } };
+  var F = require(__dirname + "/../build/fs.js")(nfs);
+  // The link itself: a dangling one is still something to move.
+  var stat = F.lstat;
   var env = function (name) { return process.env[name] || null; };
   var move = function (from, to) {
     try { nfs.renameSync(from, to); return true; } catch (e) { return false; }
@@ -346,8 +348,8 @@ function platform() {
     env: env,
     home: function () { return require("os").homedir(); },
     exists: function (p) { return !!stat(p); },
-    list: function (dir) { try { return nfs.readdirSync(dir).sort(); } catch (e) { return []; } },
-    read: function (p) { try { return nfs.readFileSync(p, "utf8"); } catch (e) { return null; } },
+    list: F.list,
+    read: F.read,
     write: function (p, text) {
       var tmp = p + ".tmp" + process.pid;
       try { nfs.writeFileSync(tmp, text, "utf8"); nfs.renameSync(tmp, p); return true; }

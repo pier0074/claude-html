@@ -527,33 +527,10 @@ ch_set_cli() {
 }
 
 # ── from the page: claude-html://settings/<payload> ──────────────────
-# Any web page can open such a link, so what it carries is a fixed grammar
-# and nothing else, at most 2048 characters, checked here whole:
-#
-#   v1/<conf fingerprint>/<change>[/<change>…]        24 changes at most
-#   fingerprint   none, or the first 16 hex digits of the conf's md5 as the
-#                 page was built
-#   change        KEY=VALUE, a setting set; KEY alone, back to its default;
-#                 forget-safe, the guard's safe values forgotten; forget-safe=ID,
-#                 the one of that id (8 of 0-9 a-f), as many as there are;
-#                 edit-list, alone: the own list opened in the text editor
-#   KEY           a setting's name without CLAUDE_HTML_, one the page edits
-#   VALUE         1 to 512 of A-Z a-z 0-9 . _ ~ - and %XX (UTF-8, percent-
-#                 encoded), never a control character
-#
-# Each value then passes the same check as --config set. Nothing in it is
-# ever run; nothing is written until a person says so in a window, Cancel
-# the default. The helper and handler.sh check its characters and length
-# before they hand it on.
-CH_SET_LINK_ITEM='(forget-safe(=[0-9a-f]{8})?|edit-list|[A-Z][A-Z_]*(=([A-Za-z0-9._~-]|%[0-9A-F][0-9A-F])+)?)'
-CH_SET_LINK_RE="^v1/(none|[0-9a-f]{16})(/$CH_SET_LINK_ITEM){1,24}\$"
-ch_set_link_ok() {
-  case "$1" in *[!A-Za-z0-9._~%=/-]*|'') return 1 ;; esac
-  [ "${#1}" -le 2048 ] && [[ "$1" =~ $CH_SET_LINK_RE ]] || return 1
-  # No control character, encoded or not.
-  case "$1" in *%[01][0-9A-F]*|*%7F*) return 1 ;; esac
-  return 0
-}
+# Its grammar, and ch_set_link_ok, are in common.sh, where the Linux
+# handler reads its shape too. Each value then passes the same check as
+# --config set; nothing is written until a person says so in a window,
+# Cancel the default.
 ch_set_fp() {
   local m
   if [ -f "$CONF" ]; then m="$(ch_md5 "$CONF")"; printf '%s' "${m:0:16}"; else printf none; fi

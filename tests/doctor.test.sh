@@ -15,11 +15,7 @@ set -u
 . "$(dirname "$0")/lib.sh"
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
-pass=0; fail=0
-check() {
-  if [ "$2" = "$3" ]; then pass=$((pass + 1)); printf '  ok    %s\n' "$1"
-  else fail=$((fail + 1)); printf '  FAIL  %s\n        expected: %s\n        got:      %s\n' "$1" "$3" "$2"; fi
-}
+check() { check_long "$@"; }
 T="$(cd "$(tmpdir chdoctor)" && pwd)"
 trap 'rm -rf "$T"' EXIT
 
@@ -116,5 +112,4 @@ else
 fi
 
 echo
-echo "  $pass passed, $fail failed"
-[ "$fail" = 0 ]
+verdict

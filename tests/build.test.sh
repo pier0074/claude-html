@@ -9,11 +9,6 @@ set -u
 . "$(dirname "$0")/lib.sh"
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
-pass=0; fail=0
-check() {
-  if [ "$2" = "$3" ]; then pass=$((pass + 1)); printf '  ok    %s\n' "$1"
-  else fail=$((fail + 1)); printf '  FAIL  %s (expected %s, got %s)\n' "$1" "$3" "$2"; fi
-}
 T="$(cd "$(tmpdir chbuild)" && pwd)"
 trap 'chmod -R u+rw "$T" 2>/dev/null; rm -rf "$T"' EXIT
 mkdir -p "$T/home"
@@ -154,5 +149,4 @@ check "a line longer than can be read is passed over, the rest kept" \
   "$(grep -c 'a long one' "$T/k/short/sessions/$ID.html") $(grep -c 'question 9 with' "$T/k/short/sessions/$ID.html") $(grep -c 'question 1 with' "$T/k/short/sessions/$ID.html")" "0 1 1"
 
 echo
-echo "  $pass passed, $fail failed"
-[ "$fail" -eq 0 ]
+verdict

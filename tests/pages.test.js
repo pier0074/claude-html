@@ -10,11 +10,7 @@ const vm = require("vm");
 const V = path.join(__dirname, "..", "viewer");
 const read = (f) => fs.readFileSync(path.join(V, f), "utf8");
 
-let ran = 0, failed = [];
-function test(name, fn) {
-  ran++;
-  try { fn(); } catch (e) { failed.push([name, e.message]); }
-}
+const { test } = require("./lib.js");
 
 const PAGES = ["index.html", "page.html", "usage.html", "settings.html"];
 
@@ -214,9 +210,4 @@ test("each toggle's label stays on the line of its buttons", () => {
   assert.ok(/\.view \.vg\{display:inline-block;white-space:nowrap/.test(html));
 });
 
-if (failed.length) {
-  failed.forEach(([n, m]) => console.log("FAIL " + n + "\n     " + m));
-  console.log(failed.length + " of " + ran + " failed");
-  process.exit(1);
-}
-console.log(ran + " passed");
+require("./lib.js").report();

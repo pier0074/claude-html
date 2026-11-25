@@ -284,7 +284,7 @@ function claudeHtmlParse(redactor) {
   }
 
   return {
-    RESULT_CAP: RESULT_CAP, THINK_CAP: THINK_CAP, INPUT_CAP: INPUT_CAP, PEEK_LINES: PEEK_LINES,
+    PEEK_LINES: PEEK_LINES,
     cap: cap, capRed: capRed, hashText: hashText,
     cleanUserText: cleanUserText, blocksToText: blocksToText,
     messagesOf: messagesOf, peekLine: peekLine,
