@@ -5,6 +5,18 @@ fixes, a minor adds without breaking, a major needs something from you
 (usually `./install.sh` again). To update: `claude-html --update`; before
 3.1.0, `git checkout main && git pull && ./install.sh`.
 
+## 3.8.4 — 2026-11-25
+
+- Privacy: after the rules or your own list change, a session whose page
+  cannot be built again (its transcript unreadable, a full disk) no longer
+  keeps the page masked the old way. A short page saying it could not be
+  rebuilt, with the error, takes its place; its sub-agents' pages, its
+  caches (the archiver's too) and its search text go, and the index lists
+  the error. The next build that succeeds brings the page back. Under an
+  unchanged list a failed build still keeps the page it had.
+- Build errors are masked like the pages: an error can quote what it could
+  not read.
+
 ## 3.8.2 — 2026-11-25
 
 - Usage page: with one project chosen (or one model, broken down by

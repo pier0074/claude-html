@@ -706,7 +706,12 @@ secret you pasted; masking the copies is not revoking it.
 **Changing the rules or your list** makes every page and cache again on the
 next build, and every archive whose transcript is still there on the next
 save: each records the md5 of the rules and of the list it was made with,
-and anything made with others is made again. An archive whose transcript
+and anything made with others is made again. A session whose page cannot
+be made again then (its transcript unreadable, a full disk) does not keep
+the page masked the old way: a note with the error takes its place, its
+sub-agents' pages and caches go, its text leaves the search, and the index
+lists the error; the next build that succeeds brings the page back. Under
+an unchanged list a failed build keeps the page it had. An archive whose transcript
 has gone is masked on its page, but the archive itself is changed only by
 `claude-html --redact-archives`, which rewrites each one holding something
 to mask, whole and atomically, and leaves the rest alone.

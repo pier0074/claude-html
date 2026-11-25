@@ -1088,6 +1088,28 @@ function run(argv) {
     return JSON.stringify(value).replace(/</g, "\\u003c");
   }
 
+  // What a session's page says when it could not be built again after the
+  // masking changed: the page it had may show what the masking now hides.
+  // Nothing of the conversation, only its id and the error.
+  var UNBUILT = "could not be rebuilt after the masking changed";
+  function unbuiltPage(id, why) {
+    function h(s) {
+      return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+    return '<!doctype html>\n<html lang="en"><head><meta charset="utf-8">\n' +
+      '<meta name="viewport" content="width=device-width, initial-scale=1">\n' +
+      "<title>" + h(id.slice(0, 8)) + " — not rebuilt</title>\n" +
+      "<style>:root{--bg:#fff;--fg:#222;--dim:#666}" +
+      "@media (prefers-color-scheme:dark){:root{--bg:#1b1b1b;--fg:#ddd;--dim:#999}}" +
+      "body{background:var(--bg);color:var(--fg);font:15px/1.5 -apple-system,system-ui,sans-serif;" +
+      "max-width:40em;margin:3em auto;padding:0 16px}code,.d{color:var(--dim)}a{color:inherit}</style>\n" +
+      '</head><body>\n<p><a href="../index.html">← all conversations</a></p>\n' +
+      "<h1>This conversation " + UNBUILT + "</h1>\n" +
+      "<p>Its page was masked by the rules and your own list as they were before, and may have " +
+      "shown what they now hide, so it was taken away. The next build that succeeds brings it back.</p>\n" +
+      '<p class="d">' + h(id) + ": " + h(why) + "</p>\n</body></html>\n";
+  }
+
   var assets = {};
   function asset(name) {
     if (!(name in assets)) assets[name] = read(HERE + "/viewer/" + name) || "";
@@ -2164,16 +2186,68 @@ function run(argv) {
       // masked by its rules and list, which may not be these: it goes.
       if (sc && USE_CACHE) saveKept(s.id, s.path, sc, nowAgents);
       else dropKept(s.id);
+      dropStaleArchiveState(s.id);
       built++;
     } catch (e) {
       dropKept(s.id);
+      dropStaleArchiveState(s.id);
+      // Masked too: an error can quote what it could not read.
+      var why = red(String(e.message || e));
+      errors.push({ id: s.id, source: s.path, error: why });
       // A session that will not build is reported, never quietly missing — and
       // keeps its last good page and its place on the index. Without this it
       // would fall out of the list and be pruned, so one failed attempt would
       // cost a page that was fine a moment ago.
-      errors.push({ id: s.id, source: s.path, error: String(e.message || e) });
-      if (manifest[s.id]) fresh[s.id] = manifest[s.id];
+      // Unless that page was masked by other rules or another list: then it
+      // may show what these hide, and a note takes its place until a build
+      // of it succeeds.
+      var was = manifest[s.id];
+      if ((!was || was.rsig !== RSIG) && heldText(s.id)) withdraw(s, was, why);
+      else if (was) fresh[s.id] = was;
     }
+  }
+
+  // Whether anything this build writes of a session's text is on disk.
+  function heldText(id) {
+    return exists(OUT + "/sessions/" + id + ".html") || exists(OUT + "/sessions/" + id) ||
+      exists(OUT + "/search/" + id + ".js") || exists(cacheFile(id));
+  }
+
+  // The archiver's state of a session, kept beside the pages, holds what
+  // its last save read, masked by that save's rules and list (its key ends
+  // with their signature). Under any other it is never read again, and only
+  // keeps the old text on disk. Taking it away is always safe: the next
+  // save reads the transcript from the start. The md5 first, as dropKept.
+  function dropStaleArchiveState(id) {
+    var file = CACHE + "/" + id + ".archive";
+    if (!exists(file)) return;
+    var st = null;
+    try { st = JSON.parse(read(file) || "null"); } catch (e) { st = null; }
+    var key = st && typeof st.key === "string" ? st.key : "";
+    if (key.slice(-(RSIG.length + 1)) === ":" + RSIG) return;
+    remove(file + ".md5");
+    remove(file);
+  }
+
+  // A session whose build failed, its page masked under another signature:
+  // the page becomes a note saying so, with the error; its sub-agents'
+  // pages and its caches go; its search file is written empty; its line on
+  // the index keeps no title. Each file is replaced whole (write is
+  // atomic), or removed when it cannot be. Recorded under no signature, so
+  // the next build tries it again and, once one succeeds, the page is back.
+  function withdraw(s, was, why) {
+    var page = OUT + "/sessions/" + s.id + ".html", search = OUT + "/search/" + s.id + ".js";
+    if (!write(page, unbuiltPage(s.id, why))) remove(page);
+    remove(OUT + "/sessions/" + s.id);
+    if (!write(search, searchText(s.id, ""))) remove(search);
+    if (!was) return;
+    var e = JSON.parse(JSON.stringify(was));
+    e.title = UNBUILT;
+    e.rsig = "unbuilt";
+    e.agents = 0;
+    e.unbuilt = why;
+    fresh[s.id] = e;
+    if (resumable(e)) writeLaunchers(e);
   }
 
   sessions.forEach(function (s) { buildOne(s, false); });

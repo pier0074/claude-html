@@ -178,7 +178,6 @@ check "a cache given up on, its transcript changed during the build, goes whole"
 # A page that could not be written (a full disk) was recorded as current
 # under the new list, and kept its old text through every later build.
 without_list
-RS_OLD="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))[process.argv[2]].rsig)' "$OUT/.manifest.json" "$S1")"
 cat > "$T/full-disk.js" <<HOOK
 var fs = require("fs"), wf = fs.writeFileSync;
 fs.writeFileSync = function (p) {
@@ -189,10 +188,74 @@ fs.writeFileSync = function (p) {
 };
 HOOK
 NODE_OPTIONS="--require $T/full-disk.js" pages node
-check "a page that could not be written is said, and not recorded as current" \
-  "$(grep -c "\"id\":\"$S1\"" "$OUT/.build-errors.json" 2>/dev/null) $(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))[process.argv[2]].rsig === process.argv[3])' "$OUT/.manifest.json" "$S1" "$RS_OLD") $(ls "$OUT/sessions" | grep -c '\.tmp')" "1 true 0"
+# The page it had was masked without the list, and the note that would take
+# its place cannot be written either: it goes, and nothing holds the text.
+check "a page that could not be written is said, not recorded as current, and not left as it was" \
+  "$(grep -c "\"id\":\"$S1\"" "$OUT/.build-errors.json" 2>/dev/null) $(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))[process.argv[2]].rsig)' "$OUT/.manifest.json" "$S1") $(ls "$OUT/sessions" | grep -c '\.tmp') $([ -e "$OUT/sessions/$S1.html" ] && echo page) $(leaky "$OUT")" "1 unbuilt 0  0"
 pages
 check "  so the next build writes it, masked" "$(leaky "$OUT") $([ -f "$OUT/.build-errors.json" ] && echo errors)" "0 "
+save
+
+# ── a page that cannot be built again under a changed list ───────────
+# The list grows to mask what the pages show, and the session's build
+# then fails: its page, its sub-agent's, its search file and its line on
+# the index were masked by the old list, and must not stay as they were.
+cp "$OWNL" "$T/list.base"
+ENGINES=node; [ "$HAVE_OSASCRIPT" = true ] && ENGINES="osascript node"
+printf '%s\n' "Fix the login" "Here is everything" "You are a sub-agent" > "$T/newly.txt"
+newly() { grep -rlF -f "$T/newly.txt" "$@" 2>/dev/null | wc -l | tr -d ' '; }
+grow() { cat "$T/list.base" "$T/newly.txt" > "$OWNL"; }
+NOTE="could not be rebuilt after the masking changed"
+P="$OUT/sessions/$S1.html"
+unbuilt() {   # what to say: the newly masked text nowhere, the page a note, the error on the index
+  printf '%s %s %s %s %s' "$(newly "$OUT")" "$(grep -c "$NOTE" "$P" 2>/dev/null)" \
+    "$(ls "$OUT/sessions/$S1" 2>/dev/null | grep -c 'agent-')" \
+    "$(grep -c "\"id\":\"$S1\"" "$OUT/.build-errors.json" 2>/dev/null)" \
+    "$(grep -c "$1" "$OUT/index.html")"
+}
+restored() {  # the full page back, masked by the grown list, and nothing said
+  printf '%s %s %s %s' "$(newly "$OUT")" "$(grep -c "$NOTE" "$P")" \
+    "$(ls "$OUT/sessions/$S1" 2>/dev/null | grep -c 'agent-s1.html')" "$([ -f "$OUT/.build-errors.json" ] && echo errors)"
+}
+pages
+check "under the old list, the strings the new one masks are on the pages" "$([ "$(newly "$OUT")" -gt 0 ] && echo yes)" yes
+# A build that throws: the sub-agent's page cannot be written.
+cat > "$T/agent-fails.js" <<HOOK
+var fs = require("fs"), wf = fs.writeFileSync;
+fs.writeFileSync = function (p) {
+  if (/\/sessions\/$S1\/agent-s1\.html\.tmp/.test(String(p))) throw new Error("ENOSPC: no space left on device");
+  return wf.apply(fs, arguments);
+};
+HOOK
+grow
+NODE_OPTIONS="--require $T/agent-fails.js" pages node
+check "node: a build that throws after the list changed leaves none of the old text, a note in its place" \
+  "$(unbuilt 'could not be written') $(ls "$OUT/sessions" "$OUT/search" | grep -c '\.tmp')" "0 1 0 1 1 0"
+pages node
+check "node:   and the next good build brings the page back" "$(restored)" "0 0 1 "
+# A transcript that cannot be read, under each engine.
+if chmod 000 "$JT" && ! [ -r "$JT" ]; then
+  for eng in $ENGINES; do
+    cp "$T/list.base" "$OWNL"; CLAUDE_HTML_ENGINE=$eng pages
+    grow; chmod 000 "$JT"
+    CLAUDE_HTML_ENGINE=$eng pages
+    check "$eng: an unreadable transcript after the list changed leaves none of the old text" \
+      "$(unbuilt 'cannot read')" "0 1 0 1 1"
+    chmod 644 "$JT"; CLAUDE_HTML_ENGINE=$eng pages
+    check "$eng:   and once it can be read, the page is back" "$(restored)" "0 0 1 "
+    # The list as it was: a failed build keeps the page, which is masked
+    # by this very list. The transcript touched, so the build is tried.
+    cp -p "$JT" "$T/jt.before"; P2="$(ch_md5 "$P")"
+    touch "$JT"; chmod 000 "$JT"
+    CLAUDE_HTML_ENGINE=$eng pages
+    check "$eng: under the same list, a failed build keeps the page it had, and says so" \
+      "$([ "$(ch_md5 "$P")" = "$P2" ] && echo kept) $(grep -c "\"id\":\"$S1\"" "$OUT/.build-errors.json" 2>/dev/null)" "kept 1"
+    chmod 644 "$JT"; cp -p "$T/jt.before" "$JT"
+  done
+else
+  chmod 644 "$JT"; echo "  (skipped: this user can read a file with no permissions)"
+fi
+cp "$T/list.base" "$OWNL"
 save
 
 # ── off ──────────────────────────────────────────────────────────────
@@ -230,7 +293,6 @@ HID="$(cat "$H/id")"; HAPP="$H/root/app"; HOUT="$H/root/pages"
 HJ="$H/home/.claude/projects/$(printf '%s' "$HAPP" | tr '/' '-')/$HID.jsonl"
 printf 'CLAUDE_HTML_ROOT="%s"\nCLAUDE_HTML_OUT="%s"\n' "$H/root" "$HOUT" > "$H/home/.claude/claude-html.conf"
 HSUM="$(ch_md5 "$HJ")"
-ENGINES=node; [ "$HAVE_OSASCRIPT" = true ] && ENGINES="osascript node"
 for eng in $ENGINES; do
   rm -rf "$HOUT" "$HAPP/.claude" "$H/home/.claude/claude-html.archives"; mkdir -p "$HOUT"
   : > "$H/log.$eng"
