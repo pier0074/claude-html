@@ -10,6 +10,38 @@
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 failed=0
+# One gate at a time on this machine: two at once take each about twice as
+# long, and more than that slows every one of them to a crawl. A second run
+# waits here for the first to end. The lock holds the owner's pid: one whose
+# process is gone (killed, the machine restarted) is taken over.
+# CLAUDE_HTML_TEST_LOCK names another lock (docs/SETUP.md); "off" takes none.
+GLOCK="${CLAUDE_HTML_TEST_LOCK:-/tmp/claude-html-gate.$(id -u).lock}"
+if [ "$GLOCK" != off ]; then
+  said=no
+  until mkdir "$GLOCK" 2>/dev/null; do
+    gp="$(cat "$GLOCK/pid" 2>/dev/null)"
+    if [ -n "$gp" ] && ! kill -0 "$gp" 2>/dev/null; then
+      rm -rf "$GLOCK"; continue
+    fi
+    # Just made, its pid not written yet; or left with none by a run killed
+    # between the two: after a minute it is taken over too.
+    if [ -z "$gp" ] && [ -n "$(find "$GLOCK" -maxdepth 0 -mmin +1 2>/dev/null)" ]; then
+      rm -rf "$GLOCK"; continue
+    fi
+    [ "$said" = yes ] || { echo "waiting for another gate to end (pid ${gp:-?})"; said=yes; }
+    sleep 2
+  done
+  echo $$ > "$GLOCK/pid"
+fi
+# What a pass is recorded for: this exact tree, and how it was run. A clone
+# with changes not committed records nothing, nor one outside git (CI's).
+# The CLAUDE_HTML_ settings it was started with are part of how; the run's
+# own count and priority are not, they change no check.
+MODE="$(env | LC_ALL=C sort | grep '^CLAUDE_HTML_' | grep -Ev '^CLAUDE_HTML_TEST_JOBS=|^CLAUDE_HTML_TEST_NICE=|^CLAUDE_HTML_TEST_LOCK=' | cut -d= -f1 | paste -s -d, -)"
+TREE=""
+if git -C "$HERE/.." rev-parse --git-dir >/dev/null 2>&1 && [ -z "$(git -C "$HERE/.." status --porcelain 2>/dev/null)" ]; then
+  TREE="$(git -C "$HERE/.." rev-parse 'HEAD^{tree}' 2>/dev/null)"
+fi
 # The suites run node directly below, without lib.sh: nothing of the
 # owner's own redaction settings may reach them.
 unset CLAUDE_HTML_REDACT
@@ -43,7 +75,7 @@ NICE="${CLAUDE_HTML_TEST_NICE:-10}"
 case "$NICE" in ''|*[!0-9]*) NICE=10 ;; esac
 [ "$NICE" -le 19 ] || NICE=19
 OUTD="$(mktemp -d "${TMPDIR:-/tmp}/claude-html-tests.XXXXXX")" || exit 1
-trap 'rm -rf "$OUTD"' EXIT
+trap 'rm -rf "$OUTD"; [ "$GLOCK" = off ] || [ "$(cat "$GLOCK/pid" 2>/dev/null)" != $$ ] || rm -rf "$GLOCK"' EXIT
 # Every temp folder a suite makes is in this run's own: what it leaves
 # behind, a registered helper app above all, is known to be this run's.
 RUNTMP="$OUTD/tmp"; mkdir -p "$RUNTMP"; export TMPDIR="$RUNTMP"
@@ -155,4 +187,11 @@ SLOW="$(for t in $SUITES $QUICK; do printf '%s %s\n' "$(cat "$OUTD/$t.secs" 2>/d
         sort -rn | head -3 | awk '{ printf "%s%s %ss", (NR > 1 ? ", " : ""), $2, $1 }')"
 echo "$(( $(date +%s) - T0 ))s, $JOBS at a time$([ "$NICE" = 0 ] || echo ", nice $NICE"); longest: $SLOW"
 [ "$failed" = 0 ] && echo "all suites passed" || echo "SOMETHING FAILED"
+# A pass on a tree that is still the one tested, unchanged by the run:
+# dev/release.sh does not run the gate again on it.
+if [ "$failed" = 0 ] && [ -n "$TREE" ] && [ -z "$(git -C "$HERE/.." status --porcelain 2>/dev/null)" ] &&
+   [ "$(git -C "$HERE/.." rev-parse 'HEAD^{tree}' 2>/dev/null)" = "$TREE" ]; then
+  GD="$(cd "$HERE/.." && cd "$(git rev-parse --git-common-dir)" && pwd)" &&
+  printf '%s %s %s %s\n' "$TREE" "$(date +%s)" "$(uname -s)" "${MODE:--}" >> "$GD/claude-html-gates-passed" 2>/dev/null
+fi
 exit "$failed"

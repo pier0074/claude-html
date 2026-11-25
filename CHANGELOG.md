@@ -5,6 +5,14 @@ fixes, a minor adds without breaking, a major needs something from you
 (usually `./install.sh` again). To update: `claude-html --update`; before
 3.1.0, `git checkout main && git pull && ./install.sh`.
 
+## 3.8.1 — 2026-11-25
+
+- Tests: `tests/run-all.sh` runs one at a time on a machine; a second run
+  waits for the first (`CLAUDE_HTML_TEST_LOCK`). Several at once took each
+  several times longer.
+- Tests: a run that passes on a clean git tree records it, and a release
+  does not run the gate again on that exact tree.
+
 ## 3.8.0 — 2026-11-25
 
 - Linux: the link handler's windows (the delete question, and what it says
