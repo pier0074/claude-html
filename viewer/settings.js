@@ -213,9 +213,14 @@
      "CLAUDE_HTML_STATUSLINE_BAR_FROM", "CLAUDE_HTML_STATUSLINE_COLOR"].forEach(function (k) { h += row(S.byKey[k]); });
     var st = slSettings(), r = SLJ.render(st, slData()), b = slBudget(), rb = b ? SLJ.render(st, b) : null;
     function term(html, label) { return '<div class="slp"><span class="slpl">' + esc(label) + '</span><code class="term' + (st.color ? "" : " plain") + '">' + html + "</code></div>"; }
+    // A terminal line is one line: the box wraps it only to stay readable,
+    // and says how wide it really is, and whether it would be too wide.
+    function cols(t) { return Array.from(t).length + " columns"; }
+    function over(t) { return Array.from(t).length > st.width ? ", wider than " + st.width + ": auto condenses it" : ""; }
     var fits = st.form === "auto" ? "as it fits " + st.width + " columns" : st.form;
     h += '<div class="srow slrow" id="slpreview"><div class="sk"><span class="sl">Preview</span><code class="sn">with these choices</code></div><div class="sv">' +
-      term(r.html, fits) + term(r.normalHtml, "normal") + term(r.condensedHtml, "condensed") +
+      term(r.html, fits + " · " + cols(r.text)) + term(r.normalHtml, "normal · " + cols(r.normal) + over(r.normal)) +
+      term(r.condensedHtml, "condensed · " + cols(r.condensed) + over(r.condensed)) +
       (rb ? term(rb.html, "API use, " + fits) : "") +
       '<p class="sh">' + (data.limits && data.limits.plan ? "the latest figures Claude Code gave, as of the build" : "sample figures") +
       "; the agent, project and costs are samples. The line runs after every reply; Claude Code says the terminal's width, and a line wider than it less 4 is condensed (auto) or cut.</p></div></div>";

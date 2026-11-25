@@ -5,6 +5,12 @@ fixes, a minor adds without breaking, a major needs something from you
 (usually `./install.sh` again). To update: `claude-html --update`; before
 3.1.0, `git checkout main && git pull && ./install.sh`.
 
+## 3.7.1 — 2026-11-25
+
+- Settings page: the status line's preview wraps a long line inside its box
+  instead of hiding it under a scrollbar, and says how many columns each form
+  takes, and when the normal one is wider than the line may be.
+
 ## 3.7.0 — 2026-11-25
 
 - Settings page: the guard's safe values one by one — the kind, the date
