@@ -259,10 +259,11 @@ guard_line() {
   if ch_is_off "${CLAUDE_HTML_GUARD_DIALOG:-on}"; then asks="in words, as the next prompt"
   else asks="in a dialog when someone is at the screen"; fi
   n="$(guard_hooks)"; safe="$(guard_safe)"
-  printf 'guard %s · %s safe value(s) · hooks %s of 2 in settings.json · asks %s · waits %s · %s\n' \
+  printf '%s · %s safe value(s) · hooks %s of 2 in settings.json · asks %s · waits %s · %s\n' \
     "$what" "${safe:-0}" "${n:-0}" "$asks" "$(guard_wait_words)" "$(ch_engine_line | cut -d' ' -f1)"
-  guard_wait_bad
 }
+# The guard's line as --doctor and --guard print it, with a wait it ignores.
+guard_show() { ch_dl guard "$(guard_line)"; guard_wait_bad; }
 # How long the windows wait, as the setting says: platform.sh reads it
 # (ch_wait_secs), this only says it.
 WAIT_RANGE="from 30 seconds to 60 minutes, written 45, 45s, 2m or 1m30s"
@@ -284,8 +285,8 @@ guard_wait_bad() {
   [ -n "${CLAUDE_HTML_GUARD_WAIT:-}" ] || return 0
   ch_wait_secs "$CLAUDE_HTML_GUARD_WAIT"; case $? in
     0) return 0 ;;
-    2) echo "  Ignored  CLAUDE_HTML_GUARD_WAIT=\"$CLAUDE_HTML_GUARD_WAIT\" ($(guard_wait_where | sed 's/^CLAUDE_HTML_GUARD_WAIT //')): out of range, $WAIT_RANGE; the default, $(ch_span "$CH_WAIT_DEFAULT"), applies" ;;
-    *) echo "  Ignored  CLAUDE_HTML_GUARD_WAIT=\"$CLAUDE_HTML_GUARD_WAIT\" ($(guard_wait_where | sed 's/^CLAUDE_HTML_GUARD_WAIT //')): not a wait, $WAIT_RANGE; the default, $(ch_span "$CH_WAIT_DEFAULT"), applies" ;;
+    2) ch_dl ignored "CLAUDE_HTML_GUARD_WAIT=\"$CLAUDE_HTML_GUARD_WAIT\" ($(guard_wait_where | sed 's/^CLAUDE_HTML_GUARD_WAIT //')): out of range, $WAIT_RANGE; the default, $(ch_span "$CH_WAIT_DEFAULT"), applies" ;;
+    *) ch_dl ignored "CLAUDE_HTML_GUARD_WAIT=\"$CLAUDE_HTML_GUARD_WAIT\" ($(guard_wait_where | sed 's/^CLAUDE_HTML_GUARD_WAIT //')): not a wait, $WAIT_RANGE; the default, $(ch_span "$CH_WAIT_DEFAULT"), applies" ;;
   esac
 }
 guard_wait_show() {
@@ -301,7 +302,7 @@ if [ -n "$GUARD" ]; then
     on|prompt|off)
       conf_line CLAUDE_HTML_GUARD "$GUARDARG"
       CLAUDE_HTML_GUARD="$GUARDARG"
-      echo "$(guard_line)"
+      guard_show
       [ "$(guard_hooks)" = 2 ] || [ "$GUARDARG" = off ] ||
         echo "the guard's hooks are not in $SETTINGS: run ./install.sh in $HERE to add them" ;;
     wait)
@@ -328,10 +329,11 @@ if [ -n "$GUARD" ]; then
             echo "But CLAUDE_HTML_GUARD_WAIT=$CLAUDE_HTML_GUARD_WAIT in your environment wins over the conf, so here they wait $(guard_wait_words)." ;;
       esac ;;
     status|"")
-      echo "$(guard_line)"
+      guard_show
       # The safe values by rule and date: what a line says after its #.
-      grep '^[[:space:]]*safe:' "$GUARD_LIST" 2>/dev/null | sed -n 's/^[^#]*#[[:space:]]*/  safe  /p'
-      [ "$(guard_safe)" = 0 ] || echo "  to forget one, delete its line in $GUARD_LIST" ;;
+      _safe="$(grep '^[[:space:]]*safe:' "$GUARD_LIST" 2>/dev/null | sed -n 's/^[^#]*#[[:space:]]*//p')"
+      [ -z "$_safe" ] || ch_dl safe "$_safe"
+      [ "$(guard_safe)" = 0 ] || ch_dl "" "to forget one, delete its line in $GUARD_LIST" ;;
     *) echo "claude-html --guard on|prompt|off|status|wait" >&2; exit 2 ;;
   esac
   exit 0
@@ -342,34 +344,40 @@ fi
 js_opts() { ch_js_opts "$HERE" "$@"; }
 
 if [ -n "$DOCTOR" ]; then
+  # Every line through ch_dl (platform.sh), so all of it is laid out alike:
+  # what the other scripts give are values, and the labels are put on here.
   actions_setup
-  ch_doctor
-  echo
-  echo "  version   $VERSION"
-  echo "  update    $(bash "$HERE/lib/update.sh" "$HERE" --doctor-line 2>/dev/null)"
-  echo "  pages     $OUT"
+  ch_doctor "$VERSION"
+  ch_dl_section "claude-html"
+  ch_dl update "$(bash "$HERE/lib/update.sh" "$HERE" --doctor-line 2>/dev/null)"
+  ch_dl pages "$OUT"
+  _open="$(ch_loose_out "$OUT")"
+  if [ "$_open" = 0 ]; then ch_dl private "what it wrote there is readable by you alone"
+  else ch_dl private "$_open file(s) there readable by others: the next build makes them yours alone"; fi
+  ch_dl projects "$ROOT"
   # The archive folders it knows of, and whether git would commit any.
   # shellcheck source=lib/version.sh
   . "$HERE/lib/version.sh"
   _tracked="$( { [ -f "$HOME/.claude/claude-html.archives" ] && cat "$HOME/.claude/claude-html.archives"; echo "$ROOT"
                  for _d in "$ROOT"/*; do echo "$_d"; done; } 2>/dev/null | sort -u |
                while IFS= read -r _d; do [ -n "$_d" ] && ch_archives_tracked "$_d"; done )"
-  if [ -z "$_tracked" ]; then echo "  git       no archive folder would be committed"
+  if [ -z "$_tracked" ]; then ch_dl git "no archive folder would be committed"
   else
-    echo "  git       $(printf '%s\n' "$_tracked" | wc -l | tr -d ' ') archive folder(s) git would commit (a .gitignore holding * in each keeps them out; the next save there writes it):"
-    printf '%s\n' "$_tracked" | head -5 | sed 's/^/            /'
+    ch_dl git "$(printf '%s\n' "$_tracked" | wc -l | tr -d ' ') archive folder(s) git would commit (a .gitignore holding * in each keeps them out; the next save there writes it):
+$(printf '%s\n' "$_tracked" | head -5)"
   fi
-  _open="$(ch_loose_out "$OUT")"
-  if [ "$_open" = 0 ]; then echo "  private   what it wrote there is readable by you alone"
-  else echo "  private   $_open file(s) there readable by others: the next build makes them yours alone"; fi
-  echo "  projects  $ROOT"
-  # Which secrets are masked, and how many archives still hold some. Never
-  # what the own list says.
-  run_js "$HERE/build/convert.js" "$(js_opts :redactInfo true)" 2>/dev/null ||
-    echo "  redact    could not be checked: $CH_ENGINE_WHY"
-  guard_line | sed 's/^/  /'
+  ch_dl_section "Protection"
+  # Which secrets are masked, and how many archives still hold some: a line
+  # for each, the redaction's and the archives'. Never what the own list says.
+  if _ri="$(run_js "$HERE/build/convert.js" "$(js_opts :redactInfo true)" 2>/dev/null)"; then
+    ch_dl redact "$(printf '%s\n' "$_ri" | sed -n 1p)"
+    _ra="$(printf '%s\n' "$_ri" | sed -n 2p)"
+    [ -z "$_ra" ] || ch_dl archives "$_ra"
+  else ch_dl redact "could not be checked: $CH_ENGINE_WHY"; fi
+  guard_show
+  ch_dl_section "Limits"
   # shellcheck source=lib/limits-cli.sh
-  echo "  limits    $( set +u; . "$HERE/lib/limits.sh" && . "$HERE/lib/limits-cli.sh" && ch_lim_doctor 2>/dev/null)"
+  ch_dl limits "$( set +u; . "$HERE/lib/limits.sh" && . "$HERE/lib/limits-cli.sh" && ch_lim_doctor 2>/dev/null)"
   exit 0
 fi
 

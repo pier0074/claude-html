@@ -186,8 +186,8 @@ doctor() {
 }
 field() { sed -n "s/^  $1 *//p" | head -n 1; }
 check "--doctor names the engine and the node" \
-  "$(doctor CLAUDE_HTML_NODE_DIRS="$T/good one" | field engine | sed 's/ [0-9.]* / /; s/)   .*/)/')" "node ($T/good one/node)"
-check "  and why" "$(doctor CLAUDE_HTML_NODE_DIRS="$T/good one" | field engine | sed 's/.*)   //')" \
+  "$(doctor CLAUDE_HTML_NODE_DIRS="$T/good one" | field engine | sed 's/ [0-9.]* / /; s/) · .*/)/')" "node ($T/good one/node)"
+check "  and why" "$(doctor CLAUDE_HTML_NODE_DIRS="$T/good one" | field engine | sed 's/.*) · //')" \
   "node is here, and is the faster of the two"
 check "  and a choice it set aside" \
   "$(doctor CLAUDE_HTML_NODE_DIRS="$T/good one" CLAUDE_HTML_ENGINE=jsc | field note)" \
@@ -195,7 +195,7 @@ check "  and a choice it set aside" \
 if [ "$OSA" = yes ]; then
   check "  and says so when it is osascript, and why" \
     "$(doctor CLAUDE_HTML_NODE_DIRS="$T/empty" | field engine)" \
-    "osascript   no working node 14.14 or later here, so the system's own osascript"
+    "osascript · no working node 14.14 or later here, so the system's own osascript"
 fi
 
 echo

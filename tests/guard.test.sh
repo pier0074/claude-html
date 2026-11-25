@@ -575,15 +575,18 @@ cli() { env HOME="$H" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_REDACT_FILE="$LIST" 
           /bin/bash "$HERE/claude-html" "$@" 2>&1; }
 G="$(cli --guard status)"
 check "--guard status: the mode and the safe values, by rule and date only" \
-  "$(printf '%s\n' "$G" | grep -c '^guard on · 1 safe value(s) · hooks 0 of 2') $(printf '%s\n' "$G" | grep -cx '  safe  github, 2026-11-19') $(printf '%s' "$G" | grep -c 0123456789abcdef)" "1 1 0"
+  "$(printf '%s\n' "$G" | grep -c '^  guard     on · 1 safe value(s) · hooks 0 of 2') $(printf '%s\n' "$G" | grep -cx '  safe      github, 2026-11-19') $(printf '%s' "$G" | grep -c 0123456789abcdef)" "1 1 0"
+check "  laid out as --doctor is: the label padded, the safe values under theirs" \
+  "$(printf '%s\n' "$G" | doctor_layout noheader)" ok
 check "--guard status with no list file says 0, not a blank" \
   "$(env HOME="$H" CLAUDE_HTML_CONF="$CONFF" CLAUDE_HTML_REDACT_FILE="$H/no-such-list" CLAUDE_HTML_NO_REGISTER=1 \
-       /bin/bash "$HERE/claude-html" --guard status 2>&1 | grep -c '^guard on · 0 safe value(s) · ')" 1
+       /bin/bash "$HERE/claude-html" --guard status 2>&1 | grep -c '^  guard     on · 0 safe value(s) · ')" 1
 cli --guard prompt >/dev/null
 check "--guard prompt: its one line in the conf" "$(grep -c '^CLAUDE_HTML_GUARD="prompt"$' "$CONFF") $(grep -c '^CLAUDE_HTML_ROOT=' "$CONFF")" "1 1"
 cli --guard off >/dev/null
 check "--guard off: the same line" "$(grep -c '^CLAUDE_HTML_GUARD=' "$CONFF") $(grep -c '"off"' "$CONFF")" "1 1"
-check "--doctor has a guard line" "$(cli --doctor | grep -c '^  guard off · 1 safe value(s)')" 1
+check "--doctor has a guard line" "$(cli --doctor | grep -c '^  guard     off · 1 safe value(s)')" 1
+check "  and --guard off says it the same way" "$(cli --guard off | head -1 | sed 's/ · .*//')" "  guard     off"
 check "--guard with anything else says how to use it" "$(cli --guard maybe) $(cli --guard maybe >/dev/null; echo $?)" "claude-html --guard on|prompt|off|status|wait 2"
 
 # --guard wait: shown, set through the conf writer after it is checked,
@@ -596,7 +599,7 @@ check "--guard wait: the wait, the default, and the range" \
 check "--guard wait 2m: set in the conf, the rest kept" \
   "$(wcli --guard wait 2m | grep -c 'wait 2 minutes') $(grep -c '^CLAUDE_HTML_GUARD_WAIT="2m"$' "$CONFF") $(grep -c '^CLAUDE_HTML_ROOT=' "$CONFF")" "1 1 1"
 check "  then shown, from the conf" "$(wcli --guard wait | grep -c "^The guard's windows wait 2 minutes (CLAUDE_HTML_GUARD_WAIT in $CONFF), then close as Cancel.$")" 1
-check "  and in the guard's line" "$(wcli --guard status | grep -c '^guard off · .* · waits 2 minutes · ')" 1
+check "  and in the guard's line" "$(wcli --guard status | grep -c '^  guard     off · .* · waits 2 minutes · ')" 1
 cp "$CONFF" "$T/conf.before"
 for v in 29s 61m 3601 abc 1m90s ""; do
   R="$(wcli --guard wait "$v")"; rc=$?
@@ -607,7 +610,7 @@ done
 check "  out of range is said so" "$(wcli --guard wait 61m)" "out of range: 61m — from 30 seconds to 60 minutes, written 45, 45s, 2m or 1m30s; nothing was changed"
 printf 'CLAUDE_HTML_GUARD_WAIT="10 minutes"\n' >> "$CONFF"
 check "a bad wait in the conf: the default, and said where the guard is reported" \
-  "$(wcli --guard wait | grep -c "^The guard's windows wait 1 minute (the default)") $(wcli --guard status | grep -c '^  Ignored  CLAUDE_HTML_GUARD_WAIT="10 minutes" (in .*): not a wait, ') $(wcli --doctor | grep -c '^    Ignored  CLAUDE_HTML_GUARD_WAIT="10 minutes"')" "1 1 1"
+  "$(wcli --guard wait | grep -c "^The guard's windows wait 1 minute (the default)") $(wcli --guard status | grep -c '^  ignored   CLAUDE_HTML_GUARD_WAIT="10 minutes" (in .*): not a wait, ') $(wcli --doctor | grep -c '^  ignored   CLAUDE_HTML_GUARD_WAIT="10 minutes"')" "1 1 1"
 check "--guard wait default: every line of it out, the rest kept" \
   "$(wcli --guard wait default | grep -c 'the default, 1 minute') $(grep -c 'CLAUDE_HTML_GUARD_WAIT' "$CONFF") $(grep -c '^CLAUDE_HTML_ROOT=' "$CONFF") $(wcli --guard wait | grep -c '(the default)')" "1 0 1 1"
 check "  the environment's wins, and is said to" \

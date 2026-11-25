@@ -170,7 +170,34 @@ CLAUDE_HTML_ENGINE=osascript   # in the conf, or the environment
 `claude-html --doctor` shows the engine and why it was picked, the system,
 desktop, terminal, trash, dialog and link handler, the pages and projects
 folders, whether what it wrote is readable by you alone, any archive folder
-git would commit, and the [redaction](#secrets).
+git would commit, and the [redaction](#secrets). One layout throughout: a
+header with the version, then sections (This machine, Tools, claude-html,
+Protection, Limits) a blank line apart, every line a label and its value,
+the parts of a value apart by ` · `:
+
+```text
+claude-html doctor · 3.6.3
+
+This machine
+  system    macOS 14.8.9
+  desktop   none
+  session   aqua
+  wsl       no
+
+Tools
+  terminal  Terminal · /usr/bin/open <launcher>.command
+  opener    open
+  trash     finder · the Finder's Trash (NSFileManager), Put Back restores
+  dialog    osascript
+  links     handled by Claude HTML.app
+  engine    node 22.11.0 (/usr/local/bin/node) · node is here, and is the faster of the two
+  missing   nothing
+…
+```
+
+At a terminal a value too long for it wraps under the value column, at a
+` · ` first, never inside a word; piped or redirected, each item is one line,
+for `grep`.
 
 ## Dashboard weeks
 
@@ -774,4 +801,5 @@ Knobs the tests set; nothing needs them day to day.
 | `CLAUDE_HTML_LOCK_WAIT` | seconds a session-end save waits for the lock before saving without it, instead of 50 |
 | `CLAUDE_HTML_TEST_JOBS` | how many suites `tests/run-all.sh` runs at once (default: half the CPUs, 2 to 6; `1` runs them one after another) |
 | `CLAUDE_HTML_TEST_NICE` | the priority `tests/run-all.sh` runs each suite at, as `nice -n` takes it (default `10`, so the machine stays quick while they run; `0` for full priority) |
-| `CH_DRY` | print the command a terminal, opener or dialog would be given, and run nothing (what `--doctor` and the `-plan` commands show) |
+| `CLAUDE_HTML_DOCTOR_COLUMNS` | the width `--doctor` wraps its values to, as though it were printing to a terminal that wide (it wraps only at a terminal otherwise) |
+| `CH_DRY` | print the command a terminal, opener or dialog would be given, and run nothing (what the `-plan` commands show; `show` prints it as `--doctor` does, quoted only where it must be) |

@@ -371,6 +371,7 @@ bash tests/delete.test.sh       # deleting removes everything it should, and not
 bash tests/open.test.sh         # a project name opens the right thing, and nothing else (macOS)
 bash tests/helper.test.sh       # the helper app is built, and rebuilt when its source changes (macOS)
 bash tests/linux.test.sh        # every Linux desktop, simulated: detection, terminals, trash, links
+bash tests/doctor.test.sh       # --doctor's one layout: sections, padded labels, wrapping at a terminal
 ```
 
 delete, open and helper need macOS and say so when skipped elsewhere; linux

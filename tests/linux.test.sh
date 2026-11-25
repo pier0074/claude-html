@@ -157,7 +157,7 @@ check "ubuntu: trash" "$(printf '%s\n' "$D" | first trash)" gio
 check "ubuntu: dialog" "$(printf '%s\n' "$D" | first dialog)" zenity
 check "ubuntu: links can be registered" "$(printf '%s\n' "$D" | field links)" \
   "not registered yet - ./install.sh registers it"
-check "ubuntu: nothing missing" "$(printf '%s\n' "$D" | field unavailable:)" nothing
+check "ubuntu: nothing missing" "$(printf '%s\n' "$D" | field missing)" nothing
 check "os-release is read, never run" "$([ -e "$T/os-release-was-run" ] && echo ran || echo read)" read
 
 D="$(doctor fedora)"
@@ -186,7 +186,7 @@ check "bare wm: no desktop" "$(printf '%s\n' "$D" | first desktop)" none
 check "bare wm: xterm" "$(printf '%s\n' "$D" | first terminal)" xterm
 check "bare wm: the Trash spec by hand" "$(printf '%s\n' "$D" | first trash)" spec
 check "bare wm: xmessage asks" "$(printf '%s\n' "$D" | first dialog)" xmessage
-check "bare wm: says what it lacks" "$(printf '%s\n' "$D" | field unavailable:)" "opener links"
+check "bare wm: says what it lacks" "$(printf '%s\n' "$D" | field missing)" "opener · links"
 
 D="$(doctor headless)"
 check "headless: session" "$(printf '%s\n' "$D" | first session)" headless
@@ -194,8 +194,8 @@ check "headless: no terminal" "$(printf '%s\n' "$D" | first terminal)" none
 check "headless: no dialog" "$(printf '%s\n' "$D" | first dialog)" none
 check "headless: trash still works" "$(printf '%s\n' "$D" | first trash)" spec
 check "headless: no links" "$(printf '%s\n' "$D" | field links)" "unavailable: no display"
-check "headless: says what it lacks" "$(printf '%s\n' "$D" | field unavailable:)" \
-  "terminal opener dialog links"
+check "headless: says what it lacks" "$(printf '%s\n' "$D" | field missing)" \
+  "terminal · opener · dialog · links"
 
 D="$(doctor wsl)"
 check "wsl: detected" "$(printf '%s\n' "$D" | first wsl)" yes
@@ -208,6 +208,24 @@ mkenv custom ubuntu 24.04 debian "Ubuntu"
 var custom XDG_CURRENT_DESKTOP=GNOME; var custom WAYLAND_DISPLAY=w; var custom TERMINAL=kitty
 stub "$T/env/custom/bin" kitty; stub "$T/env/custom/bin" gnome-terminal
 check "\$TERMINAL wins over the desktop's own" "$(doctor custom | first terminal)" kitty
+
+# The same layout as on a Mac, whatever the desktop has or lacks; the
+# command a terminal is given as it would be typed; wrapped as a terminal
+# 60 wide would be (doctor.test.sh has the rest of the layout).
+for e in ubuntu fedora fedora40 kde xfce bare headless wsl custom; do
+  check "$e: the doctor's layout" "$(doctor "$e" | doctor_layout)" ok
+  check "  and at 60 columns" "$(inenv "$e" CLAUDE_HTML_DOCTOR_COLUMNS=60 bash "$HERE/claude-html" --doctor 2>&1 | doctor_layout header 60)" ok
+done
+check "ubuntu: the terminal and its command, readable" "$(doctor ubuntu | field terminal)" \
+  "gnome-terminal · gnome-terminal -- sh <launcher>"
+check "wsl: the same through Windows Terminal" "$(doctor wsl | field terminal)" \
+  "wt.exe · wt.exe wsl.exe -d Ubuntu -- sh <launcher>"
+check "headless: what it does instead, after the same dot" "$(doctor headless | field terminal) | $(doctor headless | field dialog)" \
+  "none · resume prints the command to run instead | none · a delete link is refused rather than done unasked"
+check "xfce: a delete asks in a terminal, said the same way" "$(doctor xfce | field dialog)" \
+  "terminal · a delete link asks in a terminal window"
+check "the trash tool and how it is called" "$(doctor kde | field trash)" \
+  "kioclient5 · kioclient5 --noninteractive move <file> trash:/"
 
 # ── 2. launchers ────────────────────────────────────────────────────
 echo "launchers"

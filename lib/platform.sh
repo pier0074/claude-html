@@ -44,6 +44,19 @@ ch_quote_args() {
   _sep=""
   for _a in "$@"; do printf '%s%s' "$_sep" "$(ch_quote "$_a")"; _sep=" "; done
 }
+# The same words for people to read: bare when nothing in one is special,
+# in double quotes when only spaces or single quotes are, else as above.
+ch_show_args() {
+  _sep=""
+  for _a in "$@"; do
+    case "$_a" in
+      "") _a="''" ;;
+      *[!A-Za-z0-9_./:=@%+,\<\>-]*)
+        case "$_a" in *[\"\$\`\\]*) _a="$(ch_quote "$_a")" ;; *) _a="\"$_a\"" ;; esac ;;
+    esac
+    printf '%s%s' "$_sep" "$_a"; _sep=" "
+  done
+}
 
 # A string as JSON writes one, quotes included: a folder's name may hold
 # a quote, a backslash or a line break, and must reach the JavaScript whole.
@@ -374,9 +387,9 @@ ch_js() {
 
 ch_engine_line() {
   case "$CH_ENGINE" in
-    osascript) printf '%s' "osascript   $CH_ENGINE_WHY" ;;
-    *) if [ -n "$CH_NODE" ]; then printf '%s' "node $CH_NODE_VERSION ($CH_NODE)   $CH_ENGINE_WHY"
-       else printf '%s' "node   $CH_ENGINE_WHY"; fi ;;
+    osascript) printf '%s' "osascript · $CH_ENGINE_WHY" ;;
+    *) if [ -n "$CH_NODE" ]; then printf '%s' "node $CH_NODE_VERSION ($CH_NODE) · $CH_ENGINE_WHY"
+       else printf '%s' "node · $CH_ENGINE_WHY"; fi ;;
   esac
 }
 
@@ -805,9 +818,10 @@ ch_screen_off() {   # what command…: 0 (and noted) when the switch is on
 }
 
 # Everything that opens a page, a folder or a terminal goes through here.
-# CH_DRY prints the command line instead of running it, which is what
-# --doctor shows and what the tests compare.
+# CH_DRY prints the command line instead of running it, which is what the
+# tests compare; CH_DRY=show prints it for people to read, as --doctor does.
 ch_run() {
+  if [ "${CH_DRY:-}" = show ]; then ch_show_args "$@"; echo; return 0; fi
   if [ -n "${CH_DRY:-}" ]; then ch_quote_args "$@"; echo; return 0; fi
   ch_screen_off open "$@" && return 0
   "$@"
@@ -972,45 +986,94 @@ ch_unregister_handler() {
   echo "removed $_f"
 }
 
-# What --doctor prints: everything detected, and what each job maps to.
-ch_doctor() {
-  _na=""
-  echo "claude-html doctor"
-  echo
-  case "$CH_OS" in
-    darwin) echo "  system    macOS $(sw_vers -productVersion 2>/dev/null)" ;;
-    *) printf '  system    %s' "$CH_OS"
-       [ -n "$CH_ID" ] && printf ' · %s %s' "$CH_ID" "$CH_VERSION_ID"
-       [ -n "$CH_ID_LIKE" ] && printf ' (like %s)' "$CH_ID_LIKE"
-       [ -n "$CH_PRETTY" ] && printf ' · %s' "$CH_PRETTY"
-       echo ;;
-  esac
-  echo "  desktop   $CH_DE${CH_DE_RAW:+ ($CH_DE_RAW)}"
-  echo "  session   $CH_SESSION${XDG_SESSION_TYPE:+ (XDG_SESSION_TYPE=$XDG_SESSION_TYPE)}"
-  echo "  wsl       $CH_WSL"
-  echo
-  if [ "$CH_OS" = darwin ]; then
-    echo "  terminal  Terminal    $(CH_DRY=1 ch_run /usr/bin/open '<launcher>.command')"
-  elif [ -n "$CH_TERM" ]; then
-    echo "  terminal  $CH_TERM    $(CH_DRY=1 ch_term_run sh '<launcher>')"
-  else
-    echo "  terminal  none        resume prints the command to run instead"; _na="$_na terminal"
+# ── the doctor's layout ─────────────────────────────────────────────
+# Every line --doctor prints goes through ch_dl: two spaces, the label
+# padded to CH_DL_W, two spaces, the value; a section is a blank line and
+# its title. The values given are joined by " · ". A value too wide for the
+# terminal wraps under the value column, at a " · " first, then at a space,
+# never inside a word; a value of several lines gives each its own, under
+# the first. Only a terminal is wrapped (COLUMNS, else tput cols): a pipe,
+# a file or a test gets one line per item. CLAUDE_HTML_DOCTOR_COLUMNS sets
+# the width as though it were a terminal that wide.
+CH_DL_W=8
+ch_dl_cols() {
+  CH_DL_COLS=0
+  if [ -n "${CLAUDE_HTML_DOCTOR_COLUMNS:-}" ]; then CH_DL_COLS="$CLAUDE_HTML_DOCTOR_COLUMNS"
+  elif [ -t 1 ]; then
+    CH_DL_COLS="${COLUMNS:-}"
+    case "$CH_DL_COLS" in ''|*[!0-9]*) CH_DL_COLS="$(tput cols 2>/dev/null)" ;; esac
+    case "$CH_DL_COLS" in ''|*[!0-9]*) CH_DL_COLS=80 ;; esac
   fi
-  if [ -n "$CH_OPENER" ]; then echo "  opener    $CH_OPENER"
-  else echo "  opener    none        open prints where the project is instead"; _na="$_na opener"; fi
-  echo "  trash     $CH_TRASH    $(ch_trash_line)"
+  case "$CH_DL_COLS" in ''|*[!0-9]*) CH_DL_COLS=0 ;; esac
+}
+ch_dl() {   # label value…
+  _dl_l="$1"; shift
+  _dl_v=""
+  for _dl_x in "$@"; do [ -z "$_dl_x" ] || _dl_v="${_dl_v:+$_dl_v · }$_dl_x"; done
+  [ -n "${CH_DL_COLS:-}" ] || ch_dl_cols
+  printf '%s\n' "$_dl_v" | LC_ALL=C awk -v l="$_dl_l" -v w="$CH_DL_W" -v cols="$CH_DL_COLS" '
+    # Characters, not bytes: a UTF-8 continuation byte adds nothing.
+    function len(s,  t) { t = s; return length(s) - gsub(/[\200-\277]/, "", t) }
+    function out(s) { if (s == "") sub(/ +$/, "", lead); print lead s; lead = pad }
+    BEGIN { lead = sprintf("  %-" w "s  ", l); pad = sprintf("%" (w + 4) "s", ""); room = cols - w - 4 }
+    {
+      if (cols <= 0 || room < 20 || len($0) <= room) { out($0); next }
+      n = split($0, seg, " · "); line = ""
+      for (i = 1; i <= n; i++) {
+        tail = (i < n) ? " ·" : ""
+        cand = (line == "") ? seg[i] : line " · " seg[i]
+        if (len(cand tail) <= room) { line = cand; continue }
+        if (line != "") { out(line " ·"); line = "" }
+        m = split(seg[i], wd, " ")
+        for (j = 1; j <= m; j++) {
+          t = (j == m) ? tail : ""
+          cand = (line == "") ? wd[j] : line " " wd[j]
+          if (line == "" || len(cand t) <= room) line = cand
+          else { out(line); line = wd[j] }
+        }
+      }
+      if (line != "") out(line)
+    }'
+}
+ch_dl_section() { echo; echo "$1"; }
+
+# What --doctor prints first: everything detected, and what each job maps
+# to. claude-html adds its own sections after these.
+ch_doctor() {   # version
+  _na=""
+  ch_dl_cols
+  echo "claude-html doctor${1:+ · $1}"
+  ch_dl_section "This machine"
+  case "$CH_OS" in
+    darwin) ch_dl system "macOS $(sw_vers -productVersion 2>/dev/null)" ;;
+    *) ch_dl system "$CH_OS" "${CH_ID:+$CH_ID $CH_VERSION_ID${CH_ID_LIKE:+ (like $CH_ID_LIKE)}}" "$CH_PRETTY" ;;
+  esac
+  ch_dl desktop "$CH_DE${CH_DE_RAW:+ ($CH_DE_RAW)}"
+  ch_dl session "$CH_SESSION${XDG_SESSION_TYPE:+ (XDG_SESSION_TYPE=$XDG_SESSION_TYPE)}"
+  ch_dl wsl "$CH_WSL"
+  ch_dl_section "Tools"
+  if [ "$CH_OS" = darwin ]; then
+    ch_dl terminal Terminal "$(CH_DRY=show ch_run /usr/bin/open '<launcher>.command')"
+  elif [ -n "$CH_TERM" ]; then
+    ch_dl terminal "$CH_TERM" "$(CH_DRY=show ch_term_run sh '<launcher>')"
+  else
+    ch_dl terminal none "resume prints the command to run instead"; _na="$_na terminal"
+  fi
+  if [ -n "$CH_OPENER" ]; then ch_dl opener "$CH_OPENER"
+  else ch_dl opener none "open prints where the project is instead"; _na="$_na opener"; fi
+  ch_dl trash "$CH_TRASH" "$(ch_trash_line)"
   case "$CH_DIALOG" in
-    none) echo "  dialog    none        a delete link is refused rather than done unasked"; _na="$_na dialog" ;;
-    terminal) echo "  dialog    terminal    a delete link asks in a terminal window" ;;
-    *) echo "  dialog    $CH_DIALOG" ;;
+    none) ch_dl dialog none "a delete link is refused rather than done unasked"; _na="$_na dialog" ;;
+    terminal) ch_dl dialog terminal "a delete link asks in a terminal window" ;;
+    *) ch_dl dialog "$CH_DIALOG" ;;
   esac
   _ls="$(ch_links_status)" || _na="$_na links"
-  echo "  links     $_ls"
+  ch_dl links "$_ls"
   # Which engine reads the transcripts and builds the pages, and why.
   if [ -n "${CH_ENGINE:-}" ]; then
-    echo "  engine    $(ch_engine_line)"
-    [ -z "$CH_ENGINE_NOTE" ] || echo "  note      $CH_ENGINE_NOTE"
+    ch_dl engine "$(ch_engine_line)"
+    [ -z "$CH_ENGINE_NOTE" ] || ch_dl note "$CH_ENGINE_NOTE"
   fi
-  echo
-  if [ -n "$_na" ]; then echo "  unavailable:$_na"; else echo "  unavailable: nothing"; fi
+  if [ -n "$_na" ]; then ch_dl missing "$(printf '%s' "${_na# }" | sed 's/ / · /g')"
+  else ch_dl missing nothing; fi
 }

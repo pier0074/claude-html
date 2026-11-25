@@ -62,3 +62,47 @@ export CLAUDE_HTML_UPDATE_REMOTE="${TMPDIR:-/tmp}/claude-html-tests-no-such-remo
 # points it at a file it checks; a suite run alone throws the record away.
 # One that tests showing something unsets it for its own stand-ins.
 export CLAUDE_HTML_NO_SCREEN="${CLAUDE_HTML_NO_SCREEN:-/dev/null}"
+
+# Whether text on stdin is laid out as --doctor lays everything out: its
+# header, then titled sections a single blank line apart, each line two
+# spaces and a label padded to the one width all labels share, or a wrapped
+# value's next line under the value column. With a width, no line is wider,
+# unless it is one word that is (and the dot after it). Prints "ok" or what
+# is wrong, and where.
+#   doctor_layout [header|noheader] [width]
+doctor_layout() {
+  LC_ALL=C awk -v head="${1:-header}" -v width="${2:-0}" '
+    function len(s,  t) { t = s; return length(s) - gsub(/[\200-\277]/, "", t) }
+    function bad(why) { if (!err) err = why " at line " NR ": [" $0 "]" }
+    {
+      if (NR == 1 && head == "header") {
+        if ($0 !~ /^claude-html doctor · [^ ]+$/) bad("no header"); prev = "header"; next
+      }
+      if ($0 == "") {
+        if (prev == "blank") bad("two blank lines")
+        else if (prev == "title") bad("an empty section")
+        prev = "blank"; next
+      }
+      if (prev == "blank") {
+        if ($0 !~ /^[A-Za-z][^ ]*( [^ ]+)*$/) bad("no title after a blank line"); prev = "title"; next
+      }
+      if (prev == "header") bad("no blank line after the header")
+      if (match($0, /^  [a-z][a-z-]* +[^ ]/)) {
+        if (!col) col = RLENGTH
+        if (RLENGTH != col) bad("a value not in the value column (" col ")")
+        lab = substr($0, 3, col - 3); sub(/ +$/, "", lab)
+        if (col - 3 - length(lab) < 2) bad("a label without two spaces after it")
+        rest = substr($0, col)
+      } else if (col && substr($0, 1, col - 1) ~ /^ +$/ && substr($0, col, 1) != " " && prev != "title") {
+        rest = substr($0, col)
+      } else { bad("a line out of the layout"); rest = "" }
+      sub(/ ·$/, "", rest)
+      if (width > 0 && len($0) > width && rest ~ / /) bad("a line wider than " width)
+      prev = "item"
+    }
+    END {
+      if (prev == "blank") bad("a blank line at the end")
+      if (!NR) err = "nothing at all"
+      print err ? err : "ok"
+    }'
+}

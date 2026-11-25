@@ -1724,9 +1724,11 @@ function run(argv) {
         if (x && x.redactor.total()) dirtyArchives++;
       });
     }
-    return "  redact    " + (REDACT_ON ? "on" : "off (CLAUDE_HTML_REDACT)") + " · " + rulesLine() + "\n" +
-      (REDACT_ON ? "  archives  " + paths.length + " found, " + dirtyArchives + " holding secrets the pages hide" +
-                   (dirtyArchives ? " — claude-html --redact-archives rewrites them" : "") : "");
+    // Values only, a line each: the redaction's, then the archives'.
+    // --doctor puts the labels on.
+    return (REDACT_ON ? "on" : "off (CLAUDE_HTML_REDACT)") + " · " + rulesLine() + "\n" +
+      (REDACT_ON ? paths.length + " found, " + dirtyArchives + " holding secrets the pages hide" +
+                   (dirtyArchives ? " · claude-html --redact-archives rewrites them" : "") : "");
   }
 
   if (opt.redactCheck) {

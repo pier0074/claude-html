@@ -5,6 +5,14 @@ fixes, a minor adds without breaking, a major needs something from you
 (usually `./install.sh` again). To update: `claude-html --update`; before
 3.1.0, `git checkout main && git pull && ./install.sh`.
 
+## 3.6.4 — 2026-11-25
+
+- `--doctor` has one layout: a header with the version, titled sections a
+  blank line apart, every line a padded label and its value, the parts of a
+  value apart by " · "; long values wrap at the terminal's width under the
+  value column, and piped output keeps one line per item. The guard's line
+  has its label in `--doctor` and `--guard` alike.
+
 ## 3.6.3 — 2026-11-25
 
 - The Settings page is as wide as the other pages, and on a wide screen each
