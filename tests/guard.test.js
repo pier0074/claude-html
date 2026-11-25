@@ -14,18 +14,66 @@ var args = process.argv.slice(2);
 var SURE = /var SURE = \{\};\s*\(([\s\S]*?)\)\.split/.exec(fs.readFileSync(path.join(HERE, "actions/guard.js"), "utf8"))[1]
   .replace(/["+\s]+/g, " ").trim().split(" ");
 
-if (args[0] === "anchors") {
+// guard.sh's quick look, the expression given in a file, tried as the hook
+// tries it (grep, any case, on the note as JSON) on every fake secret of
+// every rule, in many surroundings, and on prose that holds none:
+//   node tests/guard.test.js quick <expression file>
+// prints { tried, found, missed: [rule…], slow: [prose…] }: missed, a text
+// the rules find a secret in that the quick look would let through; slow,
+// prose that holds none and is still sent on to the rules.
+if (args[0] === "quick") {
+  var expr = fs.readFileSync(args[1], "utf8").replace(/\n$/, "");
   var src = fs.readFileSync(path.join(HERE, "build/redact.js"), "utf8");
-  var sh = fs.readFileSync(path.join(HERE, "guard.sh"), "utf8");
-  var list = /^ANCHORS='([^']*)'/m.exec(sh)[1].split("|");
-  var found = [], re = /\["((?:[^"\\]|\\.)*)", (true|false), /g, m;
-  var body = src.slice(src.indexOf("var ANCHORS = ["), src.indexOf("function named("));
-  while ((m = re.exec(body)) !== null) found.push(JSON.parse('"' + m[1] + '"'));
-  // The cut mark is redact.js's own, never typed.
-  found = found.filter(function (a) { return a.indexOf("…") < 0; });
-  var CUT = body.indexOf("[CUT, false") > -1;
-  var missing = found.filter(function (a) { return list.indexOf(a.toLowerCase()) < 0; });
-  console.log(JSON.stringify({ anchors: found.length, missing: missing, cut: CUT }));
+  var lib = new Function(src + "\nreturn [claudeHtmlRedactor];")();
+  var all = lib[0]("", true, true);
+  // The fields guard.sh takes out before it looks, taken out alike.
+  var STRIP = /"(transcript_path|cwd|session_id|permission_mode|hook_event_name|tool_use_id|tool_name|agent_id|agent_type)"\s*:\s*"[^"]*"/g;
+  function notes(text) {
+    return [{ session_id: "sess-1", hook_event_name: "UserPromptSubmit", prompt: text },
+            { session_id: "sess-1", hook_event_name: "PreToolUse", tool_name: "Bash",
+              tool_input: { command: text, description: "a command" } }]
+      .map(function (o) { return JSON.stringify(o).replace(STRIP, ""); });
+  }
+  // Each secret as written, and with its spaces made line breaks, tabs,
+  // runs of spaces, a no-break space, a form feed, and its quotes escaped.
+  var texts = [];
+  F.cases.forEach(function (c) {
+    var t = c.text;
+    [t, t.replace(/ /g, "\n"), t.replace(/ /g, "\t"), t.replace(/ /g, "   "), t.replace(/ /g, "\u00a0"),
+     t.replace(/ /g, "\f"), t.replace(/ /g, "\u2003"), t.replace(/"/g, '\\"'), "x\n" + t + "\ny",
+     JSON.stringify({ text: t })].forEach(function (v) { texts.push({ rule: c.rule, text: v }); });
+  });
+  // And every line of the docs, the scripts and the suites: real prose and
+  // real commands, a few of which the rules do find something in.
+  F.clean.forEach(function (t) { texts.push({ rule: "clean", text: t }); });
+  ["README.md", "docs/DETAILS.md", "docs/SETUP.md", "CHANGELOG.md", "claude-html", "save-conversation.sh",
+   "install.sh", "lib/platform.sh", "tests/guard.test.sh", "tests/linux.test.sh", "tests/redact.test.sh"].forEach(function (f) {
+    fs.readFileSync(path.join(HERE, f), "utf8").split("\n").forEach(function (l) { texts.push({ rule: f, text: l }); });
+  });
+  var PROSE = ["please fix the failing test in src/app.js", "that is right, go through the media folder",
+    "mkdir -p build && ls -la", "the keyboard shortcut for this is broken", "pass the tests again",
+    "the token count went up after the change", "git push -u origin main", "read the authentication docs",
+    "a passing build, and the monkey wrench emoji", "see https://github.com/owner/repo/issues/12",
+    "docker run -p 8080:80 nginx", "ssh -p 2222 host", "highlight the key points", "the cookie banner is ugly",
+    "rename secretary to assistant", "the API key rotation is documented in docs/keys.md",
+    "use the right gh command to open the PR", "Asia and Africa"];
+  var lines = [], who = [];
+  texts.forEach(function (t, i) {
+    if (!all.find(t.text).length) return;
+    notes(t.text).forEach(function (n) { lines.push(n); who.push(i); });
+  });
+  var prose0 = lines.length;
+  PROSE.forEach(function (p) { notes(p).forEach(function (n) { lines.push(n); }); });
+  var r = require("child_process").spawnSync("grep", ["-niE", "-e", expr], {
+    input: Buffer.from(lines.join("\n") + "\n", "utf8"), encoding: "utf8", env: Object.assign({}, process.env, { LC_ALL: "C" })
+  });
+  var hit = {};
+  String(r.stdout || "").split("\n").forEach(function (l) { var m = /^(\d+):/.exec(l); if (m) hit[m[1] - 1] = true; });
+  var missed = [], slow = [];
+  for (var k = 0; k < prose0; k++) if (!hit[k] && missed.indexOf(texts[who[k]].rule) < 0) missed.push(texts[who[k]].rule);
+  for (k = prose0; k < lines.length; k++) if (hit[k]) slow.push(PROSE[(k - prose0) >> 1]);
+  console.log(JSON.stringify({ tried: lines.length, found: prose0, missed: missed,
+                               slow: slow.filter(function (v, i, a) { return a.indexOf(v) === i; }), grep: r.status }));
   process.exit(0);
 }
 

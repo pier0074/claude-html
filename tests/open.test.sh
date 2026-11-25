@@ -32,17 +32,30 @@ B=22222222-0000-0000-0000-00000000000b     # just code
 C=33333333-0000-0000-0000-00000000000c     # has a server running
 D=44444444-0000-0000-0000-00000000000d     # a claude.ai chat
 E=55555555-0000-0000-0000-00000000000e     # a folder outside the projects root
+F=66666666-0000-0000-0000-00000000000f     # an archive planted in a cloned repo
+G=77777777-0000-0000-0000-000000000007     # archive only, in a folder the hook archived into
+K=88888888-0000-0000-0000-000000000008     # Claude Code's, but its folder taken from a planted archive
+EVIL=$ROOT/cloned-repo; OLD=$ROOT/old-project
+mkdir -p "$EVIL" "$OLD"; echo "<h1>theirs</h1>" > "$EVIL/index.html"
 cat > "$OUT/.manifest.json" <<EOF
 {"$A":{"cwd":"$SITE","project":"a-site","kind":"transcript"},
  "$B":{"cwd":"$CODE","project":"some-code","kind":"transcript"},
  "$C":{"cwd":"$SERVED","project":"a-server","kind":"transcript"},
  "$D":{"cwd":"","project":"claude.ai","kind":"web"},
- "$E":{"cwd":"$T/elsewhere","project":"elsewhere","kind":"transcript"}}
+ "$E":{"cwd":"$T/elsewhere","project":"elsewhere","kind":"transcript"},
+ "$F":{"cwd":"$EVIL","project":"cloned-repo","kind":"archive"},
+ "$G":{"cwd":"$OLD","project":"old-project","kind":"archive"},
+ "$K":{"cwd":"$EVIL","tcwd":"$CODE","project":"cloned-repo","kind":"transcript"}}
 EOF
+# What Claude Code itself has: a transcript of each of its sessions.
+mkdir -p "$T/projects/-p"
+for id in "$A" "$B" "$C" "$E" "$K"; do : > "$T/projects/-p/$id.jsonl"; done
+# And the folders claude-html's own hook archived into.
+printf '%s\n' "$OLD" > "$T/own"
 
 resolve() {
   osascript -l JavaScript "$HERE/actions/open.js" \
-    "{\"id\":\"$1\",\"mode\":\"plan\",\"root\":\"$ROOT\",\"out\":\"$OUT\"}" 2>&1
+    "{\"id\":\"$1\",\"mode\":\"plan\",\"root\":\"$ROOT\",\"out\":\"$OUT\",\"projects\":\"$T/projects\",\"own\":\"$T/own\"}" 2>&1
 }
 what() { resolve "$1" | awk -F'\t' '{print $1}'; }
 where() { resolve "$1" | awk -F'\t' '{print $2}'; }
@@ -70,6 +83,12 @@ check "a folder outside the projects root is refused" "$(refused "$E")" refused
 check "an id that is not in the index is refused" \
   "$(refused 99999999-0000-0000-0000-00000000000f)" refused
 check "something that is not an id at all is refused" "$(refused 'oops; rm -rf /')" refused
+# A website can open these links unasked: an archive claude-html did not
+# write must not open the folder it was planted in.
+check "an archive planted in a cloned repo is refused" "$(refused "$F")" refused
+check "  and says why" "$(resolve "$F" | grep -c 'did not archive anything')" 1
+check "an archive in a folder its own hook archived into opens" "$(where "$G")" "$OLD"
+check "Claude Code's session, sent to a planted archive's folder, is refused" "$(refused "$K")" refused
 
 echo
 echo "  $pass passed, $fail failed"

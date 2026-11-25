@@ -56,8 +56,10 @@ What it changes
                                Linux: the same, through handler.sh, registered
                                with xdg-mime where there is a desktop for it
 
-Needs nothing extra: osascript on macOS, node on Linux — the machine has one.
-Where both are, node builds the pages, being faster; nothing is installed.
+Needs osascript on macOS, which every Mac has, and node 14.14 or later on
+Linux, which Claude Code's own installer does not bring: install it first if
+node --version prints nothing. Where both are, node builds the pages, being
+faster; nothing is installed.
 
 It asks nothing and moves nothing. Run it again any time: it adds only what is
 missing, and never overwrites a setting you chose. --uninstall reverses it and

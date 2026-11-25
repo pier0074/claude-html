@@ -927,7 +927,19 @@ ch_desktop_arg() {
 
 # Is this a folder that will be gone soon? A handler registered from one
 # would outlive it, and every link would then launch nothing.
+# CLAUDE_HTML_TEMP_DIRS, colon-separated, replaces the list below: the
+# suites set it, so a clone that itself sits in a temp folder (as CI's
+# checkouts and throwaway worktrees can) is tested as any clone would be.
 ch_is_temp() {
+  if [ -n "${CLAUDE_HTML_TEMP_DIRS:-}" ]; then
+    _rest="$CLAUDE_HTML_TEMP_DIRS:"
+    while [ -n "$_rest" ]; do
+      _d="${_rest%%:*}"; _rest="${_rest#*:}"
+      [ -n "$_d" ] || continue
+      case "$1/" in "${_d%/}"/*) return 0 ;; esac
+    done
+    return 1
+  fi
   case "$1/" in
     /tmp/*|/var/tmp/*|/private/tmp/*|/var/folders/*|/private/var/folders/*|/dev/shm/*) return 0 ;;
   esac

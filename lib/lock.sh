@@ -19,6 +19,16 @@
 #
 # The lock's own pid file is written too: releases before 3.1.3 read that,
 # and an update starts from one of them.
+#
+# The owner line keeps the start time as ps prints it in local time, which
+# is what releases before 3.7.3 compare. Local time depends on the time
+# zone: a waiter in another one, or either side of a daylight-saving
+# change, read a live lock as left over. So the lock also holds "started",
+# the start of the process told apart in a way no clock setting changes:
+# on Linux, its start in ticks since boot and which boot that is (the start
+# time ps derives drifts as NTP corrects the boot time); elsewhere the
+# start time in UTC. A lock with no "started" was written by an older
+# release, and is judged as it always was.
 
 CH_LOCK="$HOME/.claude/.claude-html.lock"
 CH_LOCK_STALE_MIN=30
@@ -27,6 +37,20 @@ CH_LOCK_ME=""
 
 # When a process started, as ps prints it, in one locale whoever asks.
 ch_proc_start() { LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null | sed 's/^ *//; s/ *$//'; }
+
+# Which start of a process this is, the same in every time zone and after
+# any change to the clock; empty when it cannot be told.
+ch_proc_key() {
+  if [ -r "/proc/$1/stat" ] && [ -r /proc/sys/kernel/random/boot_id ]; then
+    # Field 22, counted after the name in brackets, which may hold spaces.
+    _lk="$(sed 's/.*) //' "/proc/$1/stat" 2>/dev/null | cut -d' ' -f20)"
+    _lb="$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)"
+    case "$_lk" in ''|*[!0-9]*) ;; *) [ -n "$_lb" ] && { printf 'boot %s tick %s' "$_lb" "$_lk"; return 0; } ;; esac
+  fi
+  _lk="$(LC_ALL=C TZ=UTC0 ps -o lstart= -p "$1" 2>/dev/null | sed 's/^ *//; s/ *$//')"
+  [ -n "$_lk" ] && printf 'utc %s' "$_lk"
+  return 0
+}
 
 ch_lock_owner() {
   if [ -f "$CH_LOCK/owner" ]; then cat "$CH_LOCK/owner" 2>/dev/null
@@ -43,7 +67,10 @@ ch_lock_stale() {
     [ -n "$(find "$CH_LOCK" -maxdepth 0 -mmin +2 2>/dev/null)" ]; return
   fi
   kill -0 "$_pid" 2>/dev/null || return 0
-  if [ -n "$_start" ]; then
+  if [ -f "$CH_LOCK/started" ]; then
+    _lw="$(cat "$CH_LOCK/started" 2>/dev/null)"; _now="$(ch_proc_key "$_pid")"
+    [ -n "$_lw" ] && [ -n "$_now" ] && [ "$_now" != "$_lw" ] && return 0
+  elif [ -n "$_start" ]; then
     _now="$(ch_proc_start "$_pid")"
     [ -n "$_now" ] && [ "$_now" != "$_start" ] && return 0
   fi
@@ -78,6 +105,8 @@ ch_lock_take() {
     _waited=$((_waited + 1))
   done
   CH_LOCK_ME="$$ $(ch_proc_start $$)"
+  # "started" before the owner line: a waiter that finds the owner finds it.
+  ch_proc_key $$ > "$CH_LOCK/started.tmp" && mv -f "$CH_LOCK/started.tmp" "$CH_LOCK/started"
   printf '%s\n' "$CH_LOCK_ME" > "$CH_LOCK/owner.tmp" && mv -f "$CH_LOCK/owner.tmp" "$CH_LOCK/owner"
   printf '%s\n' "$$" > "$CH_LOCK/pid"
   CH_LOCK_OWN=1

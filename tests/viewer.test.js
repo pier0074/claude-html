@@ -37,6 +37,25 @@ test("truncation says how much was cut", () => {
   assert.ok(CH.cap("x".repeat(50), 10).includes("40 more characters"));
 });
 
+// A tool's output and thinking are cut once already, by parse.js, to the
+// 6,000 characters a page shows; cut again here, the page counted its own
+// marker as what was left, and said "36 more characters" of 94,000.
+test("text cut once already keeps its count, or adds to it", () => {
+  const P = new Function(fs.readFileSync(path.join(__dirname, "../build/parse.js"), "utf8") +
+    "\nreturn claudeHtmlParse;")()(() => ({ text: (s) => s }));
+  const out = P.messagesOf({ type: "user", timestamp: "2026-11-01T10:00:00Z", message: { role: "user",
+    content: [{ type: "tool_result", tool_use_id: "t1", content: "y".repeat(100000) }] } });
+  const result = JSON.stringify(out).match(/94000 more characters/);
+  assert.ok(result, "parse.js says 94000");
+  const once = "y".repeat(6000) + "\n…[truncated, 94000 more characters]";
+  assert.strictEqual(CH.cap(once, 6000), once);
+  // An old archive's tool, which kept its output only; and thinking.
+  const html = CH.renderTool("Bash", once);
+  assert.ok(html.includes("94000 more characters") && !/\b\d{1,2} more characters/.test(html), "the page says 94000");
+  assert.ok(CH.cap(once, 1200).endsWith("…[truncated, 98800 more characters]"));
+  assert.strictEqual(CH.cap("short\n…[truncated, 5 more characters]", 1200), "short\n…[truncated, 5 more characters]");
+});
+
 // ── tools ────────────────────────────────────────────────────────────
 test("an Edit becomes a diff", () => {
   const out = CH.renderTool({ name: "Edit", input: {

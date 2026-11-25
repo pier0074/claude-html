@@ -909,6 +909,7 @@ Knobs the tests set; nothing needs them day to day.
 | `CLAUDE_HTML_NO_REGISTER` | register nothing, and build no helper app in place: macOS registers any app it sees appear (set by the test runner itself) |
 | `CLAUDE_HTML_NO_SCREEN` | a file: nothing is put on the screen (no index, project or terminal opened, no window asking, no banner); each that would have been is added to the file instead (set by the test runner itself) |
 | `CLAUDE_HTML_UNAME` | what `uname -s` would say |
+| `CLAUDE_HTML_TEMP_DIRS` | the folders, colon-separated, that count as temporary (no handler is registered from one), instead of `/tmp`, `/var/folders` and the like, so a clone that is itself in one tests as any other |
 | `CLAUDE_HTML_OS_RELEASE` | the os-release file to read |
 | `CLAUDE_HTML_PROC_VERSION` | the kernel version string, for WSL detection |
 | `CLAUDE_HTML_NODE_DIRS` | the folders to look for node in, instead of the usual ones |

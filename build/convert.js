@@ -113,15 +113,22 @@ function run(argv) {
     // the middle of a character, which is no reason to refuse the rest (node
     // does not); that unfinished line is no record yet either way. Whole
     // lines that are not UTF-8 are refused, as read refuses them.
+    // At most max bytes, when given; bare: no text, and where the first
+    // line ends rather than the last.
     var NL = $("\n").dataUsingEncoding(4);
-    readFrom = function (path, offset) {
+    readFrom = function (path, offset, max, bare) {
       var h = $.NSFileHandle.fileHandleForReadingAtPath(path);
       if (!h || h.isNil()) return null;
       try {
         h.seekToFileOffset(offset);
-        var data = h.readDataToEndOfFile, n = Number(data.length);
+        var data = max === undefined ? h.readDataToEndOfFile : h.readDataOfLength(max);
+        var n = Number(data.length);
         var loc = Number(data.rangeOfDataOptionsRange(NL, 1, $.NSMakeRange(0, n)).location);
         var at = loc < n ? loc + 1 : 0;
+        if (bare) {
+          loc = Number(data.rangeOfDataOptionsRange(NL, 0, $.NSMakeRange(0, n)).location);
+          return { text: null, bytes: n, cut: loc < n ? loc + 1 : 0 };
+        }
         var dec = function (from, len) {
           var s = $.NSString.alloc.initWithDataEncoding(data.subdataWithRange($.NSMakeRange(from, len)), 4);
           var t = !s || s.isNil() ? null : s.js;
@@ -234,13 +241,13 @@ function run(argv) {
     };
     // stat costs nothing here, so there is nothing to gather up front.
     statAll = function () {};
-    readFrom = function (path, offset) {
+    readFrom = function (path, offset, max, bare) {
       var fd;
       try { fd = nfs.openSync(path, "r"); } catch (e) { return null; }
       try {
         var parts = [], total = 0;
-        for (;;) {
-          var buf = Buffer.allocUnsafe(8 << 20);
+        while (max === undefined || total < max) {
+          var buf = Buffer.allocUnsafe(max === undefined ? 8 << 20 : Math.min(8 << 20, max - total));
           var got = nfs.readSync(fd, buf, 0, buf.length, offset + total);
           if (!got) break;
           parts.push(got < buf.length ? buf.subarray(0, got) : buf);
@@ -249,6 +256,7 @@ function run(argv) {
         var all = parts.length === 1 ? parts[0] : Buffer.concat(parts, total);
         // Found in the bytes, not the text: a character cut off by a write
         // in progress decodes to more bytes than it was.
+        if (bare) return { text: null, bytes: total, cut: all.indexOf(10) + 1 };
         return { text: all.toString("utf8"), bytes: total, cut: all.lastIndexOf(10) + 1 };
       } catch (e) { return null; } finally { try { nfs.closeSync(fd); } catch (e) {} }
     };
@@ -297,6 +305,9 @@ function run(argv) {
   var ROOT = opt.root || (HOME + "/Sites");
   var OUT = opt.out || (ROOT + "/claude-html");
   var PROJECTS = opt.projects || (HOME + "/.claude/projects");
+  // How much of a transcript is read at a time (readLines says why).
+  var READ_CHUNK = Math.max(4096, Number(opt.readChunk) || 64 << 20);
+  var LINE_MAX = Math.max(READ_CHUNK, Number(opt.lineMax) || 256 << 20);
   var HERE = opt.here || (HOME + "/.claude/scripts");
   var FORCE = !!opt.force;
   // Anthropic's weekly allowance resets on a day and hour fixed per account,
@@ -437,6 +448,14 @@ function run(argv) {
       if (!e || typeof e !== "object") continue;
       if (fn(e, i) === false) return;
     }
+  }
+
+  // The start of a transcript, whole lines only, for peek: all of it when
+  // it is shorter than a piece, which is what peek was always given.
+  function headOf(path) {
+    var got = readFrom(path, 0, READ_CHUNK);
+    if (got === null) return null;
+    return got.bytes < READ_CHUNK ? got.text : got.text.slice(0, got.text.lastIndexOf("\n") + 1);
   }
 
   // Where the session ran and what Claude Code titled it, from the first 401
@@ -888,12 +907,18 @@ function run(argv) {
           // build after one more reply need not read 166 MB to find them.
           var k = force ? null : keptFor(id, path), st = k && k.scan && k.scan.st;
           var pk = st && (st.lines > PEEK_LINES || (st.peek.cwd && st.peek.title)) ? st.peek : null;
-          var text = pk ? "" : read(path);
+          // Only its start: where it ran and its title are stated there, and
+          // a whole transcript can be more than a string can hold.
+          var text = pk ? "" : headOf(path);
           if (text === null) {
             // Unreadable, perhaps only for a moment. Keep it listed from what is
             // known, so the build reports it — dropping it here would have its
-            // page pruned as if the session no longer existed.
-            if (!cached) return;
+            // page pruned as if the session no longer existed. One never
+            // built is said too, rather than left out without a word.
+            if (!cached) {
+              rejected.push({ id: id, source: path, error: "cannot read it, so it is not in the index yet" });
+              return;
+            }
             entry = { id: id, project: cached.project, cwd: cached.cwd, tcwd: cached.tcwd || cached.cwd,
                       title: cached.title || "", path: path, kind: "transcript",
                       mtime: when, sig: sg, agents: kids };
@@ -1600,6 +1625,57 @@ function run(argv) {
              peek: { cwd: null, title: null }, usage: newReplies(), cost: newCost() };
   }
 
+  // A transcript from a byte offset to its end, a piece of whole lines at a
+  // time, handed to take(text). Read whole, one of more than 512 MiB was
+  // more than a JavaScript string can hold: the read failed, and the
+  // session dropped out of the index without a word. A piece is at most
+  // READ_CHUNK bytes, or as long as one line longer than that, up to
+  // LINE_MAX; a line longer still could never be parsed, and is passed
+  // over. Returns where the whole lines end, the unfinished last line's
+  // text, and how many lines were passed over; null when unreadable.
+  function readLines(path, off, take) {
+    var size = READ_CHUNK, long = 0;
+    for (;;) {
+      var got = readFrom(path, off, size);
+      if (got === null) return null;
+      var more = got.bytes >= size;
+      if (more && !got.cut) {
+        // One line fills the piece. Where it ends is looked for in the
+        // bytes, without the text: read again as far as that, or passed
+        // over when it is longer than LINE_MAX.
+        var end = lineEnd(path, off + got.bytes, off + LINE_MAX);
+        if (end === null) return null;
+        if (end.at) { size = end.at - off; continue; }
+        if (end.eof) { size = end.eof - off + 1; continue; }
+        long++;
+        end = lineEnd(path, off + LINE_MAX, Infinity);
+        if (end === null) return null;
+        // Still unfinished: the next build carries on from inside it, and
+        // does not count it again.
+        if (!end.at) return { off: end.eof, tail: "", long: long };
+        off = end.at; size = READ_CHUNK; continue;
+      }
+      var nl = got.text.lastIndexOf("\n");
+      if (nl >= 0) take(got.text.slice(0, nl + 1));
+      off += got.cut;
+      if (more) { size = READ_CHUNK; continue; }
+      return { off: off, tail: got.text.slice(nl + 1), long: long };
+    }
+  }
+  // Just past the first line break from byte from on, if one comes before
+  // byte limit: { at }; or { eof }, where the file ends, when none does.
+  function lineEnd(path, from, limit) {
+    for (;;) {
+      var want = Math.min(READ_CHUNK, limit - from);
+      if (want <= 0) return { at: 0, eof: 0 };
+      var got = readFrom(path, from, want, true);
+      if (got === null) return null;
+      if (got.cut) return { at: from + got.cut, eof: 0 };
+      from += got.bytes;
+      if (got.bytes < want) return { at: 0, eof: from };
+    }
+  }
+
   // Lines into a scan: { st, msgs, rows }, the last two JSON text.
   function scanChunk(sc, text, sid) {
     var st = sc.st, lines = text.split("\n"), mj = [], rj = [];
@@ -1631,16 +1707,15 @@ function run(argv) {
   // build from.
   function scanTranscript(s, kept) {
     var base = kept && kept.scan, from = base ? base.st.off : 0;
-    var got = readFrom(s.path, from);
-    if (got === null) return null;
     var sc = base ? base : { st: newScan(), msgs: "", rows: "" };
-    var nl = got.text.lastIndexOf("\n");
-    scanChunk(sc, got.text.slice(0, nl + 1), s.id);
-    sc.st.off = from + got.cut;
+    var got = readLines(s.path, from, function (text) { scanChunk(sc, text, s.id); });
+    if (got === null) return null;
+    sc.st.off = got.off;
+    if (got.long) sc.st.long = (sc.st.long || 0) + got.long;
     // Taken as soon as the bytes are read, so it describes what was scanned
     // and not what the file became while the pages were being written.
     var fp = fingerprint(s.path, sc.st.off);
-    var keep = JSON.stringify(sc.st), fin = sc, tail = got.text.slice(nl + 1);
+    var keep = JSON.stringify(sc.st), fin = sc, tail = got.tail;
     if (tail) {
       fin = { st: JSON.parse(keep), msgs: sc.msgs, rows: sc.rows };
       scanChunk(fin, tail, s.id);
@@ -1789,7 +1864,9 @@ function run(argv) {
     all.forEach(function (s) {
       RED = newRedactor(true);
       if (s.kind === "transcript") {
-        eachLine(read(s.path) || "", function (e) { red(e.aiTitle); messagesOf(e); });
+        var look = function (e) { red(e.aiTitle); messagesOf(e); };
+        var got = readLines(s.path, 0, function (t) { eachLine(t, look); });
+        if (got) eachLine(got.tail, look);
         (s.agents || []).forEach(function (a) {
           eachLine(read(a.path) || "", function (e) { messagesOf(e); });
           var info = {};

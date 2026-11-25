@@ -5,6 +5,33 @@ fixes, a minor adds without breaking, a major needs something from you
 (usually `./install.sh` again). To update: `claude-html --update`; before
 3.1.0, `git checkout main && git pull && ./install.sh`.
 
+## 3.7.3 — 2026-11-25
+
+- The index's open and resume links act only on a conversation Claude Code
+  itself has the transcript of, or on an archive in a folder claude-html's
+  own hook archived into (`~/.claude/claude-html.own-archives`). An archive
+  planted in a cloned repo was listed, and any web page could have its
+  resume link open Terminal in that repo, or its open link the repo's page.
+- The lock tells a live holder from a reused pid by a start time no time
+  zone or clock change moves: a waiter in another time zone, or across a
+  daylight-saving change, took a live lock as left over. Locks an older
+  release wrote are judged as before.
+- A transcript over 512 MiB is built a piece at a time; read whole, it was
+  more than a string can hold and left the index without a word. A
+  transcript that cannot be read at all, and was never built, is reported.
+- The guard's quick look tells prose from what a rule would stop: "right",
+  "media", "keyboard", `mkdir -p` and `git push -u` no longer start the
+  engine; nor does a prompt when your own list holds plain values only.
+- A session page's diff of an Edit that rewrites a whole file no longer
+  freezes the page: the lines both sides share at the ends are left out of
+  the work, which is bounded.
+- A tool's output and thinking cut before the page says how much was cut
+  again ("94000 more characters", not "36").
+- Docs: Linux needs node 14.14 or later, which Claude Code's own installer
+  does not bring.
+- Tests: the Linux suite passes from a clone in a temporary folder
+  (`CLAUDE_HTML_TEMP_DIRS`).
+
 ## 3.7.2 — 2026-11-25
 
 - A session page escapes the model names in its token line. A planted

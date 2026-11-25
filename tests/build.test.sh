@@ -112,6 +112,47 @@ printf '%s\n' '{"type":"user","isMeta":true,"cwd":"/x/app","timestamp":"2026-09-
 CN="{\"root\":\"$T/n/none\",\"out\":\"$T/n/out\",\"projects\":\"$T/n/projects\",\"here\":\"$HERE\",\"exportPath\":\"/nonexistent\"}"
 check "a new transcript with nothing in it yet is no error" "$(build "$CN" | errors)" 0
 
+# ── a transcript of more than 512 MiB ───────────────────────────────
+# Read whole, it was more than a string can hold: the read failed and the
+# session left the index without a word. Sparse, so it costs no disk: a
+# first line, a hole of 600 MiB of zeros (one "line" too long to parse),
+# and a last line after it.
+mkdir -p "$T/g/out" "$T/g/projects/-x-app"
+ID=eeeeeeee-0000-0000-0000-000000000005
+J="$T/g/projects/-x-app/$ID.jsonl"
+printf '%s\n' '{"type":"user","cwd":"/x/app","timestamp":"2026-09-11T10:00:00Z","message":{"role":"user","content":"the first question of a huge one"}}' > "$J"
+dd if=/dev/null of="$J" bs=1 count=0 seek=629145600 2>/dev/null
+printf '\n%s\n' '{"type":"user","cwd":"/x/app","timestamp":"2026-09-11T11:00:00Z","message":{"role":"user","content":"the last question, after the hole"}}' >> "$J"
+CG="{\"root\":\"$T/g/none\",\"out\":\"$T/g/out\",\"projects\":\"$T/g/projects\",\"here\":\"$HERE\",\"exportPath\":\"/nonexistent\"}"
+check "a transcript over 512 MiB is built, not dropped" \
+  "$(build "$CG" | sed -n 's/.*"sessions":\([0-9]*\).*/\1/p') $(grep -c "$ID" "$T/g/out/index.html" 2>/dev/null)" "1 1"
+check "  with what comes before the line too long to read, and after it" \
+  "$(grep -c 'the first question of a huge one' "$T/g/out/sessions/$ID.html") $(grep -c 'the last question, after the hole' "$T/g/out/sessions/$ID.html")" "1 1"
+rm -rf "$T/g"
+
+# Read a piece at a time: the same page however small the pieces, a line
+# longer than a piece included; one longer than the longest line read is
+# passed over, and the rest of the session is still there.
+mkdir -p "$T/k/projects/-x-app"
+ID=eeeeeeee-0000-0000-0000-000000000007
+J="$T/k/projects/-x-app/$ID.jsonl"
+LONGTXT="$(head -c 30000 /dev/zero | tr '\0' 'x')"
+{ for i in 1 2 3 4 5 6 7 8 9; do
+    printf '{"type":"user","cwd":"/x/app","timestamp":"2026-09-11T10:0%s:00Z","message":{"role":"user","content":"question %s with some words in it to fill the lines"}}\n' "$i" "$i"
+    printf '{"type":"assistant","cwd":"/x/app","timestamp":"2026-09-11T10:0%s:30Z","message":{"id":"m%s","role":"assistant","content":[{"type":"text","text":"answer %s, plain"}]}}\n' "$i" "$i" "$i"
+    [ "$i" = 5 ] && printf '{"type":"user","cwd":"/x/app","timestamp":"2026-09-11T10:05:40Z","message":{"role":"user","content":"a long one %s"}}\n' "$LONGTXT"
+  done; } > "$J"
+ck() { printf '{"root":"%s/k/none","out":"%s/k/%s","projects":"%s/k/projects","here":"%s","exportPath":"/nonexistent"%s}' "$T" "$T" "$1" "$T" "$HERE" "${2:-}"; }
+build "$(ck whole)" >/dev/null
+build "$(ck pieces ',"readChunk":4096')" >/dev/null
+check "built in 4 KiB pieces, the page is the page built whole" \
+  "$(cmp -s "$T/k/whole/sessions/$ID.html" "$T/k/pieces/sessions/$ID.html" && echo same || echo different)" same
+check "  and so is its search file" \
+  "$(cmp -s "$T/k/whole/search/$ID.js" "$T/k/pieces/search/$ID.js" && echo same || echo different)" same
+build "$(ck short ',"readChunk":4096,"lineMax":8192')" >/dev/null
+check "a line longer than can be read is passed over, the rest kept" \
+  "$(grep -c 'a long one' "$T/k/short/sessions/$ID.html") $(grep -c 'question 9 with' "$T/k/short/sessions/$ID.html") $(grep -c 'question 1 with' "$T/k/short/sessions/$ID.html")" "0 1 1"
+
 echo
 echo "  $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

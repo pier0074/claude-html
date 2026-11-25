@@ -54,18 +54,43 @@ GUARD_DIR="$HOME/.claude/.claude-html-guard"
 STATE="$GUARD_DIR/$SID"
 LIST="$CLAUDE_HTML_REDACT_FILE"
 
-# Most prompts and commands hold nothing a rule could start at, and need
-# no JavaScript engine at all: every text a rule of redact.js starts from
-# is looked for here, in any case, in the note less the fields that are
-# not what was typed. tests/guard.test.sh checks that this list holds
-# every one of them. Skipped when an answer may be pending, or when the
-# owner's list has entries of its own, which can match anything.
-ANCHORS='-----begin |eyj|sk-|gh|github_pat_|glpat-|ia|acca|aiza|xox|xapp-|hooks.slack.com/|_live_|_test_|whsec_|npm_|pypi-|hf_|sg.|twilio|:aa|discord|bearer|://|-u|pass|pwd|secret|token|key|auth|credential|mdp|cookie|-p|sshpass'
-if [ ! -f "$STATE" ] &&
-   ! { [ -f "$LIST" ] && grep -qvE '^[[:space:]]*(#|safe:|$)' "$LIST" 2>/dev/null; }; then
+# Most prompts and commands hold nothing a rule could match, and need no
+# JavaScript engine at all. What each rule of redact.js needs to match is
+# looked for here first, in any case, in the note less the fields that are
+# not what was typed: not the text a rule starts its search at ("gh",
+# "key", "-p", which are in "right", "keyboard" and "mkdir -p"), but the
+# shape the rule itself goes on to require ("ghp_", "api_key =", a MySQL
+# tool). Written for the note as JSON has it: a line break there is \n, a
+# quote \", and any space JavaScript counts may be a byte past ASCII.
+# tests/guard.test.sh checks that every text a rule finds a secret in is
+# let through to the rules. Skipped when an answer may be pending.
+_sp='([[:space:]]|\\[nrtfbu]|[^ -~])'
+_w='pass|pwd|secret|token|auth|credential|mdp|cookie|(api|access|private)[_-]?key'
+ANCHORS="-----begin [a-z0-9 ]*private key|eyj[a-z0-9_-]{5,}[.]eyj|sk-[a-z0-9_-]{20}|gh[pousr]_|github_pat_|glpat-"
+ANCHORS="$ANCHORS|(a[ksb]ia|acca)[a-z0-9]{16}|aiza[a-z0-9_-]{35}|xox[abposr]-|xapp-|hooks[.]slack[.]com/"
+ANCHORS="$ANCHORS|[sr]k_(live|test)_|whsec_|npm_[a-z0-9]{36}|pypi-ageichlwas5vcmc|hf_[a-z0-9]{34}"
+ANCHORS="$ANCHORS|sg[.][a-z0-9_-]{22}[.]|twilio|[0-9]:aa[a-z0-9_-]{33}|discord|bearer$_sp"
+ANCHORS="$ANCHORS|://[^[:space:]/?#@]*:[^[:space:]/?#@]*@|(-u|--user)(=|$_sp)+[^[:space:]:]*:|mysql|mariadb|sshpass"
+ANCHORS="$ANCHORS|($_w)[a-z0-9_.-]*([\\\"']|$_sp)*[:=]|--[a-z0-9_.-]*($_w)[a-z0-9_.-]*(=|$_sp)"
+# The owner's list: a value of its own is found as it is written, so it is
+# looked for as that; a /regex/ can match anything, and a value with a
+# quote, a backslash, a control character or a byte past ASCII is not
+# written in the note as it is in the list, so either sends every prompt
+# on to the rules. The values go to grep through a pipe, never as an
+# argument.
+OWN=""
+[ -f "$LIST" ] && OWN="$(LC_ALL=C awk '
+  { sub(/^[ \t\r\f\v]+/, ""); sub(/[ \t\r\f\v]+$/, "") }
+  $0 == "" || /^#/ || /^safe:/ { next }
+  /^\// || /["\\]/ || /[^ -~]/ { print "\001"; exit }
+  { print }' "$LIST" 2>/dev/null)"
+if [ ! -f "$STATE" ] && [ "$OWN" != $'\001' ] && [ "${OWN%$'\n\001'}" = "$OWN" ]; then
   TEXT="$(printf '%s' "$NOTE" |
     sed -E 's/"(transcript_path|cwd|session_id|permission_mode|hook_event_name|tool_use_id|tool_name|agent_id|agent_type)"[[:space:]]*:[[:space:]]*"[^"]*"//g')"
-  printf '%s' "$TEXT" | LC_ALL=C grep -qiE -e "$(printf '%s' "$ANCHORS" | sed 's/[.]/[.]/g')" || exit 0
+  if ! printf '%s' "$TEXT" | LC_ALL=C grep -qiE -e "$ANCHORS"; then
+    [ -z "$OWN" ] && exit 0
+    printf '%s' "$TEXT" | LC_ALL=C grep -qF -f <(printf '%s\n' "$OWN") || exit 0
+  fi
 fi
 
 # The folder for the state, and nothing left in it from sessions long gone:

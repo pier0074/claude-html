@@ -8,6 +8,14 @@
 // launcher is the one convert.js wrote for it into resume/, found by its name,
 // so the path is always one this tool built.
 //
+// Any web page can open a resume link, with no click asked for, and an
+// archive is a file anyone can put in a folder the build reads (a cloned
+// repo holding .claude/.claude-conversations/<any id>.json): its session
+// would be in the manifest, its folder the hostile one. So the id must also
+// be a conversation Claude Code itself has the transcript of, and the
+// folder the one that transcript names or one this tool's own hook archived
+// into (~/.claude/claude-html.own-archives). Anything else is refused.
+//
 // Prints two lines, tab-separated so bash can read them:
 //   LAUNCHER <path>     the file to open
 //   COMMAND  <command>  what to type instead, where nothing can open it
@@ -18,9 +26,17 @@ function run(argv) {
   var opt = JSON.parse(argv[0] || "{}");
 
   // ── the platform ────────────────────────────────────────────────────
-  var read, list;
+  var read, list, isFile, home;
   if (typeof $ !== "undefined") {
     var fm = $.NSFileManager.defaultManager;
+    isFile = function (path) {
+      var r = Ref();
+      return !!fm.fileExistsAtPathIsDirectory(path, r) && !r[0];
+    };
+    home = function () {
+      var v = $.NSProcessInfo.processInfo.environment.objectForKey("HOME");
+      try { return v && v.js ? v.js : $.NSHomeDirectory().js; } catch (e) { return $.NSHomeDirectory().js; }
+    };
     read = function (path) {
       if (!fm.fileExistsAtPath(path)) return null;
       try {
@@ -37,6 +53,10 @@ function run(argv) {
     };
   } else {
     var nfs = require("fs");
+    isFile = function (path) {
+      try { return nfs.statSync(path).isFile(); } catch (e) { return false; }
+    };
+    home = function () { return process.env.HOME || require("os").homedir(); };
     read = function (path) {
       try { return nfs.readFileSync(path, "utf8"); } catch (e) { return null; }
     };
@@ -58,6 +78,21 @@ function run(argv) {
   if (!entry) throw new Error("that conversation is not in the index");
   if (entry.kind === "web" || !entry.cwd) {
     throw new Error("a claude.ai chat has no folder here to resume it in");
+  }
+  var HOME = home();
+  var PROJECTS = String(opt.projects || HOME + "/.claude/projects").replace(/\/+$/, "");
+  var OWN = String(opt.own || HOME + "/.claude/claude-html.own-archives");
+  var hasTranscript = list(PROJECTS).some(function (d) {
+    return d.charAt(0) !== "." && isFile(PROJECTS + "/" + d + "/" + ID + ".jsonl");
+  });
+  if (!hasTranscript) {
+    throw new Error("Claude Code has no transcript of that conversation, so it cannot be resumed");
+  }
+  var cwd = String(entry.cwd).replace(/\/+$/, "");
+  var named = String(entry.tcwd || entry.cwd).replace(/\/+$/, "");
+  var owned = (read(OWN) || "").split("\n").some(function (l) { return l.replace(/\/+$/, "") === cwd; });
+  if (cwd !== named && !owned) {
+    throw new Error("claude-html did not archive anything in " + cwd + ", so it is not resumed there");
   }
 
   var name = null;

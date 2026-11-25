@@ -85,7 +85,8 @@ on open location theURL
 
 	-- Opening a project: no dialog, because the point of it is to be quick.
 	-- It can only ever reach a folder already in the index, inside the projects
-	-- root, and it only ever opens — it never runs anything.
+	-- root, that claude-html archived into or Claude Code's own transcript
+	-- names (open.js), and it only ever opens — it never runs anything.
 	set openPrefix to "claude-html://open/"
 	if theURL starts with openPrefix then
 		set sid to text ((length of openPrefix) + 1) thru -1 of theURL
@@ -103,7 +104,8 @@ on open location theURL
 
 	-- Resuming: no dialog either. It can only open Terminal on a conversation
 	-- the index already lists, through the launcher claude-html wrote for it;
-	-- the command checks the id against the manifest before anything opens.
+	-- the command checks the id against the manifest, and that Claude Code has
+	-- its transcript (resume.js), before anything opens.
 	set resumePrefix to "claude-html://resume/"
 	if theURL starts with resumePrefix then
 		set sid to text ((length of resumePrefix) + 1) thru -1 of theURL

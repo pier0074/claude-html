@@ -13,7 +13,11 @@
 // exist until its server starts, and a vite project does not name one at all.
 // The link carries a session id rather than a path, so a link from any website
 // can only ever reach a folder that is already in the index and inside the
-// projects root.
+// projects root. And only one claude-html itself archived into
+// (~/.claude/claude-html.own-archives), or the one Claude Code's own
+// transcript of that session names: an archive is a file anyone can put in a
+// folder the build reads, a cloned repo's, and the page it would open there
+// is theirs.
 //
 // Prints "<what>\t<where>"; with mode "apply" it opens it as well.
 
@@ -46,6 +50,17 @@ function run(argv) {
     throw new Error("that folder is outside " + ROOT);
   }
   if (!isDir(dir)) throw new Error("that folder is gone: " + dir);
+  var PROJECTS = String(opt.projects || HOME + "/.claude/projects").replace(/\/+$/, "");
+  var OWN = String(opt.own || HOME + "/.claude/claude-html.own-archives");
+  var owned = (read(OWN) || "").split("\n").some(function (l) { return l.replace(/\/+$/, "") === dir; });
+  var named = String(entry.tcwd || entry.cwd).replace(/\/+$/, "");
+  var known = !owned && dir === named && P.list(PROJECTS).some(function (d) {
+    return d.charAt(0) !== "." && P.isFile(PROJECTS + "/" + d + "/" + ID + ".jsonl");
+  });
+  if (!owned && !known) {
+    throw new Error("claude-html did not archive anything in " + dir + ", and Claude Code has no transcript " +
+                    "of that session there, so it is not opened");
+  }
 
   // ── is something of its own already serving? ─────────────────────────
   // Two calls to lsof, not one per server: the listeners, then the working
@@ -169,6 +184,14 @@ function platform() {
         var r = Ref();
         return fm.fileExistsAtPathIsDirectory(path, r) && r[0];
       },
+      isFile: function (path) {
+        var r = Ref();
+        return !!fm.fileExistsAtPathIsDirectory(path, r) && !r[0];
+      },
+      list: function (dir) {
+        var items = fm.fileExistsAtPath(dir) ? fm.contentsOfDirectoryAtPathError(dir, null) : null;
+        return items ? $.CFMakeCollectable(items).js.map(function (x) { return x.js; }) : [];
+      },
       // lsof reports where a process really is, so both sides of the
       // comparison have to be the real path: /tmp and /var are symlinks on
       // macOS, and a project reached through one would never match its server.
@@ -221,6 +244,8 @@ function platform() {
       try { nfs.writeFileSync(p, text, "utf8"); return true; } catch (e) { return false; }
     },
     isDir: function (p) { var st = stat(p); return !!st && st.isDirectory(); },
+    isFile: function (p) { var st = stat(p); return !!st && st.isFile(); },
+    list: function (d) { try { return nfs.readdirSync(d); } catch (e) { return []; } },
     real: function (p) {
       try { return nfs.realpathSync(p).replace(/\/+$/, ""); } catch (e) { return p; }
     },

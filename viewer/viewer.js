@@ -17,12 +17,18 @@ var CH = (function () {
 
   function cap(s, n) {
     s = s == null ? "" : String(s);
+    // Cut once already, as parse.js cuts a tool's output and thinking: the
+    // count it gave is kept, and what is cut here is added to it. Taken for
+    // text, the mark was cut off and the page said a few dozen characters
+    // were left of tens of thousands.
+    var more = 0, mark = /\n…\[truncated, (\d+) more characters\]$/.exec(s);
+    if (mark) { more = Number(mark[1]); s = s.slice(0, mark.index); }
     // Count code points, not UTF-16 units: Python does, and slicing by units
     // can cut an emoji in half and leave a lone surrogate behind.
     var chars = Array.from(s);
-    if (chars.length <= n) return s;
+    if (chars.length <= n) return more ? s + mark[0] : s;
     return chars.slice(0, n).join("") +
-           "\n…[truncated, " + (chars.length - n) + " more characters]";
+           "\n…[truncated, " + (chars.length - n + more) + " more characters]";
   }
 
   function when(ts) {
@@ -135,25 +141,46 @@ var CH = (function () {
   // arguments of one Edit — a median of 13 lines, 125 at the worst — so the
   // quadratic table is a few thousand cells and the simple algorithm is the
   // right one. Returns operations in order: the edit script.
+  //
+  // But one Edit can rewrite a whole file: thousands of lines on each side
+  // made a table of tens of millions of cells, which froze the page for
+  // seconds and took most of a gigabyte. So the lines the two share at the
+  // start and the end are taken as they are, and the table is made only for
+  // what is between, and only up to DIFF_CELLS cells; past that, what is
+  // between is shown as taken out and put back whole, which is still a true
+  // diff, only a less tidy one. ops.cells says how many were filled.
+  var DIFF_CELLS = 2000000;
   function diffOps(a, b) {
-    var n = a.length, m = b.length, i, j;
-    var lcs = [];
-    for (i = 0; i <= n; i++) lcs.push(new Array(m + 1).fill(0));
-    for (i = n - 1; i >= 0; i--) {
-      for (j = m - 1; j >= 0; j--) {
-        lcs[i][j] = a[i] === b[j] ? lcs[i + 1][j + 1] + 1
-                                  : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+    var n = a.length, m = b.length, i, j, ops = [];
+    var head = 0, tail = 0;
+    while (head < n && head < m && a[head] === b[head]) head++;
+    while (tail < n - head && tail < m - head && a[n - 1 - tail] === b[m - 1 - tail]) tail++;
+    for (i = 0; i < head; i++) ops.push({ op: " ", text: a[i] });
+    var an = n - head - tail, bm = m - head - tail, cells = 0;
+    if (an && bm && (an + 1) * (bm + 1) <= DIFF_CELLS) {
+      // One flat table of whole numbers: a row is bm + 1 cells.
+      var w = bm + 1, lcs = new Uint32Array((an + 1) * w);
+      cells = lcs.length;
+      for (i = an - 1; i >= 0; i--) {
+        for (j = bm - 1; j >= 0; j--) {
+          lcs[i * w + j] = a[head + i] === b[head + j] ? lcs[(i + 1) * w + j + 1] + 1
+                                                       : Math.max(lcs[(i + 1) * w + j], lcs[i * w + j + 1]);
+        }
       }
+      i = 0; j = 0;
+      while (i < an && j < bm) {
+        if (a[head + i] === b[head + j]) { ops.push({ op: " ", text: a[head + i] }); i++; j++; }
+        else if (lcs[(i + 1) * w + j] >= lcs[i * w + j + 1]) { ops.push({ op: "-", text: a[head + i] }); i++; }
+        else { ops.push({ op: "+", text: b[head + j] }); j++; }
+      }
+      while (i < an) { ops.push({ op: "-", text: a[head + i] }); i++; }
+      while (j < bm) { ops.push({ op: "+", text: b[head + j] }); j++; }
+    } else {
+      for (i = head; i < n - tail; i++) ops.push({ op: "-", text: a[i] });
+      for (j = head; j < m - tail; j++) ops.push({ op: "+", text: b[j] });
     }
-    var ops = [];
-    i = 0; j = 0;
-    while (i < n && j < m) {
-      if (a[i] === b[j]) { ops.push({ op: " ", text: a[i] }); i++; j++; }
-      else if (lcs[i + 1][j] >= lcs[i][j + 1]) { ops.push({ op: "-", text: a[i] }); i++; }
-      else { ops.push({ op: "+", text: b[j] }); j++; }
-    }
-    while (i < n) { ops.push({ op: "-", text: a[i] }); i++; }
-    while (j < m) { ops.push({ op: "+", text: b[j] }); j++; }
+    for (i = n - tail; i < n; i++) ops.push({ op: " ", text: a[i] });
+    ops.cells = cells;
     return ops;
   }
 

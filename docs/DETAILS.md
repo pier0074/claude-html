@@ -251,8 +251,8 @@ saves from then on; what was saved stays readable.
 To erase every trace as well:
 
 - delete the clone folder — the tool, its pages and its `.cache/` go with it
-- delete `~/.claude/claude-html.conf` and `~/.claude/claude-html.archives`
-  (and `~/.claude/claude-html.hidden`, if you hid claude.ai chats, and
+- delete `~/.claude/claude-html.conf`, `~/.claude/claude-html.archives` and
+  `~/.claude/claude-html.own-archives` (and `~/.claude/claude-html.hidden`, if you hid claude.ai chats, and
   `~/.claude/claude-html.redact`, your own list of secrets and safe values)
 - the archives live in each project, at any depth, in `.claude/.claude-conversations/`;
   `find ~/Sites -type d -path '*/.claude/.claude-conversations'` lists them
@@ -319,10 +319,11 @@ same work. Deleting, opening and resuming stay on `osascript` either way, as
 they need the Finder and the helper app. `claude-html --doctor` says which
 engine builds the pages and why, and `CLAUDE_HTML_ENGINE` chooses.
 
-**On Linux: node**, which runs the same JavaScript files byte for byte — and a
-machine running Claude Code has node already. Without a working one (14.14 or
-later) nothing is built, and `claude-html --doctor` says why, as does the error
-a save records. The pages, the index, the
+**On Linux: node**, which runs the same JavaScript files byte for byte. A
+machine running Claude Code need not have it: Claude Code's native installer
+brings its own runtime and no `node` command, so install node 14.14 or later
+from the distribution. Without a working one nothing is built, and
+`install.sh`, `claude-html --doctor` and the error a save records say why. The pages, the index, the
 search, the dashboard, the archives and the save-after-every-reply hooks all
 work exactly as on a Mac; `tests/backend.test.sh` proves the two engines
 produce identical output. Everything else — the terminal a resume opens, what
@@ -491,7 +492,9 @@ transcripts have expired: the hook adds a folder when it archives there, the
 build adds any it finds and drops one that has gone. Only when the list is
 missing, or a rebuild is forced, does the build walk the root for archives,
 three folders deep and around `node_modules` and the like — seconds, so never
-on an ordinary save.
+on an ordinary save. The hook also keeps `~/.claude/claude-html.own-archives`,
+the folders it archived into itself and nothing the build only found: the
+index's open and resume links trust those, and Claude Code's own transcripts.
 
 | Source | Path | Life |
 | ------ | ---- | ---- |
@@ -596,7 +599,11 @@ a temporary folder, and not when `CLAUDE_HTML_NO_REGISTER` is set);
 `--uninstall` takes it out again. The handler accepts exactly
 `claude-html://delete|open|resume/<session id>`, or `claude-html://update`
 exactly, or a `limits` or `settings` link in its fixed form, and nothing
-else, and passes only the id or the form on. The index offers the
+else, and passes only the id or the form on. An id is acted on only for a
+conversation Claude Code itself has the transcript of, or an archive in a
+folder claude-html's own hook archived into: an archive anyone put in a
+folder the build reads, a cloned repo's, is listed but never opened or
+resumed, since any web page can open these links. The index offers the
 bin, the project links, resume and an update's run only
 where that handler is installed — on macOS always — so no page shows a control
 that does nothing.

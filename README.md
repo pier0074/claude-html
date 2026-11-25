@@ -97,12 +97,15 @@ git clone https://github.com/pier0074/claude-html ~/claude-html
 cd ~/claude-html && ./install.sh
 ```
 
-For a given release, add `--branch v3.7.2` to the clone;
+For a given release, add `--branch v3.7.3` to the clone;
 [CHANGELOG.md](CHANGELOG.md) says what each one brought.
 
-Nothing else to install. macOS uses its own `osascript`; Linux uses `node`,
-which a machine running Claude Code already has. A Mac that happens to have
-node uses it too, being faster — node is never installed for you.
+Nothing else to install on a Mac: it uses its own `osascript`. Linux needs
+`node` 14.14 or later, which Claude Code's own installer does not bring: if
+`node --version` prints nothing, install it from your distribution first
+(`install.sh` and `claude-html --doctor` say so when it is missing). A Mac
+that happens to have node uses it too, being faster — node is never
+installed for you.
 
 **Where you clone it is the configuration.** The pages are written in the
 clone folder (`index.html` appears right there), and its *parent* is the

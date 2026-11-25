@@ -159,6 +159,27 @@ check "a left-over lock is taken away only while it is the one judged so" \
   "$([ -f "$HC/.claude/.claude-html.lock/owner" ] && echo kept)" kept
 rm -rf "$HC/.claude/.claude-html.lock"
 
+# The holder and a waiter in different time zones (or either side of a
+# daylight-saving change): the same process, so the lock is still held.
+# Taken in a subshell, so its holder is this script ($$ there), alive.
+( HOME="$HC"; export TZ=America/New_York; . "$HERE/lib/lock.sh"; ch_lock_take 0 )
+tzwait() {   # TZ -> live or stale, as a waiter there judges the lock
+  ( HOME="$HC"; export TZ="$1"; . "$HERE/lib/lock.sh"
+    ch_lock_stale "$(ch_lock_owner)" && echo stale || echo live )
+}
+check "a live lock is live to a waiter in another time zone" \
+  "$(tzwait Asia/Tokyo) $(tzwait UTC0) $(tzwait America/New_York)" "live live live"
+# Written by a release before 3.7.3: the start time alone, in local time.
+rm -f "$HC/.claude/.claude-html.lock/started"
+check "  and one an older release wrote is judged as it always was" "$(tzwait America/New_York)" live
+sleep 600 & HOLDER=$!
+echo "$HOLDER $(LC_ALL=C TZ=America/New_York ps -o lstart= -p "$HOLDER" | sed 's/^ *//; s/ *$//')" \
+  > "$HC/.claude/.claude-html.lock/owner"
+echo "not the key of that process" > "$HC/.claude/.claude-html.lock/started"
+check "  while a pid now naming another process is still left over" "$(tzwait Asia/Tokyo)" stale
+kill "$HOLDER" 2>/dev/null; wait "$HOLDER" 2>/dev/null
+rm -rf "$HC/.claude/.claude-html.lock"
+
 echo
 echo "  $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

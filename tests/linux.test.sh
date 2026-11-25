@@ -86,6 +86,11 @@ mkenv() {   # name id version id_like pretty
 }
 var() { printf '%s\n' "$2" >> "$T/env/$1/vars"; }
 
+# What counts as a temporary folder inside these environments: only this,
+# so the clone is not one wherever it sits (CI and worktrees put it under
+# /tmp, which ch_is_temp would otherwise refuse to register).
+TEMPS="$T/temporary"
+
 # Run something inside an environment: nothing of this machine's own
 # environment gets in, only what the fake one says. Its own stand-ins are
 # the screen, so CLAUDE_HTML_NO_SCREEN is off: they record what is shown.
@@ -96,7 +101,7 @@ inenv() {   # name cmd…
   env -i CLAUDE_HTML_NO_SCREEN= HOME="$H" PATH="$e/bin:$SYS" STUB_LOG="$e/log" STUB_TRASH="$e/trashed" \
     CLAUDE_HTML_UNAME=Linux CLAUDE_HTML_OS_RELEASE="$e/os-release" \
     CLAUDE_HTML_PROC_VERSION="$e/version" CLAUDE_HTML_NO_REGISTER=1 \
-    ${vars[@]+"${vars[@]}"} "$@"
+    CLAUDE_HTML_TEMP_DIRS="$TEMPS" ${vars[@]+"${vars[@]}"} "$@"
 }
 doctor() { inenv "$1" bash "$HERE/claude-html" --doctor 2>&1; }
 field() { awk -v k="$1" '$1 == k { $1 = ""; sub(/^ +/, ""); print; exit }'; }
@@ -448,6 +453,30 @@ check "resume refuses an id not in the index" \
 check "resume refuses something that is not an id" \
   "$(inenv ubuntu bash "$HERE/claude-html" --resume-session "$A; touch $T/pwned" >/dev/null 2>&1; echo $?)" 2
 
+# An archive planted in a cloned repo under the root, named with any id: the
+# build lists it and writes it a launcher, but any website can open its
+# resume and open links unasked, so neither does anything for it.
+PL=dddddddd-6666-4666-8666-000000000066
+CLONED="$ROOT/cloned-repo"; mkdir -p "$CLONED/.claude/.claude-conversations"
+echo "<h1>theirs</h1>" > "$CLONED/index.html"
+printf '{"format":6,"sessionId":"%s","title":"planted","messages":[{"role":"user","text":"hello","timestamp":"2026-11-01T10:00:00Z"}]}\n' "$PL" \
+  > "$CLONED/.claude/.claude-conversations/$PL.json"
+build linux
+check "a planted archive is listed, with a launcher" \
+  "$(grep -c "\"$PL\"" "$OUT/.manifest.json") $(ls "$OUT/resume" | grep -c -- "-$PL.sh$")" "1 1"
+clearlog ubuntu
+R="$(inenv ubuntu bash "$HERE/claude-html" --resume-session "$PL" 2>&1)"; RC=$?
+check "  but resuming it opens nothing, and says why" "$R $RC|$(log ubuntu)" \
+  "Claude Code has no transcript of that conversation, so it cannot be resumed 1|"
+check "  nor does opening its project" \
+  "$(inenv ubuntu bash "$HERE/claude-html" --open "$PL" >/dev/null 2>&1; echo $?)|$(log ubuntu)" "1|"
+# Once claude-html's own hook has archived into a folder, its project opens.
+printf '%s\n' "$CLONED" > "$H/.claude/claude-html.own-archives"
+check "  a folder the hook archived into opens" \
+  "$(inenv headless bash "$HERE/claude-html" --open "$PL" 2>&1)" "page: $CLONED/index.html"
+rm -f "$H/.claude/claude-html.own-archives"
+rm -rf "$CLONED"; build linux
+
 # The index's run button for an update: this clone's command, --update, in
 # the same terminal, kept open until Enter.
 echo "update"
@@ -761,8 +790,13 @@ clearlog ubuntu
 check "CLAUDE_HTML_NO_REGISTER is honoured" "$(reg 'ch_register_handler "$1"')" \
   "not registered: CLAUDE_HTML_NO_REGISTER is set"
 check "a handler in a temp folder is refused" \
-  "$(inenv ubuntu sh -c '. "$1/lib/platform.sh"; ch_detect; unset CLAUDE_HTML_NO_REGISTER; ch_register_handler /tmp/x' sh "$HERE")" \
+  "$(inenv ubuntu sh -c '. "$1/lib/platform.sh"; ch_detect; unset CLAUDE_HTML_NO_REGISTER CLAUDE_HTML_TEMP_DIRS; ch_register_handler /tmp/x' sh "$HERE")" \
   "not registered: /tmp/x is a temporary folder"
+check "  and so is one in a folder CLAUDE_HTML_TEMP_DIRS names" \
+  "$(inenv ubuntu sh -c '. "$1/lib/platform.sh"; ch_detect; unset CLAUDE_HTML_NO_REGISTER; ch_register_handler "$2/x"' sh "$HERE" "$TEMPS")" \
+  "not registered: $TEMPS/x is a temporary folder"
+check "  which then replaces the built-in list" \
+  "$(inenv ubuntu sh -c '. "$1/lib/platform.sh"; ch_is_temp /tmp/x && echo temp || echo kept' sh "$HERE")" kept
 regok() { inenv ubuntu XDG_DATA_HOME="$T/xdg" XDG_CONFIG_HOME="$T/xdgc" sh -c '. "$1/lib/platform.sh"; ch_detect; unset CLAUDE_HTML_NO_REGISTER; '"$1" sh "$HERE"; }
 # The clone itself is the one place that is not temporary; everything this
 # writes still goes into the fake XDG folders, and xdg-mime is a stand-in.

@@ -56,6 +56,8 @@ check "without it, the opener would have been (a stand-in here)" "$(called)" "xd
 # ── a project, through open.js under node ────────────────────────────
 A=11111111-0000-0000-0000-00000000000a
 printf '{"%s":{"cwd":"%s","project":"a-project","kind":"transcript"}}\n' "$A" "$PROJ" > "$OUT/.manifest.json"
+# A folder claude-html's own hook archived into, which is all open.js opens.
+printf '%s\n' "$PROJ" > "$H/.claude/claude-html.own-archives"
 reset
 check "--open with the switch: says where, as ever" \
   "$(SCREEN="$T/shown" desk bash "$HERE/claude-html" --open "$A" 2>&1)" "folder: $PROJ"

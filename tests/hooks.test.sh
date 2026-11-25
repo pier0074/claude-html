@@ -154,6 +154,18 @@ check "  and with its transcript and the pages gone, the build still finds it" \
 printf '{"session_id":"%s","transcript_path":"%s","cwd":"%s","hook_event_name":"Stop"}' "$ID" "$J" "$NAPP" |
   env HOME="$T/home" /bin/bash -c "cd '$NAPP' && /bin/bash '$HERE/save-conversation.sh' --try" >/dev/null 2>&1
 check "  and a second save there does not list it twice" "$(grep -cxF "$NAPP" "$LIST")" 1
+# The folders the hook itself archived into, on a list of their own, which
+# the index's open and resume links trust: never one the build only found.
+OWNL="$T/home/.claude/claude-html.own-archives"
+check "the hook lists each folder it archived into as its own, once" \
+  "$(grep -cxF "$NAPP" "$OWNL") $(grep -cxF "$APP" "$OWNL")" "1 1"
+mkdir -p "$ROOT/cloned/.claude/.claude-conversations"
+printf '{"format":6,"sessionId":"x","messages":[]}\n' > "$ROOT/cloned/.claude/.claude-conversations/ffffffff-0000-0000-0000-00000000000f.json"
+HOME="$T/home" run_js "$HERE/build/convert.js" \
+  "{\"root\":\"$ROOT\",\"out\":\"$ROOT/pages\",\"here\":\"$HERE\",\"exportPath\":\"/nonexistent\",\"force\":true}" >/dev/null
+check "  while a folder the build found holding archives is not" \
+  "$(grep -cxF "$ROOT/cloned" "$LIST") $(grep -cxF "$ROOT/cloned" "$OWNL")" "1 0"
+rm -rf "$ROOT/cloned"
 
 # Session end: Claude Code cancels a hook that is still running as it quits,
 # so the save must hand itself off and return at once — and still happen.

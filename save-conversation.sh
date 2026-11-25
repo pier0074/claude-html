@@ -809,6 +809,20 @@ for d in "${USED_DIRS[@]+"${USED_DIRS[@]}"}"; do
   fi
 done
 
+# And every folder this hook itself archived a session of Claude Code's
+# into, on a list of its own: what the build finds may be anyone's (a
+# cloned repo can hold a .claude-conversations folder), so the index's
+# open and resume links act only on a folder named here, or on a session
+# Claude Code itself still has the transcript of.
+OWN_LIST="$HOME/.claude/claude-html.own-archives"
+for d in "${USED_DIRS[@]+"${USED_DIRS[@]}"}"; do
+  case "$d" in *$'\n'*|*$'\r'*) continue ;; esac
+  if compgen -G "$d/.claude/.claude-conversations/*.json" >/dev/null &&
+     ! grep -qxF "$d" "$OWN_LIST" 2>/dev/null; then
+    ( umask 077; printf '%s\n' "$d" >> "$OWN_LIST" ) 2>/dev/null || true
+  fi
+done
+
 # Hook stdout lands in the transcript, so say one line, not one per session.
 [ "$SAVED" -gt 0 ] && echo "Archived $SAVED session(s) to $CONV_DIR"
 

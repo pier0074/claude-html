@@ -65,9 +65,31 @@ check "a fingerprint holding a hex-only probe is not counted as a secret kept, t
 unset HP L1 L2
 
 # ── the quick look never skips what the rules catch ─────────────────
-A="$(node "$HERE/tests/guard.test.js" anchors)"
-check "guard.sh's quick look holds every text a rule of redact.js starts at" \
-  "$(printf '%s' "$A" | sed -n 's/.*"missing":\(\[[^]]*\]\).*/\1/p')" "[]"
+# The expression exactly as guard.sh builds it, tried on every fake secret
+# in many surroundings, on the docs and scripts, and on prose.
+bash -c 'eval "$(sed -n "/^_sp=/,/^ANCHORS=\"\$ANCHORS|(\$_w)/p" "$1")"; printf "%s\n" "$ANCHORS"' sh "$HERE/guard.sh" > "$T/anchors"
+A="$(node "$HERE/tests/guard.test.js" quick "$T/anchors")"
+check "guard.sh's quick look lets every text the rules find a secret in through to them" \
+  "$(printf '%s' "$A" | sed -n 's/.*"missed":\(\[[^]]*\]\).*/\1/p') $(printf '%s' "$A" | sed -n 's/.*"found":\([0-9]*\).*/\1/p' | sed 's/^[1-9][0-9][0-9]*$/some/')" "[] some"
+check "  and prose that holds none (right, media, mkdir -p, keyboard, git push -u) is not sent on" \
+  "$(printf '%s' "$A" | sed -n 's/.*"slow":\(\[[^]]*\]\).*/\1/p')" "[]"
+# With a list of the owner's own: its values are looked for as they are
+# written; a clean prompt still needs no engine, one holding a value is
+# still stopped. A /regex/ line sends every prompt on to the rules.
+ENG=node
+reset
+printf '# mine\nzebra-horse-4242\nsafe:0123456789abcdef:0123456789abcdef0123456789abcdef\n' > "$LIST"
+printf '{"session_id":"sess-1","hook_event_name":"UserPromptSubmit","prompt":"a clean prompt"}' > "$T/own.clean"
+printf '{"session_id":"sess-1","hook_event_name":"UserPromptSubmit","prompt":"deploy with zebra-horse-4242 now"}' > "$T/own.hit"
+check "an own list of plain values: a clean prompt takes the quick look, no engine started" \
+  "$(hook prompt "$T/own.clean")|$([ -e "$H/.claude/.claude-html.guard-engine" ] && echo engine || echo none)" "|none"
+check "  and a prompt holding one of them is still stopped" "$(blocked "$(hook prompt "$T/own.hit")")" blocked
+reset
+printf '/zebra-[a-z]+-[0-9]{4}/\n' > "$LIST"
+hook prompt "$T/own.clean" >/dev/null
+check "  an own /regex/: every prompt goes to the rules" \
+  "$([ -e "$H/.claude/.claude-html.guard-engine" ] && echo engine || echo none)" engine
+reset
 
 for ENG in $ENGINES; do
   reset
