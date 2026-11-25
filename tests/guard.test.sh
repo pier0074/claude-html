@@ -5,6 +5,9 @@
 # ever printed, nor left anywhere but where the test put it.
 #
 #   bash tests/guard.test.sh
+#
+# run-all.sh runs its sections in two parts side by side (lib.sh's section).
+# parts: 2
 set -u
 
 . "$(dirname "$0")/lib.sh"
@@ -47,6 +50,7 @@ leaks() {
   done < <(find "$H" "$LOG" "$LOG.err" -type f -print0 2>/dev/null)
   echo "$n"
 }
+if section 1 "the quick look, and every rule under each engine"; then
 # leaks() itself: a fingerprint that happens to hold a probe is not a leak,
 # the probe as a value beside it is.
 HP="$(grep -xE '[0-9a-f]+' "$T/probes.txt" | awk '{ print length, $0 }' | sort -n | head -1 | cut -d' ' -f2)"
@@ -271,7 +275,9 @@ for ENG in $ENGINES; do
   chmod 644 "$CONFF"
   check "$ENG: nothing printed or kept holds a secret" "$(leaks)" 0
 done
+fi
 
+if section 2 "the dialog, and how long the windows wait"; then
 # ── the dialog ─────────────────────────────────────────────────────────
 # The exact command each desktop is given, never with a secret in it.
 DD="$T/dd"; mkdir -p "$DD"; printf 'f' > "$DD/found"; printf 'c' > "$DD/command"; printf 'd' > "$DD/details.txt"
@@ -439,7 +445,9 @@ check "a command, no answer in time: refused, Claude told to stop, not retry" \
   "$(rm -f "$STATE"; dlg sleep bash "$T/note.bash_mysql" CLAUDE_HTML_GUARD_TEST_LIMIT=2 | grep -c '"deny".*nobody answered within 2 seconds. It was not run. Stop here and do not retry it')" 1
 check "the dialog was never given a secret" "$(grep -cF -f "$T/probes.txt" "$T/stub.args")" 0
 check "nothing printed or kept holds a secret" "$(leaks)" 0
+fi
 
+if section 2 "what the window is given, and what is left after it"; then
 # ── what the window is given, and what is left after it ───────────────
 # The boxes show the secret itself, on the owner's own screen. So it must
 # never be an argument of the window (any local process reads those), nor
@@ -645,7 +653,9 @@ for ENG in $ENGINES; do
   check "$ENG:   each window ends on a whole word" "$P" true
 done
 reset
+fi
 
+if section 1 "what safe and allow mean for the saved pages"; then
 # ── what safe and allow mean for the saved pages ─────────────────────
 # A safe value is shown in the pages; one allowed once stays masked. And
 # with safe lines in the list, both engines still write the same bytes,
@@ -688,7 +698,9 @@ cp -p "$BJ" "$B/whole"; head -c 900 "$B/whole" > "$BJ"; touch -t 202611020905 "$
 bld "$B/o-inc" node; cp -p "$B/whole" "$BJ"; bld "$B/o-inc" node
 check "  and a build carried on writes what one from nothing does" \
   "$([ "$(tree "$B/o-inc")" = "$(tree "$B/o-safe")" ] && echo same)" same
+fi
 
+if section 1 "the command, beside the limits, and installed"; then
 # ── the command ──────────────────────────────────────────────────────
 reset
 printf 'safe:0123456789abcdef:0123456789abcdef0123456789abcdef   # github, 2026-11-19\n' > "$LIST"
@@ -782,6 +794,7 @@ check "--no-guard leaves them out, and takes out ones already there" "$(grep -c 
 node "$HERE/actions/settings-hooks.js" "$S" "$HERE" add >/dev/null
 node "$HERE/actions/settings-hooks.js" "$S" "$HERE" remove >/dev/null
 check "uninstall removes only its own" "$(grep -c 'guard.sh\|save-conversation' "$S") $(grep -c 'theirs.sh' "$S")" "0 1"
+fi
 
 echo
 verdict

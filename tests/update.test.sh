@@ -11,6 +11,10 @@
 # sandbox, and every remote is a local path.
 #
 #   bash tests/update.test.sh
+#
+# Its sections each start from a clone of their own; run-all.sh runs them
+# in three parts side by side (lib.sh's section).
+# parts: 3
 set -u
 
 . "$(dirname "$0")/lib.sh"
@@ -166,6 +170,24 @@ settle() {
   done
 }
 
+# A save, as a reply's end makes it.
+save() { (cd "$PROJ/app" && run CLAUDE_HTML_UPDATE_CHECK="${CHK:-on}" bash "$INST/save-conversation.sh" --try </dev/null >/dev/null 2>&1); }
+# A save nobody waits on starts it, detached, once the save is over: what
+# is checked is what it did once it has ended, never how long it took.
+auto_wait() {
+  local i
+  settle
+  for i in $(seq 1 600); do
+    ps ax -o command= 2>/dev/null | grep -F -- "update.sh $INST --auto" | grep -qv grep || { settle; return 0; }
+    sleep 0.1
+  done
+}
+asave() { (cd "$PROJ/app" && run CLAUDE_HTML_UPDATE_CHECK=on CLAUDE_HTML_AUTO_UPDATE="${AUTOSET:-on}" "$@" bash "$INST/save-conversation.sh" --try </dev/null >/dev/null 2>&1); auto_wait; }
+seen() {   # the daily check's state, as if it had just seen <newest> for this clone
+  printf 'checked=%s\nnewest=%s\nhere=%s\ntold=\n' "$(date +%s)" "$1" "$INST" > "$H/.claude/.claude-html.update"
+}
+
+if section 1 "release numbers, status, list and words"; then
 # ── release numbers ──────────────────────────────────────────────────
 . "$HERE/lib/version.sh"
 o=""
@@ -233,6 +255,9 @@ for w in latest 3.2.0-rc1 3.1 "status extra"; do
     "2 claude-html --update [X.Y.Z|list|status|on|off] [--yes]"
 done
 
+fi
+
+if section 1 "updates"; then
 # ── updates ─────────────────────────────────────────────────────────
 clone a v3.0.1
 : > "$T/installs"
@@ -279,6 +304,9 @@ mkdir -p "$T/bin" "$T/elsewhere"; ln -sf "$INST/claude-html" "$T/bin/claude-html
 out="$(cd "$T/elsewhere" && run "$T/bin/claude-html" --update 2>&1 </dev/null)"; rc=$?
 check "through a symlink, from another folder" "$rc $(at)" "0 v3.1.0"
 
+fi
+
+if section 2 "refusals"; then
 # ── refusals ────────────────────────────────────────────────────────
 clone a v3.0.1
 echo "# mine" >> "$INST/lib/conf.sh"
@@ -371,10 +399,10 @@ mkdir -p "$T/noclt"; printf '#!/bin/sh\nexit 2\n' > "$T/noclt/xcode-select"; chm
 clone a v3.0.1
 out="$(run env PATH="$T/noclt:/usr/bin:/bin" CLAUDE_HTML_UNAME=Darwin bash "$INST/lib/update.sh" "$INST" unset status 2>&1)"
 has "a Mac without developer tools: its git stand-in is never run" "$out" "git is not installed"
+fi
 
-
+if section 2 "the daily check"; then
 # ── the daily check ─────────────────────────────────────────────────
-save() { (cd "$PROJ/app" && run CLAUDE_HTML_UPDATE_CHECK="${CHK:-on}" bash "$INST/save-conversation.sh" --try </dev/null >/dev/null 2>&1); }
 clone a v3.0.1
 rm -f "$H/.claude/.claude-html.update"; n="$(asked)"
 t0="$(date +%s)"; save; t1="$(date +%s)"
@@ -422,6 +450,9 @@ check "a development checkout's save asks nothing" "$(asked)" "$n"
 hasnt "  and its index has no notice" "$(cat "$INST/index.html")" '"update":"'
 hasnt "  nor its terminal" "$(build)" "is out"
 
+fi
+
+if section 3 "on and off"; then
 # ── on and off ──────────────────────────────────────────────────────
 clone a v3.0.1
 rm -f "$H/.claude/.claude-html.update"; save
@@ -454,21 +485,10 @@ has "--doctor: version, newest known, when checked" "$out" "update    3.0.1 · n
 ch --update off >/dev/null
 has "  or that checks are off" "$(ch --doctor)" "update    3.0.1 · checks off"
 
+fi
+
+if section 1 "the automatic update"; then
 # ── the automatic update ────────────────────────────────────────────
-# A save nobody waits on starts it, detached, once the save is over: what
-# is checked is what it did once it has ended, never how long it took.
-auto_wait() {
-  local i
-  settle
-  for i in $(seq 1 600); do
-    ps ax -o command= 2>/dev/null | grep -F -- "update.sh $INST --auto" | grep -qv grep || { settle; return 0; }
-    sleep 0.1
-  done
-}
-asave() { (cd "$PROJ/app" && run CLAUDE_HTML_UPDATE_CHECK=on CLAUDE_HTML_AUTO_UPDATE="${AUTOSET:-on}" "$@" bash "$INST/save-conversation.sh" --try </dev/null >/dev/null 2>&1); auto_wait; }
-seen() {   # the daily check's state, as if it had just seen <newest> for this clone
-  printf 'checked=%s\nnewest=%s\nhere=%s\ntold=\n' "$(date +%s)" "$1" "$INST" > "$H/.claude/.claude-html.update"
-}
 clone a v3.0.1; : > "$T/installs"; rm -f "$H/.claude/.claude-html.update"
 AUTOSET=off asave
 check "auto-update off (the default): the daily check sees 3.1.0, nothing is installed" "$(state newest) $(at) $(installs)" "3.1.0 v3.0.1 "
@@ -493,6 +513,9 @@ has "  and announced as ever" "$(cat "$INST/index.html")" '"update":"4.0.0"'
 out="$(REMOTE="$BARE3" run bash "$INST/lib/update.sh" "$INST" --auto 2>&1; cat "$H/.claude/.claude-html.autoupdate.log")"
 check "  even when --auto is started by hand" "$(at) $(installs)" "v3.0.1 "
 
+fi
+
+if section 3 "where the automatic update never runs, and when it waits or fails"; then
 # A development checkout: never, even with the state saying a release is out.
 clone d v3.0.1; gitx -C "$INST" commit -q --allow-empty -m "my own work"; : > "$T/installs"
 seen 3.1.0; asave
@@ -536,6 +559,7 @@ clone a v3.0.1
 ch --config set AUTO_UPDATE=on >/dev/null
 check "--config set AUTO_UPDATE=on: one line in the conf" "$(grep -c '^CLAUDE_HTML_AUTO_UPDATE="on"$' "$CONF")" 1
 ch --config unset AUTO_UPDATE >/dev/null
+fi
 
 echo
 verdict

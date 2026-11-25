@@ -11,6 +11,11 @@
 //
 // node runs in this process, so it can afford every split; osascript is a
 // process per build, so it takes a spread of them, the hard ones included.
+//
+// run-all.sh runs its sections in four parts side by side (lib.js's
+// section); the split points are taken in four sections, every fourth
+// point each, and the archiver's in two.
+// parts: 4
 "use strict";
 var fs = require("fs"), path = require("path"), os = require("os");
 var cp = require("child_process");
@@ -19,7 +24,7 @@ var HERE = path.resolve(__dirname, "..");
 var args = process.argv.slice(2);
 var ENGINE = args.indexOf("--engine") > -1 ? args[args.indexOf("--engine") + 1] : "node";
 var QUICK = args.indexOf("--quick") > -1;
-var check = require("./lib.js").check;
+var check = require("./lib.js").check, section = require("./lib.js").section;
 
 var T = fs.mkdtempSync(path.join(fs.realpathSync(process.env.TMPDIR || os.tmpdir()), "chincr."));
 process.on("exit", function () { try { fs.rmSync(T, { recursive: true, force: true }); } catch (e) {} });
@@ -256,11 +261,6 @@ var T_CUT = 1790001000, T_WHOLE = 1790002000;
 setMain(WHOLE, T_WHOLE);
 var SCRATCH = out();
 var r0 = build(SCRATCH);
-check("the fixture builds", /"sessions":4/.test(r0) && /"errors":\[\]/.test(r0), r0);
-check("  with its sub-agent pages", fs.existsSync(path.join(SCRATCH, "sessions", P, "agent-a1.html")) &&
-      fs.existsSync(path.join(SCRATCH, "sessions", P, "agent-a3.html")));
-check("  and a cache for each transcript", fs.existsSync(path.join(SCRATCH, ".cache", P + ".build")) &&
-      fs.existsSync(path.join(SCRATCH, ".cache", S2 + ".build.md5")));
 var manifest = JSON.parse(fs.readFileSync(path.join(SCRATCH, ".manifest.json"), "utf8"));
 // Nothing written holds a secret: not a page, a search file, the cache.
 function holdsSecret(dir) {
@@ -272,10 +272,17 @@ function holdsSecret(dir) {
   });
   return hit;
 }
+if (section(1, "the fixture")) {
+check("the fixture builds", /"sessions":4/.test(r0) && /"errors":\[\]/.test(r0), r0);
+check("  with its sub-agent pages", fs.existsSync(path.join(SCRATCH, "sessions", P, "agent-a1.html")) &&
+      fs.existsSync(path.join(SCRATCH, "sessions", P, "agent-a3.html")));
+check("  and a cache for each transcript", fs.existsSync(path.join(SCRATCH, ".cache", P + ".build")) &&
+      fs.existsSync(path.join(SCRATCH, ".cache", S2 + ".build.md5")));
 check("  and no file it wrote holds a secret", holdsSecret(SCRATCH) === 0);
 check("  the fork and its source both keep the replies they share",
       !!manifest[P].shared && !!manifest[S2].shared &&
       Object.keys(manifest[P].shared).join() === Object.keys(manifest[S2].shared).join());
+}
 
 // Every split point worth having: each line's end, before and after its
 // line break, and points inside lines — inside a multi-byte character too.
@@ -317,19 +324,31 @@ var chosen = QUICK ? hard.concat(splits.filter(function (x, i) { return i % 97 =
   : ALL ? splits : hard.concat(splits.filter(function (x, i) { return i % 4 === 0; }));
 chosen = chosen.filter(function (x, i) { return x > 0 && x < WHOLE.length && chosen.indexOf(x) === i; });
 
-var bad = [];
-chosen.forEach(function (k) {
-  var o = out();
-  setMain(WHOLE.subarray(0, k), T_CUT);
-  build(o);
-  setMain(WHOLE, T_WHOLE);
-  build(o);
-  var d = same(o, SCRATCH);
-  if (d.length) bad.push(k + " (" + d.slice(0, 3).join(", ") + ")");
-  fs.rmSync(o, { recursive: true, force: true });
-});
-check("cut at any of " + chosen.length + " points, then whole: the same bytes as built whole",
-      bad.length === 0, "split points that differ: " + bad.slice(0, 8).join("; "));
+// Every fourth of them, from the (j+1)th: a section each.
+var NTH = ["1st", "2nd", "3rd", "4th"];
+function cuts(j) {
+  var bad = [], mine = chosen.filter(function (x, i) { return i % 4 === j; });
+  mine.forEach(function (k) {
+    var o = out();
+    setMain(WHOLE.subarray(0, k), T_CUT);
+    build(o);
+    setMain(WHOLE, T_WHOLE);
+    build(o);
+    var d = same(o, SCRATCH);
+    if (d.length) bad.push(k + " (" + d.slice(0, 3).join(", ") + ")");
+    fs.rmSync(o, { recursive: true, force: true });
+  });
+  // The counts are left out of the name: the transcript holds its folder, so how
+  // many points there are differs from one run to another (each part has a temp
+  // folder of its own), and the parts are held to the whole by name.
+  check("cut at any of every 4th point from the " + NTH[j] +
+        ", then whole: the same bytes as built whole",
+        mine.length > 0 && bad.length === 0, "split points that differ: " + bad.slice(0, 8).join("; "));
+}
+if (section(1, "cut then whole, every 4th point from the 1st")) cuts(0);
+if (section(2, "cut then whole, every 4th point from the 2nd")) cuts(1);
+if (section(3, "cut then whole, every 4th point from the 3rd")) cuts(2);
+if (section(4, "cut then whole, every 4th point from the 4th")) cuts(3);
 
 // ── when the cache stops fitting ──────────────────────────────────────
 var MID = lineEnds[Math.floor(lineEnds.length / 2)];
@@ -346,6 +365,7 @@ var cacheOf = function (o) { return path.join(o, ".cache", P + ".build"); };
 function md5(p) { return require("crypto").createHash("md5").update(fs.readFileSync(p)).digest("hex"); }
 function reseal(o) { fs.writeFileSync(cacheOf(o) + ".md5", md5(cacheOf(o)) + "\n"); }
 
+if (section(1, "when the cache stops fitting")) {
 expectSame("with the cache deleted between builds", cutThenWhole(function (o) {
   fs.rmSync(path.join(o, ".cache"), { recursive: true, force: true });
 }), SCRATCH);
@@ -377,11 +397,13 @@ expectSame("with stray files left in the cache", cutThenWhole(function (o) {
   fs.writeFileSync(path.join(o, ".cache", "99999999-0000-0000-0000-000000000000.build"), "gone");
 }), SCRATCH);
 
+}
+
 // The transcript replaced: by a shorter one, by another conversation at
 // least as long, and edited just before where the cache stopped. The
 // fingerprint is three samples, cheap by design: an edit confined to bytes
 // between them is not one it can see, and transcripts are only appended to.
-(function () {
+if (section(2, "the transcript replaced")) (function () {
   var o = out();
   setMain(WHOLE, T_WHOLE); build(o);
   setMain(WHOLE.subarray(0, MID), T_CUT); build(o);
@@ -407,7 +429,7 @@ expectSame("with stray files left in the cache", cutThenWhole(function (o) {
 // The transcript cut short, or replaced by a longer one, while a build was
 // writing its pages: what it read is no longer the file, so it must not be
 // kept as if it were. The next build must write what one from scratch does.
-(function () {
+if (section(2, "the transcript changed while the pages were written")) (function () {
   function during(name, to) {
     var o = out(), page = path.join(o, "sessions", P + ".html"), fired = false;
     var hooked = loadRun(path.join(HERE, "build/convert.js"), { renameSync: function (a, b) {
@@ -429,7 +451,7 @@ expectSame("with stray files left in the cache", cutThenWhole(function (o) {
 })();
 
 // Sub-agents and parent, each growing while the other does not.
-(function () {
+if (section(3, "sub-agents and parent growing apart")) (function () {
   var a1 = path.join(SUB, "agent-a1.jsonl"), o = out();
   setMain(WHOLE, T_WHOLE); build(o);
   fs.appendFileSync(a1, agentLine(9, { type: "assistant", message: { id: "msg_A1b", role: "assistant",
@@ -460,7 +482,7 @@ expectSame("with stray files left in the cache", cutThenWhole(function (o) {
 
 // A save that stopped halfway: a cache newer than the pages and manifest,
 // and one older than them.
-(function () {
+if (section(2, "a save that stopped halfway")) (function () {
   var early = out(), late = out();
   setMain(WHOLE.subarray(0, MID), T_CUT); build(early);
   fs.cpSync(early, late, { recursive: true });
@@ -483,7 +505,7 @@ expectSame("with stray files left in the cache", cutThenWhole(function (o) {
 // A forced rebuild, and one without the cache, write what a build from
 // nothing writes; the second takes away the cache of what it built, whose
 // text may be masked by another list than this build's.
-(function () {
+if (section(3, "a forced rebuild, and one without the cache")) (function () {
   var o = out();
   setMain(WHOLE.subarray(0, MID), T_CUT); build(o);
   setMain(WHOLE, T_WHOLE); build(o, { force: true });
@@ -511,7 +533,7 @@ expectSame("with stray files left in the cache", cutThenWhole(function (o) {
 // The engine can change between saves — a hook may find node where another
 // did not — so each must write what the other writes, and carry on from a
 // cache the other kept.
-if (ENGINE === "osascript") (function () {
+if (section(2, "the engine changed between saves")) if (ENGINE === "osascript") (function () {
   var o = out();
   setMain(WHOLE, T_WHOLE); build(o, {}, "node");
   expectSame("node writes what osascript writes, the cache included", o, SCRATCH);
@@ -524,7 +546,7 @@ if (ENGINE === "osascript") (function () {
 })();
 
 // Nothing changed: nothing rewritten, the cache included.
-(function () {
+if (section(1, "nothing changed")) (function () {
   var o = out();
   setMain(WHOLE, T_WHOLE); build(o);
   var t1 = fs.statSync(cacheOf(o)).mtimeMs, r = build(o);
@@ -568,10 +590,12 @@ function snapshot() {
 }
 setMain(WHOLE, T_WHOLE); fresh(); archive();
 var ASCRATCH = snapshot();
+if (section(3, "the archiver")) {
 check("the archiver archives the fixture", !!ASCRATCH.a && !!ASCRATCH.s &&
       JSON.parse(ASCRATCH.a).messageCount > 400 && JSON.parse(ASCRATCH.a).costPart === true);
 check("  masking every secret in it", [SECRET_TOK, SECRET_PEM.secret, SECRET_PW].every(function (x) {
   return ASCRATCH.a.toString("utf8").indexOf(x) < 0 && ASCRATCH.s.toString("utf8").indexOf(x) < 0; }));
+}
 function sameArchive(name, extra) {
   var now = snapshot();
   var ok = now.a && now.a.equals(ASCRATCH.a) && now.s && now.s.equals(ASCRATCH.s);
@@ -579,16 +603,21 @@ function sameArchive(name, extra) {
   return ok;
 }
 var aChosen = ENGINE === "osascript" && !ALL ? chosen.filter(function (x, i) { return i % 2 === 0; }) : chosen;
-var abad = [];
-aChosen.forEach(function (k) {
-  fresh();
-  setMain(WHOLE.subarray(0, k), T_CUT); archive();
-  setMain(WHOLE, T_WHOLE); archive();
-  var now = snapshot();
-  if (!now.a || !now.a.equals(ASCRATCH.a) || !now.s || !now.s.equals(ASCRATCH.s)) abad.push(k);
-});
-check("archived cut at any of " + aChosen.length + " points, then whole: the same archive and state",
-      abad.length === 0, "split points that differ: " + abad.slice(0, 8).join(", "));
+function archCuts(j) {
+  var abad = [], mine = aChosen.filter(function (x, i) { return i % 2 === j; });
+  mine.forEach(function (k) {
+    fresh();
+    setMain(WHOLE.subarray(0, k), T_CUT); archive();
+    setMain(WHOLE, T_WHOLE); archive();
+    var now = snapshot();
+    if (!now.a || !now.a.equals(ASCRATCH.a) || !now.s || !now.s.equals(ASCRATCH.s)) abad.push(k);
+  });
+  check("archived cut at any of every 2nd point from the " +
+        NTH[j] + ", then whole: the same archive and state",
+        mine.length > 0 && abad.length === 0, "split points that differ: " + abad.slice(0, 8).join(", "));
+}
+if (section(3, "archived cut then whole, every 2nd point from the 1st")) archCuts(0);
+if (section(4, "archived cut then whole, every 2nd point from the 2nd")) archCuts(1);
 
 function archThen(name, between, engines) {
   fresh();
@@ -600,6 +629,7 @@ function archThen(name, between, engines) {
 function resealState() {
   fs.writeFileSync(STATE + ".md5", md5(STATE) + "\n");
 }
+if (section(4, "when the archiver's state stops fitting")) {
 archThen("with the archiver's state deleted", function () { fs.rmSync(STATE); });
 archThen("with a byte of it changed", function () {
   var b2 = fs.readFileSync(STATE); b2[b2.length >> 1] ^= 1; fs.writeFileSync(STATE, b2);
@@ -670,10 +700,12 @@ if (ENGINE === "osascript") {
   archThen("cut under node, whole under osascript", null, ["node", "osascript"]);
 }
 
+}
+
 // ── --redact-archives and a save at the same moment ─────────────────
 // A save that ran without the lock writes the archive while the command
 // is redacting it: what the save wrote is newer, and stays.
-(function () {
+if (section(4, "--redact-archives and a save at the same moment")) (function () {
   var R = path.join(T, "redact-race"), RA = path.join(R, "app"), conv = path.join(RA, ".claude", ".claude-conversations");
   var id = "dddddddd-0000-0000-0000-000000000004", file = path.join(conv, id + ".json");
   fs.mkdirSync(conv, { recursive: true });

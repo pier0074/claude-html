@@ -6,7 +6,8 @@
 #
 # A copy of run-all.sh runs a stand-in tests folder, its one suite slow and
 # with children of every kind: a sleep, a nested bash, node, and a sleep that
-# ignores TERM, which only KILL stops.
+# ignores TERM, which only KILL stops. It is in two parts, as the long suites
+# are, so two jobs run it side by side: both are stopped.
 #
 #   bash tests/gate.test.sh
 set -u
@@ -26,8 +27,9 @@ cp "$SRC/run-all.sh" "$SRC/app-leaks.sh" "$C/tests/"
 sed -e 's/^QUICK=.*/QUICK=""/' -e 's/^SUITES=.*/SUITES="slow"/' "$SRC/run-all.sh" > "$C/tests/run-all.sh"
 check "the copy runs the stand-in suite alone" "$(grep -c -e '^SUITES="slow"$' -e '^QUICK=""$' "$C/tests/run-all.sh")" 2
 
-cat > "$C/tests/slow.test.sh" <<EOF
-#!/bin/bash
+# Its header, written so that this file is not taken for a suite in parts.
+printf '#!/bin/bash\n# parts: %s\n' 2 > "$C/tests/slow.test.sh"
+cat >> "$C/tests/slow.test.sh" <<EOF
 # A helper app built in the clone, as a suite must not, and one in a temp folder.
 mkdir -p "\$(dirname "\$0")/../Claude HTML.app/Contents" "\$TMPDIR/x/Claude HTML.app/Contents"
 sleep 300 & echo \$! >> '$PIDS'
@@ -38,8 +40,8 @@ echo \$\$ >> '$PIDS'
 wait
 EOF
 
-# Every process the suite started, once they are all there.
-started() { [ -f "$PIDS" ] && [ "$(grep -c . "$PIDS")" -ge 7 ]; }
+# Every process the suite's two parts started, once they are all there.
+started() { [ -f "$PIDS" ] && [ "$(grep -c . "$PIDS")" -ge 14 ]; }
 alive() { local n=0 p; for p in $(cat "$PIDS" 2>/dev/null); do
   ps -o stat= -p "$p" 2>/dev/null | grep -qv '^ *Z' && n=$((n + 1)); done; echo "$n"; }
 
@@ -53,7 +55,7 @@ for how in TERM INT HUP; do
     bash "$C/tests/run-all.sh" > "$T/out" 2>&1 &
   rp=$!; set +m
   i=0; until started || [ $i -ge 150 ]; do sleep 0.1; i=$((i + 1)); done
-  check "$how: the suite and its children started" "$(started && alive)" 7
+  check "$how: both parts of the suite and their children started" "$(started && alive)" 14
   check "$how: the run holds its lock" "$(cat "$T/lock/pid" 2>/dev/null)" "$rp"
   kill -"$how" "$rp"
   # Not waiting forever on a copy that does not stop.

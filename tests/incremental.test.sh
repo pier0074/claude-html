@@ -6,6 +6,9 @@
 # with CLAUDE_HTML_FORCE_NODE=1, where it can afford many more split points.
 #
 #   bash tests/incremental.test.sh          add --all for every split point
+#
+# Its sections are incremental.test.js's, in four parts (lib.js's section).
+# parts: 4
 set -u
 
 . "$(dirname "$0")/lib.sh"

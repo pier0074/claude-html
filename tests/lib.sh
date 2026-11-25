@@ -112,27 +112,74 @@ doctor_layout() {
     }'
 }
 
+# ── parts ────────────────────────────────────────────────────────────
+# A long suite is cut into sections, each one in a part of the suite, so
+# run-all.sh can run its parts side by side. The suite's header says how
+# many parts it has ("# parts: 3"), and each section which one it is in:
+#
+#   if section 2 "the daily check"; then
+#   …
+#   fi
+#
+# Run alone, every section runs, as the whole suite. With
+# CLAUDE_HTML_TEST_PART=i/n (run-all.sh sets it), only part i's sections
+# run, and each says its name ("  section  …"), which run-all.sh holds to
+# the suite's list: every section run, each exactly once. A section makes
+# all it needs itself, or has it from the setup before the first one,
+# which every part runs. A check outside every section is a failure in a
+# part: it would be counted once in each.
+#   CLAUDE_HTML_TEST_CHECKS=file adds each check's name to the file, which
+# is how run-all.sh --parts-check compares a suite whole with its parts.
+CH_PART_I=""; CH_SECTION=""
+if [ -n "${CLAUDE_HTML_TEST_PART:-}" ]; then
+  CH_PART_I="${CLAUDE_HTML_TEST_PART%/*}"
+  _n="$(sed -n 's/^# parts: \([0-9][0-9]*\)$/\1/p' "$0" | head -1)"
+  case "$CH_PART_I/${_n:-none}" in
+    "$CLAUDE_HTML_TEST_PART") ;;
+    *) echo "  FAIL  CLAUDE_HTML_TEST_PART=$CLAUDE_HTML_TEST_PART, but $0 has ${_n:-no} parts"; exit 1 ;;
+  esac
+  case "$CH_PART_I" in ''|*[!0-9]*|0) echo "  FAIL  CLAUDE_HTML_TEST_PART=$CLAUDE_HTML_TEST_PART is not a part"; exit 1 ;; esac
+  [ "$CH_PART_I" -le "$_n" ] || { echo "  FAIL  CLAUDE_HTML_TEST_PART=$CLAUDE_HTML_TEST_PART: past the last part"; exit 1; }
+  unset _n
+fi
+section() {   # part, name
+  if [ -z "$CH_PART_I" ]; then CH_SECTION="$2"; return 0; fi
+  if [ "$1" = "$CH_PART_I" ]; then CH_SECTION="$2"; printf '  section  %s\n' "$2"; return 0; fi
+  CH_SECTION=""; return 1
+}
+# Every check goes through here: counted, said, listed.
+_counted() {   # ok|FAIL, name, then the failure's text as printf takes it
+  local how="$1" name="$2"; shift 2
+  if [ -n "$CH_PART_I" ] && [ -z "$CH_SECTION" ]; then
+    how=FAIL; set -- '  FAIL  %s (a check outside every section, in a part)\n' "$name"
+  fi
+  [ -z "${CLAUDE_HTML_TEST_CHECKS:-}" ] || printf '%s\n' "$name" >> "$CLAUDE_HTML_TEST_CHECKS"
+  if [ "$how" = ok ]; then pass=$((pass + 1)); printf '  ok    %s\n' "$name"
+  else fail=$((fail + 1)); # shellcheck disable=SC2059
+    printf "$@"; fi
+}
+
 # ── the checks ───────────────────────────────────────────────────────
 pass=0; fail=0
 check() {
-  if [ "$2" = "$3" ]; then pass=$((pass + 1)); printf '  ok    %s\n' "$1"
-  else fail=$((fail + 1)); printf '  FAIL  %s (expected %s, got %s)\n' "$1" "$3" "$2"; fi
+  if [ "$2" = "$3" ]; then _counted ok "$1"
+  else _counted FAIL "$1" '  FAIL  %s (expected %s, got %s)\n' "$1" "$3" "$2"; fi
 }
 # For values long or many-lined: a suite that has them sets
 #   check() { check_long "$@"; }
 check_long() {
-  if [ "$2" = "$3" ]; then pass=$((pass + 1)); printf '  ok    %s\n' "$1"
-  else fail=$((fail + 1)); printf '  FAIL  %s\n        expected: %s\n        got:      %s\n' "$1" "$3" "$2"; fi
+  if [ "$2" = "$3" ]; then _counted ok "$1"
+  else _counted FAIL "$1" '  FAIL  %s\n        expected: %s\n        got:      %s\n' "$1" "$3" "$2"; fi
 }
 # Whether a text holds a string. (A few suites have a has of their own, for
 # a file, defined after this.)
 has() {   # name, text, what it must hold
-  case "$2" in *"$3"*) pass=$((pass + 1)); printf '  ok    %s\n' "$1" ;;
-    *) fail=$((fail + 1)); printf '  FAIL  %s (no "%s" in: %s)\n' "$1" "$3" "$2" ;; esac
+  case "$2" in *"$3"*) _counted ok "$1" ;;
+    *) _counted FAIL "$1" '  FAIL  %s (no "%s" in: %s)\n' "$1" "$3" "$2" ;; esac
 }
 hasnt() {
-  case "$2" in *"$3"*) fail=$((fail + 1)); printf '  FAIL  %s ("%s" in: %s)\n' "$1" "$3" "$2" ;;
-    *) pass=$((pass + 1)); printf '  ok    %s\n' "$1" ;; esac
+  case "$2" in *"$3"*) _counted FAIL "$1" '  FAIL  %s ("%s" in: %s)\n' "$1" "$3" "$2" ;;
+    *) _counted ok "$1" ;; esac
 }
 # git with the sandbox's home ($H, read when it is run) for its config.
 gitx() { HOME="$H" XDG_CONFIG_HOME="$H/.config" git -c user.name=tester -c user.email=tester@example.invalid \

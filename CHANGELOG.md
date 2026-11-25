@@ -5,6 +5,22 @@ fixes, a minor adds without breaking, a major needs something from you
 (usually `./install.sh` again). To update: `claude-html --update`; before
 3.1.0, `git checkout main && git pull && ./install.sh`.
 
+## 3.8.7 — 2026-11-25
+
+- Tests: the three longest suites run in parts side by side: update in
+  three, incremental in four, guard in two. Each part runs some of the
+  suite's sections, and `tests/run-all.sh` still shows each suite once,
+  with all its checks counted. It fails if a part runs no section, or if
+  the sections run are not exactly the suite's own, each once. Each part
+  has a temp folder and a process group of its own: stopping the run stops
+  every part.
+- Tests: `bash tests/run-all.sh --parts-check` runs those suites whole and
+  in parts and compares their checks by name. CI runs it too, as a job of
+  its own.
+- Tests: `tests/run-all.sh` runs as many suites at once as the machine has
+  CPUs less two (2 to 6), not half as many: 6 on an 8-CPU machine, still 2
+  on CI. It also says the suites' time all told.
+
 ## 3.8.6 — 2026-11-25
 
 - Archives: a transcript of more than 512 MiB is archived. The archiver

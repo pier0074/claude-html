@@ -5,11 +5,21 @@
 #   bash tests/run-all.sh
 #
 # On macOS the macOS-only suites run too; on Linux they skip and say so.
+# A long suite runs in parts side by side, each part a job of its own
+# (lib.sh's section); its line here is the parts' summed.
+#
+#   bash tests/run-all.sh --parts-check [suite…]
+#
+# runs each suite that has parts both whole and in its parts, and fails
+# unless the parts ran exactly the checks the whole did, each once.
 # CLAUDE_HTML_TEST_JOBS (how many at once) and CLAUDE_HTML_TEST_NICE (their
 # priority, 10 by default; 0 for full) are in docs/SETUP.md.
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 failed=0
+PCHECK=no; [ "${1:-}" = --parts-check ] && { PCHECK=yes; shift; }
+# Which part a suite runs is this run's to say, and what it lists.
+unset CLAUDE_HTML_TEST_PART CLAUDE_HTML_TEST_CHECKS
 # One gate at a time on this machine: two at once take each about twice as
 # long, and more than that slows every one of them to a crawl. A second run
 # waits here for the first to end. The lock holds the owner's pid: one whose
@@ -61,11 +71,14 @@ HAD_APP=no; [ -e "$CLONE/Claude HTML.app" ] && HAD_APP=yes
 
 # The suites run side by side: each works in a folder and a home of its
 # own, so none can see another. CLAUDE_HTML_TEST_JOBS=1 runs them one after
-# another, as they used to be.
+# another, as they used to be. All but two of the CPUs, 2 to 6: with one
+# run at a time on a machine, and the long suites in parts, the run is the
+# suites' time all told shared out, so the more the shorter. CI's runners,
+# 2 to 4 CPUs, take 2, as they did.
 JOBS="${CLAUDE_HTML_TEST_JOBS:-}"
 if [ -z "$JOBS" ]; then
   n="$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)"
-  JOBS=$(( n / 2 )); [ "$JOBS" -lt 2 ] && JOBS=2; [ "$JOBS" -gt 6 ] && JOBS=6
+  JOBS=$(( n - 2 )); [ "$JOBS" -lt 2 ] && JOBS=2; [ "$JOBS" -gt 6 ] && JOBS=6
 fi
 case "$JOBS" in ''|*[!0-9]*|0) JOBS=1 ;; esac
 # Each suite at a lower priority, so the machine stays quick for whoever is
@@ -130,42 +143,138 @@ export PATH="$SHIM:$PATH"
 T0="$(date +%s)"
 
 # The longest start first, so the last one to end is not a long one begun late.
+# The three in parts start in the middle: none of their parts is long.
 QUICK="viewer diff index pages docs settingspage"
-SUITES="incremental guard limits settings screen linux update layout usage prices engine install hooks backend archive redact races build agents delete open helper safety gate doctor"
-run_one() {   # name
-  local t="$1" s rc
+SUITES="usage redact archive install layout hooks limits settings incremental update guard screen linux prices engine backend races build agents delete open helper safety gate doctor"
+# A suite in parts says how many in its header ("# parts: 3"); each part
+# is a job, suite.i, run with CLAUDE_HTML_TEST_PART=i/n.
+parts_of() { sed -nE 's/^(#|\/\/) parts: ([0-9]+)$/\2/p' "$HERE/$1.test.sh" 2>/dev/null | head -1; }
+# Its sections as part|name, as its files declare them, the .js's too.
+sections_of() {
+  cat "$HERE/$1.test.sh" "$HERE/$1.test.js" 2>/dev/null |
+    sed -nE 's/^if section ([0-9]+) "([^"]*)"; then$/\1|\2/p; s/^if \(section\(([0-9]+), "([^"]*)"\)\).*/\1|\2/p'
+}
+JOBLIST=""
+for t in $SUITES; do
+  n="$(parts_of "$t")"
+  if [ "$PCHECK" = yes ]; then
+    # Only the suites with parts (or those named): whole first, the longest.
+    [ "${n:-1}" -gt 1 ] || continue
+    [ $# = 0 ] || case " $* " in *" $t "*) ;; *) continue ;; esac
+    JOBLIST="$JOBLIST $t"
+  fi
+  if [ "${n:-1}" -gt 1 ]; then
+    i=1; while [ "$i" -le "$n" ]; do JOBLIST="$JOBLIST $t.$i"; i=$((i + 1)); done
+  elif [ "$PCHECK" = no ]; then JOBLIST="$JOBLIST $t"; fi
+done
+[ "$PCHECK" = yes ] || JOBLIST="$JOBLIST $QUICK"
+run_one() {   # a suite, or suite.i: its part i
+  local j="$1" t="${1%.*}" s rc
   s="$(date +%s)"
   local pri=(); [ "$NICE" = 0 ] || pri=(nice -n "$NICE")
+  local ev=()
+  [ "$t" = "$j" ] || ev+=("CLAUDE_HTML_TEST_PART=${j##*.}/$(parts_of "$t")")
+  [ "$PCHECK" = no ] || ev+=("CLAUDE_HTML_TEST_CHECKS=$OUTD/$j.checks")
+  # A temp folder of its own, in this run's: what a part looks for there
+  # is not another part's, nor the whole's beside it.
+  mkdir -p "$RUNTMP/$j"
   case " $QUICK " in
-    *" $t "*) ${pri[@]+"${pri[@]}"} node "$HERE/$t.test.js" > "$OUTD/$t.out" 2>&1 ;;
-    *) ${pri[@]+"${pri[@]}"} bash "$HERE/$t.test.sh" > "$OUTD/$t.out" 2>&1 ;;
+    *" $t "*) TMPDIR="$RUNTMP/$j" ${pri[@]+"${pri[@]}"} node "$HERE/$t.test.js" > "$OUTD/$j.out" 2>&1 ;;
+    *) TMPDIR="$RUNTMP/$j" ${pri[@]+"${pri[@]}"} env ${ev[@]+"${ev[@]}"} bash "$HERE/$t.test.sh" > "$OUTD/$j.out" 2>&1 ;;
   esac
   rc=$?
-  echo "$(( $(date +%s) - s ))" > "$OUTD/$t.secs"
-  echo "$rc" > "$OUTD/$t.rc"
+  echo "$(( $(date +%s) - s ))" > "$OUTD/$j.secs"
+  echo "$rc" > "$OUTD/$j.rc"
 }
-for t in $SUITES $QUICK; do
+for j in $JOBLIST; do
   while [ "$(jobs -rp | wc -l | tr -d ' ')" -ge "$JOBS" ]; do sleep 0.2; done
   # Its own process group, stdin from /dev/null as without set -m.
-  set -m; run_one "$t" < /dev/null & PGIDS="$PGIDS $!"; set +m
+  set -m; run_one "$j" < /dev/null & PGIDS="$PGIDS $!"; set +m
 done
 wait
 
+# A suite passes on its own verdict, not on its exit status alone: one
+# cut short by an error (its clean-up then exiting 0) has no verdict.
+passed_job() { [ "$(cat "$OUTD/$1.rc" 2>/dev/null || echo 1)" = 0 ] &&
+               tail -1 "$OUTD/$1.out" 2>/dev/null | grep -Eq '[0-9]+ passed, 0 failed$|^ *skip '; }
+why_job() {   # what to say of a job that did not pass
+  grep -E "FAIL|failed" "$OUTD/$1.out" 2>/dev/null | tail -5
+  [ "$(cat "$OUTD/$1.rc" 2>/dev/null || echo 1)" = 0 ] && echo "FAIL  ended without its verdict; its last lines:" && tail -3 "$OUTD/$1.out"
+  [ -s "$OUTD/$1.out" ] || echo "no output"
+}
+# A suite in parts: every part passed, each ran a section, and together
+# they ran every section its files declare, each once, in its own part.
+# Then one line, the parts' counts summed into the first one's.
+report_parts() {   # suite, parts
+  local t="$1" n="$2" i=1 sum=0 bad=no last
+  : > "$OUTD/$t.ran"
+  while [ "$i" -le "$n" ]; do
+    if ! passed_job "$t.$i"; then
+      [ "$bad" = yes ] || echo; bad=yes; echo "          part $i of $n:"; why_job "$t.$i" | sed 's/^/          /'
+    else
+      last="$(tail -1 "$OUTD/$t.$i.out" | sed -nE 's/.* ([0-9]+) passed, 0 failed$/\1/p')"
+      sum=$(( sum + ${last:-0} ))
+    fi
+    grep '^  section  ' "$OUTD/$t.$i.out" 2>/dev/null | sed "s/^  section  /$i|/" >> "$OUTD/$t.ran"
+    if ! grep -q '^  section  ' "$OUTD/$t.$i.out" 2>/dev/null; then
+      [ "$bad" = yes ] || echo; bad=yes; echo "          FAIL  part $i of $n ran no section"
+    fi
+    i=$((i + 1))
+  done
+  sections_of "$t" | LC_ALL=C sort > "$OUTD/$t.declared"
+  LC_ALL=C sort "$OUTD/$t.ran" > "$OUTD/$t.ran.sorted"
+  if [ ! -s "$OUTD/$t.declared" ] || ! cmp -s "$OUTD/$t.declared" "$OUTD/$t.ran.sorted"; then
+    [ "$bad" = yes ] || echo; bad=yes
+    echo "          FAIL  its parts did not run its sections as declared, each once (part|section; < declared, > ran):"
+    diff "$OUTD/$t.declared" "$OUTD/$t.ran.sorted" | grep '^[<>]' | head -8 | sed 's/^/            /'
+  fi
+  [ "$bad" = no ] || return 1
+  printf '%s (%s parts)\n' "$(tail -1 "$OUTD/$t.1.out" | sed -E "s/[0-9]+ passed, 0 failed$/$sum passed, 0 failed/")" "$n"
+}
+# --parts-check: the checks of the whole run, name by name, are the
+# parts' together, each as many times.
+report_check() {   # suite, parts
+  local t="$1" n="$2" i=1 ok=yes
+  passed_job "$t" || { echo; echo "          whole:"; why_job "$t" | sed 's/^/          /'; ok=no; }
+  : > "$OUTD/$t.union"
+  while [ "$i" -le "$n" ]; do
+    passed_job "$t.$i" || { echo; echo "          part $i of $n:"; why_job "$t.$i" | sed 's/^/          /'; ok=no; }
+    cat "$OUTD/$t.$i.checks" >> "$OUTD/$t.union" 2>/dev/null
+    i=$((i + 1))
+  done
+  LC_ALL=C sort "$OUTD/$t.checks" > "$OUTD/$t.w.sorted" 2>/dev/null
+  LC_ALL=C sort "$OUTD/$t.union" > "$OUTD/$t.u.sorted"
+  local nw; nw="$(grep -c '' "$OUTD/$t.w.sorted")"
+  if [ "$nw" -gt 0 ] && cmp -s "$OUTD/$t.w.sorted" "$OUTD/$t.u.sorted"; then
+    [ "$ok" = yes ] && echo "the $nw checks of the whole, the same in its $n parts, each once" && return 0
+  else
+    echo "FAIL  its $n parts did not run the checks of the whole, each once (< whole, > parts):"
+    diff "$OUTD/$t.w.sorted" "$OUTD/$t.u.sorted" | grep '^[<>]' | head -8 | sed 's/^/            /'
+  fi
+  return 1
+}
+
 # The verdicts in a fixed order, whatever order they ended in.
+if [ "$PCHECK" = yes ]; then
+  for j in $JOBLIST; do
+    case "$j" in *.*) continue ;; esac
+    printf '%-9s ' "$j"
+    report_check "$j" "$(parts_of "$j")" || failed=1
+  done
+  [ -n "$JOBLIST" ] || { echo "FAIL  no suite in parts to check"; failed=1; }
+else
 for t in $QUICK $SUITES; do
   printf '%-9s ' "$t"
-  rc="$(cat "$OUTD/$t.rc" 2>/dev/null || echo 1)"
+  n="$(parts_of "$t")"
   case " $QUICK " in
-    *" $t "*) if [ "$rc" = 0 ]; then tail -1 "$OUTD/$t.out"; else tail -3 "$OUTD/$t.out"; failed=1; fi ;;
-    # A suite passes on its own verdict, not on its exit status alone: one
-    # cut short by an error (its clean-up then exiting 0) has no verdict.
-    *) last="$(tail -1 "$OUTD/$t.out")"
-       if [ "$rc" = 0 ] && printf '%s' "$last" | grep -Eq '[0-9]+ passed, 0 failed$|^ *skip '; then echo "$last"
-       else grep -E "FAIL|failed" "$OUTD/$t.out" | tail -5
-         [ "$rc" = 0 ] && echo "FAIL  ended without its verdict; its last lines:" && tail -3 "$OUTD/$t.out"
-         [ -s "$OUTD/$t.out" ] || echo "no output"; failed=1; fi ;;
+    *" $t "*) rc="$(cat "$OUTD/$t.rc" 2>/dev/null || echo 1)"
+       if [ "$rc" = 0 ]; then tail -1 "$OUTD/$t.out"; else tail -3 "$OUTD/$t.out"; failed=1; fi ;;
+    *) if [ "${n:-1}" -gt 1 ]; then report_parts "$t" "$n" || failed=1
+       elif passed_job "$t"; then tail -1 "$OUTD/$t.out"
+       else why_job "$t"; failed=1; fi ;;
   esac
 done
+fi
 
 # Unregistered first: macOS registers an app by itself, and one deleted while
 # still registered would be left claiming the links.
@@ -207,13 +316,16 @@ if [ -s "$OUTD/shown" ] || [ -s "$OUTD/shown.by-name" ]; then
 else echo "nothing opened, no window, no banner"; fi
 
 echo
-SLOW="$(for t in $SUITES $QUICK; do printf '%s %s\n' "$(cat "$OUTD/$t.secs" 2>/dev/null || echo 0)" "$t"; done |
-        sort -rn | head -3 | awk '{ printf "%s%s %ss", (NR > 1 ? ", " : ""), $2, $1 }')"
-echo "$(( $(date +%s) - T0 ))s, $JOBS at a time$([ "$NICE" = 0 ] || echo ", nice $NICE"); longest: $SLOW"
+# The longest three, a part as suite/i; and the jobs' time all told, which
+# is what more at a time could share out.
+for j in $JOBLIST; do printf '%s %s\n' "$(cat "$OUTD/$j.secs" 2>/dev/null || echo 0)" "$(printf '%s' "$j" | tr . /)"; done |
+  sort -rn > "$OUTD/secs"
+SLOW="$(head -3 "$OUTD/secs" | awk '{ printf "%s%s %ss", (NR > 1 ? ", " : ""), $2, $1 }')"
+echo "$(( $(date +%s) - T0 ))s, $JOBS at a time$([ "$NICE" = 0 ] || echo ", nice $NICE"); longest: $SLOW; all told $(awk '{ s += $1 } END { print s + 0 }' "$OUTD/secs")s"
 [ "$failed" = 0 ] && echo "all suites passed" || echo "SOMETHING FAILED"
 # A pass on a tree that is still the one tested, unchanged by the run:
 # dev/release.sh does not run the gate again on it.
-if [ "$failed" = 0 ] && [ -n "$TREE" ] && [ -z "$(git -C "$HERE/.." status --porcelain 2>/dev/null)" ] &&
+if [ "$failed" = 0 ] && [ "$PCHECK" = no ] && [ -n "$TREE" ] && [ -z "$(git -C "$HERE/.." status --porcelain 2>/dev/null)" ] &&
    [ "$(git -C "$HERE/.." rev-parse 'HEAD^{tree}' 2>/dev/null)" = "$TREE" ]; then
   GD="$(cd "$HERE/.." && cd "$(git rev-parse --git-common-dir)" && pwd)" &&
   printf '%s %s %s %s\n' "$TREE" "$(date +%s)" "$(uname -s)" "${MODE:--}" >> "$GD/claude-html-gates-passed" 2>/dev/null

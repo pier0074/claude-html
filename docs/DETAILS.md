@@ -358,6 +358,7 @@ Every `claude-html` and `./install.sh` command and flag is listed in
 
 ```bash
 bash tests/run-all.sh           # every suite below, one verdict — what CI runs
+bash tests/run-all.sh --parts-check  # the long suites whole and in their parts: the same checks, each once
 node tests/viewer.test.js       # the renderer's tests, long-page windowing included
 node tests/diff.test.js         # the diff, against every edit ever made here
 node tests/index.test.js        # the index: search, its failures, and what Linux is shown

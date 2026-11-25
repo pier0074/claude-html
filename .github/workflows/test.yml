@@ -18,3 +18,18 @@ jobs:
         with:
           node-version: 22
       - run: bash tests/run-all.sh
+  # The long suites run in parts in the job above. Here each runs once whole
+  # and once in its parts, and its checks are compared name by name: the
+  # parts together run exactly the whole's, each once.
+  parts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: bash tests/run-all.sh --parts-check

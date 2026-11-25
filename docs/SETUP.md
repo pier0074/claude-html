@@ -922,8 +922,10 @@ Knobs the tests set; nothing needs them day to day.
 | `CLAUDE_HTML_UPDATE_REMOTE` | the release repository, a URL or a path, instead of GitHub's |
 | `CLAUDE_HTML_UPDATE_LOCK_WAIT` | seconds an update waits for a save's lock, instead of 60 |
 | `CLAUDE_HTML_LOCK_WAIT` | seconds a session-end save waits for the lock before saving without it, instead of 50 |
-| `CLAUDE_HTML_TEST_JOBS` | how many suites `tests/run-all.sh` runs at once (default: half the CPUs, 2 to 6; `1` runs them one after another) |
+| `CLAUDE_HTML_TEST_JOBS` | how many suites `tests/run-all.sh` runs at once (default: all but two of the CPUs, 2 to 6; `1` runs them one after another) |
 | `CLAUDE_HTML_TEST_NICE` | the priority `tests/run-all.sh` runs each suite at, as `nice -n` takes it (default `10`, so the machine stays quick while they run; `0` for full priority) |
+| `CLAUDE_HTML_TEST_PART` | `i/n`: run part `i` of a long suite's `n` (its header says `# parts: n`), only the sections in it, each saying its name; `tests/run-all.sh` runs each part as a job of its own and holds them to the suite's sections, every one run once |
+| `CLAUDE_HTML_TEST_CHECKS` | a file each check's name is added to, which `tests/run-all.sh --parts-check` compares between a suite run whole and in its parts |
 | `CLAUDE_HTML_TEST_LOCK` | the lock that keeps `tests/run-all.sh` to one run at a time on a machine, a second waiting for the first (default `/tmp/claude-html-gate.<uid>.lock`; `off` takes none). A run that passes on a clean git tree records it, in the git folder, so a release does not run it again on that same tree |
 | `CLAUDE_HTML_DOCTOR_COLUMNS` | the width `--doctor` wraps its values to, as though it were printing to a terminal that wide (it wraps only at a terminal otherwise) |
 | `CH_DRY` | print the command a terminal, opener or dialog would be given, and run nothing (what the `-plan` commands show; `show` prints it as `--doctor` does, quoted only where it must be) |
