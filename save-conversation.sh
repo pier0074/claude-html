@@ -294,44 +294,6 @@ function run(argv) {
     }
     try { return nfs.statSync(p).size; } catch (e) { return -1; }
   }
-  // From a byte offset to the end, and where in it the last whole line ends.
-  function readFrom(p, offset) {
-    if (JXA) {
-      var h = $.NSFileHandle.fileHandleForReadingAtPath(p);
-      if (!h || h.isNil()) return null;
-      // The whole lines decoded apart from an unfinished last one, which
-      // may end inside a character, as convert.js reads them.
-      try {
-        h.seekToFileOffset(offset);
-        var data = h.readDataToEndOfFile, n = Number(data.length);
-        var loc = Number(data.rangeOfDataOptionsRange($("\n").dataUsingEncoding(4), 1, $.NSMakeRange(0, n)).location);
-        var at = loc < n ? loc + 1 : 0;
-        var dec = function (from, len) {
-          var s = $.NSString.alloc.initWithDataEncoding(data.subdataWithRange($.NSMakeRange(from, len)), 4);
-          var t = !s || s.isNil() ? null : s.js;
-          return typeof t === "string" ? t : null;
-        };
-        var head = dec(0, at);
-        if (head === null) return null;
-        var tail = dec(at, n - at);
-        return { text: head + (tail || ""), cut: at };
-      } catch (e) { return null; } finally { h.closeFile; }
-    }
-    var fd;
-    try { fd = nfs.openSync(p, "r"); } catch (e) { return null; }
-    try {
-      var parts = [], total = 0;
-      for (;;) {
-        var buf = Buffer.allocUnsafe(8 << 20);
-        var got = nfs.readSync(fd, buf, 0, buf.length, offset + total);
-        if (!got) break;
-        parts.push(got < buf.length ? buf.subarray(0, got) : buf);
-        total += got;
-      }
-      var all = parts.length === 1 ? parts[0] : Buffer.concat(parts, total);
-      return { text: all.toString("utf8"), cut: all.lastIndexOf(10) + 1 };
-    } catch (e) { return null; } finally { try { nfs.closeSync(fd); } catch (e) {} }
-  }
   function bytesAt(p, start, len) {
     if (JXA) {
       var h = $.NSFileHandle.fileHandleForReadingAtPath(p);
@@ -395,6 +357,11 @@ function run(argv) {
   // the tokens and the cost. So once the transcript is gone, the page made
   // from this archive is the page that was made from the transcript.
   if (typeof claudeHtmlParse !== "function") throw new Error("parse.js is missing: nothing archived");
+  // lines.js too: a transcript read a piece of whole lines at a time, as
+  // convert.js reads it. Read whole, one of more than 512 MiB was more than
+  // a string can hold, and was never archived.
+  if (typeof claudeHtmlLines !== "function") throw new Error("lines.js is missing: nothing archived");
+  var L = claudeHtmlLines(nfs);
   var P = claudeHtmlParse(function () { return RED; });
   var hashText = P.hashText, usageLine = P.usageLine;
   function costLine(c, e) { P.costLine(c, e, sid); }
@@ -417,7 +384,8 @@ function run(argv) {
   // start, and deleting the file is always safe.
   // The redaction's signature too: messages carried on from the last
   // archive were redacted by its rules and list, and must be these.
-  var KEY = "3:" + FORMAT + ":" + hashText(String(run)) + ":" + hashText(String(claudeHtmlParse)) + ":" + rsig;
+  var KEY = "3:" + FORMAT + ":" + hashText(String(run)) + ":" + hashText(String(claudeHtmlParse)) + ":" +
+    hashText(String(claudeHtmlLines)) + ":" + rsig;
   var WINDOW = 4096;
   function fingerprint(off) {
     var w = Math.min(WINDOW, off);
@@ -473,14 +441,14 @@ function run(argv) {
   if (!st) st = newScan();
   prev = null;
 
-  var got = readFrom(path, st.off);
+  var got = L.readLines(path, st.off, function (text) { scanChunk(st, text, messages); });
   if (got === null) return "";
-  var nl = got.text.lastIndexOf("\n");
-  scanChunk(st, got.text.slice(0, nl + 1), messages);
-  st.off += got.cut;
+  st.off = got.off;
+  // A line too long to parse, passed over, is counted, as the build counts it.
+  if (got.long) st.long = (st.long || 0) + got.long;
   // Kept as it stands now, before a last line still being written is read
   // on top of a copy of it.
-  var keep = JSON.stringify(st), keptOff = st.off, tail = got.text.slice(nl + 1);
+  var keep = JSON.stringify(st), keptOff = st.off, tail = got.tail;
   // Of the bytes just read, before anything else happens to the file.
   var keptFp = fingerprint(keptOff);
   got = null;
@@ -509,12 +477,15 @@ function run(argv) {
       ops = was.ops;
     } else {
       var own = { by: {}, n: 0 };
-      var got = readFrom(kids + "/" + f, 0);
-      String(got ? got.text : "").split("\n").forEach(function (line) {
-        if (line.indexOf('"usage"') < 0) return;
-        var e; try { e = JSON.parse(line); } catch (err) { return; }
-        if (e && typeof e === "object") usageLine(own, e);
-      });
+      var each = function (text) {
+        text.split("\n").forEach(function (line) {
+          if (line.indexOf('"usage"') < 0) return;
+          var e; try { e = JSON.parse(line); } catch (err) { return; }
+          if (e && typeof e === "object") usageLine(own, e);
+        });
+      };
+      var got = L.readLines(kids + "/" + f, 0, each);
+      if (got) each(got.tail);
       ops = Object.keys(own.by).map(function (k) {
         return [k.indexOf("r:") === 0 ? null : k, own.by[k]];
       });
@@ -560,31 +531,35 @@ function run(argv) {
     });
   }
 
-  var archive = JSON.stringify({
-    sourceBytes: sourceBytes,
-    // CH_ARCHIVE_FORMAT, in lib/version.sh, says what each format added.
-    // Read by the save's skip check, which is why both sit near the top.
-    format: FORMAT,
-    redact: rsig,
-    sessionId: sid,
-    project: project,
-    // Claude Code's own title, as the page from the transcript has it.
-    title: st.peek.title || "",
-    startedAt: startedAt,
-    endedAt: messages.length ? messages[messages.length - 1].timestamp : null,
-    messageCount: messages.length,
-    promptCount: messages.filter(function (m) { return m.role === "user" && !m.side; }).length,
-    messages: messages,
-    usage: usage,
-    replies: replies,
-    agentFrom: agentFrom,
-    agentBytes: agents,
-    // Only said when true, so an archive without it reads as it always did.
-    costPart: costPart ? true : undefined
-  });
+  // The archive is written as it is made, to standard output, which the
+  // save sends to the file beside the archive it replaces: a session too
+  // long for one string is archived too. The same bytes JSON.stringify
+  // gives for the whole, and the newline the engine would end it with.
+  var archive = new Sink();
+  archive.field("sourceBytes", sourceBytes);
+  // CH_ARCHIVE_FORMAT, in lib/version.sh, says what each format added.
+  // Read by the save's skip check, which is why both sit near the top.
+  archive.field("format", FORMAT);
+  archive.field("redact", rsig);
+  archive.field("sessionId", sid);
+  archive.field("project", project);
+  // Claude Code's own title, as the page from the transcript has it.
+  archive.field("title", st.peek.title || "");
+  archive.field("startedAt", startedAt);
+  archive.field("endedAt", messages.length ? messages[messages.length - 1].timestamp : null);
+  archive.field("messageCount", messages.length);
+  archive.field("promptCount", messages.filter(function (m) { return m.role === "user" && !m.side; }).length);
+  archive.list("messages", messages);
+  archive.field("usage", usage);
+  archive.list("replies", replies);
+  archive.field("agentFrom", agentFrom);
+  archive.field("agentBytes", agents);
+  // Only said when true, so an archive without it reads as it always did.
+  archive.field("costPart", costPart ? true : undefined);
+  var archiveBytes = archive.end();
 
   // Written now, though the archive is moved into place only after this
-  // returns: if that fails, the archive left there does not match what this
+  // ends: if that fails, the archive left there does not match what this
   // says it is, and the next save reads from the start.
   // Not kept when the transcript was cut short or replaced during this save:
   // what was read no longer matches the file, so the next save starts over.
@@ -602,10 +577,58 @@ function run(argv) {
   // Its length in UTF-8, the newline the engine ends it with included: what
   // the save must find in the file before it may replace the last archive.
   // Not said, nothing is moved.
-  if (lenPath && !writeText(lenPath, String(utf8Length(archive) + 1) + "\n")) {
+  if (lenPath && !writeText(lenPath, String(archiveBytes) + "\n")) {
     throw new Error("could not note the archive's length: nothing archived");
   }
-  return archive;
+  // Nothing more: osascript prints nothing for no result at all, where it
+  // would end an empty string with a newline.
+  return undefined;
+}
+// A JSON object written to standard output a few megabytes at a time, its
+// fields in the order given: what JSON.stringify writes for one, a field
+// whose value is undefined left out as it leaves one out. end() closes it,
+// with a newline, and says how many bytes it came to in UTF-8.
+function Sink() {
+  var JXA = typeof $ !== "undefined";
+  var out = JXA ? $.NSFileHandle.fileHandleWithStandardOutput : null;
+  var parts = [], held = 0, bytes = 0, first = true;
+  function flush() {
+    var s = parts.join("");
+    parts = []; held = 0;
+    if (!s) return;
+    bytes += utf8Length(s);
+    if (!JXA) { process.stdout.write(s); return; }
+    var data = $(s).dataUsingEncoding(4);
+    if (!data || data.isNil()) throw new Error("the archive could not be written: nothing archived");
+    out.writeData(data);
+  }
+  function put(s) {
+    parts.push(s); held += s.length;
+    if (held >= 4 << 20) flush();
+  }
+  function key(k) {
+    put((first ? "{" : ",") + JSON.stringify(k) + ":");
+    first = false;
+  }
+  this.field = function (k, v) {
+    var json = JSON.stringify(v);
+    if (json === undefined) return;
+    key(k); put(json);
+  };
+  // An array, an element at a time, as JSON.stringify writes one.
+  this.list = function (k, a) {
+    key(k); put("[");
+    for (var i = 0; i < a.length; i++) {
+      var json = JSON.stringify(a[i]);
+      put((i ? "," : "") + (json === undefined ? "null" : json));
+    }
+    put("]");
+  };
+  this.end = function () {
+    put((first ? "{" : "") + "}\n");
+    flush();
+    return bytes;
+  };
 }
 // Bytes in UTF-8. JSON.stringify leaves no lone surrogate, so each half of a
 // pair is two of a character's four.
@@ -621,9 +644,8 @@ function utf8Length(s) {
 // osascript calls run() by itself; node has to be asked.
 if (typeof $ === "undefined" && typeof require !== "undefined" &&
     typeof module !== "undefined" && require.main === module) {
-  // osascript ends its output with a newline, but prints nothing at all for an
-  // empty result; a lone newline here would pass for an archive and replace a
-  // good one.
+  // The archive is written by run() itself; a lone newline here would pass
+  // for one and replace a good one.
   var result = run(process.argv.slice(2));
   if (result) process.stdout.write(result + "\n");
 }
@@ -632,10 +654,10 @@ ARCHIVEREOF
 # Worked out before either is read, so that one changed in between leaves
 # the older signature, and the next save makes the archive again.
 RSIG="$(ch_redact_sig "$HERE")"
-# The redactor and the parse, after the archiver: a function declaration
+# The redactor, the parse and the reader, after the archiver: a function declaration
 # is there for run() wherever in the file it stands. Missing, the archiver
 # refuses.
-cat "$HERE/build/redact.js" "$HERE/build/parse.js" >> "$ARCHIVER" 2>/dev/null || true
+cat "$HERE/build/redact.js" "$HERE/build/parse.js" "$HERE/build/lines.js" >> "$ARCHIVER" 2>/dev/null || true
 # The archive format this release writes, from lib/version.sh: the archiver
 # writes it, and the check below skips only what is in it already.
 # shellcheck source=lib/version.sh

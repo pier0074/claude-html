@@ -29,11 +29,15 @@ process.on("exit", function () { try { fs.rmSync(T, { recursive: true, force: tr
 // gets a process per build, as a save gives it.
 // fsOver, when given, stands in for some of fs: a way to change the
 // transcript at a chosen moment in the middle of a run.
+// What the archiver writes to standard output, as it writes its archive,
+// is what run() gives here.
 function loadRun(file, fsOver) {
   var src = fs.readFileSync(file, "utf8");
   var req = fsOver ? function (m) { return m === "fs" ? Object.assign({}, fs, fsOver) : require(m); } : require;
+  var out = "", proc = Object.create(process, { stdout: { value: { write: function (s) { out += s; return true; } } } });
   // eslint-disable-next-line no-new-func
-  return new Function("require", "Buffer", "process", src + "\nreturn run;")(req, Buffer, process);
+  var run = new Function("require", "Buffer", "process", src + "\nreturn run;")(req, Buffer, proc);
+  return function (a) { out = ""; var r = run(a); return r || out; };
 }
 var convertRun = loadRun(path.join(HERE, "build/convert.js"));
 function convert(o, engine) {
@@ -537,10 +541,11 @@ if (ENGINE === "osascript") (function () {
 // nothing. The archive and the state it keeps must both be the same bytes.
 var sh = fs.readFileSync(path.join(HERE, "save-conversation.sh"), "utf8");
 var ARCHIVER = path.join(T, "archive.js");
-// As the save writes it: the archiver, then the redactor and the parse
-// after it, and the archive format lib/version.sh names.
+// As the save writes it: the archiver, then the redactor, the parse and
+// the reader after it, and the archive format lib/version.sh names.
 fs.writeFileSync(ARCHIVER, sh.slice(sh.indexOf("<<'ARCHIVEREOF'\n") + 16, sh.indexOf("\nARCHIVEREOF\n") + 1) +
-                 fs.readFileSync(path.join(HERE, "build/redact.js"), "utf8") + fs.readFileSync(path.join(HERE, "build/parse.js"), "utf8"));
+                 fs.readFileSync(path.join(HERE, "build/redact.js"), "utf8") + fs.readFileSync(path.join(HERE, "build/parse.js"), "utf8") +
+                 fs.readFileSync(path.join(HERE, "build/lines.js"), "utf8"));
 var AF = /^CH_ARCHIVE_FORMAT=(\d+)/m.exec(fs.readFileSync(path.join(HERE, "lib/version.sh"), "utf8"))[1];
 var archiveRun = loadRun(ARCHIVER);
 var AR = path.join(T, "arch"), ARCH = path.join(AR, P + ".json"), STATE = path.join(AR, ".cache", P + ".archive");

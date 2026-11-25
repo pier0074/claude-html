@@ -106,40 +106,6 @@ function run(argv) {
       fm.setAttributesOfItemAtPathError({ NSFilePosixPermissions: 0o755 }, path, null);
     };
     remove = function (path) { fm.removeItemAtPathError(path, null); };
-    // A transcript from a byte offset to its end: what was appended since the
-    // last build. Also where the last whole line ends, in bytes, which is
-    // where the next build will start. The whole lines are decoded apart
-    // from what follows them: a last line still being written can end in
-    // the middle of a character, which is no reason to refuse the rest (node
-    // does not); that unfinished line is no record yet either way. Whole
-    // lines that are not UTF-8 are refused, as read refuses them.
-    // At most max bytes, when given; bare: no text, and where the first
-    // line ends rather than the last.
-    var NL = $("\n").dataUsingEncoding(4);
-    readFrom = function (path, offset, max, bare) {
-      var h = $.NSFileHandle.fileHandleForReadingAtPath(path);
-      if (!h || h.isNil()) return null;
-      try {
-        h.seekToFileOffset(offset);
-        var data = max === undefined ? h.readDataToEndOfFile : h.readDataOfLength(max);
-        var n = Number(data.length);
-        var loc = Number(data.rangeOfDataOptionsRange(NL, 1, $.NSMakeRange(0, n)).location);
-        var at = loc < n ? loc + 1 : 0;
-        if (bare) {
-          loc = Number(data.rangeOfDataOptionsRange(NL, 0, $.NSMakeRange(0, n)).location);
-          return { text: null, bytes: n, cut: loc < n ? loc + 1 : 0 };
-        }
-        var dec = function (from, len) {
-          var s = $.NSString.alloc.initWithDataEncoding(data.subdataWithRange($.NSMakeRange(from, len)), 4);
-          var t = !s || s.isNil() ? null : s.js;
-          return typeof t === "string" ? t : null;
-        };
-        var head = dec(0, at);
-        if (head === null) return null;
-        var tail = dec(at, n - at);
-        return { text: head + (tail || ""), bytes: n, cut: at };
-      } catch (e) { return null; } finally { h.closeFile; }
-    };
     // Exactly len bytes from start, as base64, or null when the file is
     // shorter: a fingerprint of what a cache was made from.
     bytesAt = function (path, start, len) {
@@ -236,25 +202,6 @@ function run(argv) {
     };
     // stat costs nothing here, so there is nothing to gather up front.
     statAll = function () {};
-    readFrom = function (path, offset, max, bare) {
-      var fd;
-      try { fd = nfs.openSync(path, "r"); } catch (e) { return null; }
-      try {
-        var parts = [], total = 0;
-        while (max === undefined || total < max) {
-          var buf = Buffer.allocUnsafe(max === undefined ? 8 << 20 : Math.min(8 << 20, max - total));
-          var got = nfs.readSync(fd, buf, 0, buf.length, offset + total);
-          if (!got) break;
-          parts.push(got < buf.length ? buf.subarray(0, got) : buf);
-          total += got;
-        }
-        var all = parts.length === 1 ? parts[0] : Buffer.concat(parts, total);
-        // Found in the bytes, not the text: a character cut off by a write
-        // in progress decodes to more bytes than it was.
-        if (bare) return { text: null, bytes: total, cut: all.indexOf(10) + 1 };
-        return { text: all.toString("utf8"), bytes: total, cut: all.lastIndexOf(10) + 1 };
-      } catch (e) { return null; } finally { try { nfs.closeSync(fd); } catch (e) {} }
-    };
     bytesAt = function (path, start, len) {
       var fd;
       try { fd = nfs.openSync(path, "r"); } catch (e) { return null; }
@@ -300,9 +247,6 @@ function run(argv) {
   var ROOT = opt.root || (HOME + "/Sites");
   var OUT = opt.out || (ROOT + "/claude-html");
   var PROJECTS = opt.projects || (HOME + "/.claude/projects");
-  // How much of a transcript is read at a time (readLines says why).
-  var READ_CHUNK = Math.max(4096, Number(opt.readChunk) || 64 << 20);
-  var LINE_MAX = Math.max(READ_CHUNK, Number(opt.lineMax) || 256 << 20);
   var HERE = opt.here || (HOME + "/.claude/scripts");
   var FORCE = !!opt.force;
   // Anthropic's weekly allowance resets on a day and hour fixed per account,
@@ -373,6 +317,15 @@ function run(argv) {
   var cleanUserText = P.cleanUserText, blocksToText = P.blocksToText, messagesOf = P.messagesOf;
   var PEEK_LINES = P.PEEK_LINES, peekLine = P.peekLine, newReplies = P.newReplies, usageLine = P.usageLine;
   var newCost = P.newCost, costLine = P.costLine;
+  // lines.js: a transcript read a piece of whole lines at a time, as the
+  // archiver reads it (readLines says why).
+  var LINES_SRC = read(HERE + "/build/lines.js");
+  if (LINES_SRC === null) {
+    return JSON.stringify({ error: "lines.js is missing from " + HERE + "/build, so nothing was built" });
+  }
+  var LINES = new Function(LINES_SRC + "\nreturn claudeHtmlLines;")()(JXA ? null : nfs, opt.readChunk, opt.lineMax);
+  var readLines = LINES.readLines, READ_CHUNK = LINES.chunk;
+  readFrom = LINES.readFrom;
   // prices.js and the dated price file: what the tokens cost at list price,
   // worked out beside — never into — what Claude Code recorded. The page
   // carries the same file, so the dashboard prices by the same lines.
@@ -1624,7 +1577,8 @@ function run(argv) {
   var USE_CACHE = opt.cache !== false;
   // The redaction's signature too: a cache holds text, redacted by the
   // rules and the list of the build that wrote it.
-  var CACHE_KEY = "1:" + USAGE_VERSION + ":" + hashText(String(run)) + ":" + hashText(PARSE_SRC) + ":" + RSIG;
+  var CACHE_KEY = "1:" + USAGE_VERSION + ":" + hashText(String(run)) + ":" + hashText(PARSE_SRC) + ":" +
+    hashText(LINES_SRC) + ":" + RSIG;
   var WINDOW = 4096;
 
   // The start, the middle and the end of the bytes a cache was made from.
@@ -1640,57 +1594,6 @@ function run(argv) {
   function newScan() {
     return { off: 0, lines: 0, count: 0, prompts: 0, first: newFirst(),
              peek: { cwd: null, title: null }, usage: newReplies(), cost: newCost() };
-  }
-
-  // A transcript from a byte offset to its end, a piece of whole lines at a
-  // time, handed to take(text). Read whole, one of more than 512 MiB was
-  // more than a JavaScript string can hold: the read failed, and the
-  // session dropped out of the index without a word. A piece is at most
-  // READ_CHUNK bytes, or as long as one line longer than that, up to
-  // LINE_MAX; a line longer still could never be parsed, and is passed
-  // over. Returns where the whole lines end, the unfinished last line's
-  // text, and how many lines were passed over; null when unreadable.
-  function readLines(path, off, take) {
-    var size = READ_CHUNK, long = 0;
-    for (;;) {
-      var got = readFrom(path, off, size);
-      if (got === null) return null;
-      var more = got.bytes >= size;
-      if (more && !got.cut) {
-        // One line fills the piece. Where it ends is looked for in the
-        // bytes, without the text: read again as far as that, or passed
-        // over when it is longer than LINE_MAX.
-        var end = lineEnd(path, off + got.bytes, off + LINE_MAX);
-        if (end === null) return null;
-        if (end.at) { size = end.at - off; continue; }
-        if (end.eof) { size = end.eof - off + 1; continue; }
-        long++;
-        end = lineEnd(path, off + LINE_MAX, Infinity);
-        if (end === null) return null;
-        // Still unfinished: the next build carries on from inside it, and
-        // does not count it again.
-        if (!end.at) return { off: end.eof, tail: "", long: long };
-        off = end.at; size = READ_CHUNK; continue;
-      }
-      var nl = got.text.lastIndexOf("\n");
-      if (nl >= 0) take(got.text.slice(0, nl + 1));
-      off += got.cut;
-      if (more) { size = READ_CHUNK; continue; }
-      return { off: off, tail: got.text.slice(nl + 1), long: long };
-    }
-  }
-  // Just past the first line break from byte from on, if one comes before
-  // byte limit: { at }; or { eof }, where the file ends, when none does.
-  function lineEnd(path, from, limit) {
-    for (;;) {
-      var want = Math.min(READ_CHUNK, limit - from);
-      if (want <= 0) return { at: 0, eof: 0 };
-      var got = readFrom(path, from, want, true);
-      if (got === null) return null;
-      if (got.cut) return { at: from + got.cut, eof: 0 };
-      from += got.bytes;
-      if (got.bytes < want) return { at: 0, eof: from };
-    }
   }
 
   // Lines into a scan: { st, msgs, rows }, the last two JSON text.

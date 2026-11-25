@@ -64,8 +64,11 @@ EOF
     > "$d/hooks.json"
   case "$v" in
     # 2.x as releases before 3.1.3 were: the number written in the save
-    # script, and no CH_ARCHIVE_FORMAT in lib/version.sh.
-    2.*) sed 's/^\([[:space:]]*\)format: FORMAT,/\1format: 3,/' "$d/save-conversation.sh" > "$d/s.tmp" && mv "$d/s.tmp" "$d/save-conversation.sh"
+    # script, on a line of its own ("format: 3,"), and no CH_ARCHIVE_FORMAT
+    # in lib/version.sh.
+    2.*) awk '/^[[:space:]]*archive\.field\("format", FORMAT\);/ {
+             print "  archive.field(\"format\", {"; print "    format: 3,"; print "  }.format);"; next } { print }' \
+           "$d/save-conversation.sh" > "$d/s.tmp" && mv "$d/s.tmp" "$d/save-conversation.sh"
          grep -v '^CH_ARCHIVE_FORMAT=' "$d/lib/version.sh" > "$d/r.tmp" && mv "$d/r.tmp" "$d/lib/version.sh" ;;
     3.1.0) echo "/* 3.1.0 */" >> "$d/viewer/page.js" ;;
   esac

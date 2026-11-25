@@ -409,7 +409,7 @@ Moved to [SETUP.md](SETUP.md), with every variable, its default and an example.
 | `claude-html`, `install.sh` | the command and the installer |
 | `save-conversation.sh`, `guard.sh`, `statusline.sh` | what `settings.json` runs: the save, the guard and the status line, called by their full path, so they stay at the top |
 | `lib/` | the shell the others source: the conf (`conf.sh`), what the machine has (`platform.sh`), the lock, the plan limits, the settings (`settings.sh`, and `settings.tsv`, which describes every one of them), the update (`update.sh`) and the release numbers (`version.sh`) |
-| `build/` | the pages: `convert.js` builds them, with `parse.js`, `redact.js`, `prices.js` and its `prices.tsv`, `limits.js`, and `settings.js`, the one check of a setting's value in JavaScript |
+| `build/` | the pages: `convert.js` builds them, with `parse.js`, `lines.js` (a transcript read a piece at a time, as the archiver reads it), `redact.js`, `prices.js` and its `prices.tsv`, `limits.js`, and `settings.js`, the one check of a setting's value in JavaScript |
 | `actions/` | what the command and the installer run besides: the guard's judge, open, resume, delete, and the edit of `settings.json` |
 | `mac/` | the helper app's source and build, and the windows (`dialog.js`) |
 | `linux/` | the link handler |

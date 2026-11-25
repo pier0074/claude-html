@@ -149,6 +149,59 @@ for ENG in $ENGINES; do
     "$(grep -c 'harness context\|command-name' "$T/$ENG/out-old/sessions/$OLD.html") $(grep -c 'harness context' "$T/$ENG/out-old/search/$OLD.js")" "0 0"
   check "$ENG:   its title is the prompt, and it has one" \
     "$(field title "$T/$ENG/o") $(field prompts "$T/$ENG/o") $(field kind "$T/$ENG/o")" '"What is the forecast?" 1 archive'
+
+  # ── the same bytes as before ──
+  # Written a piece at a time since 3.8.6, the archive of a session of
+  # ordinary size is the one 3.8.1's archiver wrote whole (its run(), kept
+  # in tests/fixtures, with today's redactor and parse), sub-agents and a
+  # redaction list included, and so is the length it notes.
+  S="$T/$ENG/same"; mkdir -p "$S/$ID/subagents"
+  cp "$J" "$S/$ID.jsonl"
+  head -c 3000 "$J" > "$S/$ID/subagents/agent-a1.jsonl"
+  grep '"usage"' "$J" | head -1 >> "$S/$ID/subagents/agent-a1.jsonl"
+  { cat "$HERE/tests/fixtures/archive-3.8.1.js" "$HERE/build/redact.js" "$HERE/build/parse.js"; } > "$S/old.js"
+  { sed -n "/^cat > \"\$ARCHIVER\" <<'ARCHIVEREOF'\$/,/^ARCHIVEREOF\$/p" "$HERE/save-conversation.sh" | sed '1d;$d'
+    cat "$HERE/build/redact.js" "$HERE/build/parse.js" "$HERE/build/lines.js"; } > "$S/new.js"
+  for w in old new; do
+    run bash -c '. "$0/lib/conf.sh" 2>/dev/null; . "$0/lib/platform.sh"; ch_pick_engine
+      ch_js "$@"' "$HERE" "$S/$w.js" "$S/$ID.jsonl" "$ID" "$APP" "$(size_of "$S/$ID.jsonl")" "" "" \
+      "on:test" "$T/probes" "$AF" "$S/$w.len" > "$S/$w.json" 2>"$S/$w.err"
+  done
+  check "$ENG: an ordinary session's archive is byte for byte 3.8.1's" \
+    "$(cmp -s "$S/old.json" "$S/new.json" && echo same || echo differ) $(grep -c '"agentBytes":{"agent-a1.jsonl"' "$S/new.json")" "same 1"
+  check "$ENG:   and so is the length it notes, the file's own" \
+    "$(cat "$S/old.len") $(cat "$S/new.len")" "$(size_of "$S/old.json") $(size_of "$S/old.json")"
+
+  # ── a transcript of more than 512 MiB ──
+  # Read whole, it was more than a string can hold: the archiver failed, the
+  # save recorded it, and the session was never archived. Sparse, so it
+  # costs no disk: a first line, a hole of 600 MiB of zeros (one "line" too
+  # long to parse, passed over), and a last line after it. Saved by a copy
+  # of the clone without the build, which build.test.sh reads such a
+  # transcript with already: under osascript that read is most of a minute.
+  CL="$T/clone"
+  if [ ! -d "$CL" ]; then
+    mkdir -p "$CL"; cp -R "$HERE/save-conversation.sh" "$HERE/VERSION" "$HERE/lib" "$HERE/build" "$CL/"
+    rm -f "$CL/build/convert.js" "$CL/lib/update.sh"
+  fi
+  BIG=dddddddd-1111-2222-3333-444444444444; JB="$PROJ/$BIG.jsonl"
+  printf '{"type":"user","cwd":"%s","timestamp":"2026-11-06T10:00:00Z","message":{"role":"user","content":"the first question of a huge one"}}\n' "$APP" > "$JB"
+  dd if=/dev/null of="$JB" bs=1 count=0 seek=629145600 2>/dev/null
+  printf '\n{"type":"user","cwd":"%s","timestamp":"2026-11-06T11:00:00Z","message":{"role":"user","content":"the last question, after the hole"}}\n' "$APP" >> "$JB"
+  (cd "$APP" && printf '{"session_id":"%s","transcript_path":"%s","hook_event_name":"SessionEnd"}' "$BIG" "$JB" |
+    run CLAUDE_HTML_OUT="$T/$ENG/out-big-save" CLAUDE_HTML_DETACHED=1 bash "$CL/save-conversation.sh" >/dev/null 2>&1)
+  check "$ENG: a transcript over 512 MiB is archived, with no failure recorded" \
+    "$(sed -n 's/^{"sourceBytes":\([0-9]*\),.*/\1/p' "$CONV/$BIG.json" 2>/dev/null) $(ls "$T/$ENG/out-big-save/.archive-errors" 2>/dev/null | grep -c "$BIG")" \
+    "$(size_of "$JB") 0"
+  check "$ENG:   a whole archive, with what comes before the line too long to read, and after it" \
+    "$(node -e 'var a=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
+      console.log(a.messageCount, a.messages.map(function (m) { return m.text; }).join("|"))' "$CONV/$BIG.json" 2>/dev/null || echo none)" \
+    "2 the first question of a huge one|the last question, after the hole"
+  rm -f "$JB"
+  build "$T/$ENG/out-big"
+  check "$ENG:   and once the transcript is gone, its page is built from the archive" \
+    "$(grep -c 'the first question of a huge one' "$T/$ENG/out-big/sessions/$BIG.html" 2>/dev/null) $(grep -c 'the last question, after the hole' "$T/$ENG/out-big/sessions/$BIG.html" 2>/dev/null)" "1 1"
+  rm -rf "$T/$ENG/out-big" "$T/$ENG/out-big-save"
 done
 
 echo

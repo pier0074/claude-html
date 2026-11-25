@@ -110,7 +110,7 @@ sed -n "/^cat > \"\$ARCHIVER\" <<'ARCHIVEREOF'\$/,/^ARCHIVEREOF\$/p" "$HERE/save
   sed '1d;$d' > "$T/archive.js"
 # The save appends the redactor and the parse to it, and so does this, and
 # hands it the archive format lib/version.sh names.
-cat "$HERE/build/redact.js" "$HERE/build/parse.js" >> "$T/archive.js"
+cat "$HERE/build/redact.js" "$HERE/build/parse.js" "$HERE/build/lines.js" >> "$T/archive.js"
 AF="$(. "$HERE/lib/version.sh"; printf '%s' "$CH_ARCHIVE_FORMAT")"
 printf '{"type":"assistant","cwd":"%s","timestamp":"2026-10-07T09:00:01Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"SECRET REASONING"}]}}\n' "$APP" >> "$J"
 build >/dev/null

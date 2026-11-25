@@ -230,7 +230,7 @@ build "$OUT" >/dev/null
 # ── archives ────────────────────────────────────────────────────────
 sed -n "/^cat > \"\$ARCHIVER\" <<'ARCHIVEREOF'\$/,/^ARCHIVEREOF\$/p" "$HERE/save-conversation.sh" |
   sed '1d;$d' > "$T/archive.js"
-cat "$HERE/build/redact.js" "$HERE/build/parse.js" >> "$T/archive.js"
+cat "$HERE/build/redact.js" "$HERE/build/parse.js" "$HERE/build/lines.js" >> "$T/archive.js"
 AF="$(. "$HERE/lib/version.sh"; printf '%s' "$CH_ARCHIVE_FORMAT")"
 CONV="$APP/.claude/.claude-conversations"; mkdir -p "$CONV"
 for s in $S1 $S2; do

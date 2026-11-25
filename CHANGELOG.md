@@ -5,6 +5,16 @@ fixes, a minor adds without breaking, a major needs something from you
 (usually `./install.sh` again). To update: `claude-html --update`; before
 3.1.0, `git checkout main && git pull && ./install.sh`.
 
+## 3.8.6 — 2026-11-25
+
+- Archives: a transcript of more than 512 MiB is archived. The archiver
+  read it whole, which was more than a string can hold, and the save
+  recorded a failure every time. It now reads 64 MiB of whole lines at a
+  time, as the build has since 3.7.3 (one file for both: `build/lines.js`),
+  and writes the archive as it goes; a line over 256 MiB is passed over.
+  The archive still replaces the last one only once it is whole, and an
+  archive of an ordinary session is the same, byte for byte.
+
 ## 3.8.5 — 2026-11-25
 
 - Tests: `tests/run-all.sh` stopped part way (Ctrl-C, a kill, the terminal

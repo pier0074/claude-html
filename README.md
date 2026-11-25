@@ -97,7 +97,7 @@ git clone https://github.com/pier0074/claude-html ~/claude-html
 cd ~/claude-html && ./install.sh
 ```
 
-For a given release, add `--branch v3.8.5` to the clone;
+For a given release, add `--branch v3.8.6` to the clone;
 [CHANGELOG.md](CHANGELOG.md) says what each one brought.
 
 Nothing else to install on a Mac: it uses its own `osascript`. Linux needs
