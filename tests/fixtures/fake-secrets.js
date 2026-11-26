@@ -116,6 +116,15 @@ r = letters(10); add("user-password", "curl -u alice:", r, " https://api.example
 r = letters(10); add("sshpass", "sshpass -p ", r, " ssh deploy@host", r);
 r = letters(10); add("mysql-password", "mysql -uroot -p", r, " app", r);
 r = letters(10); add("mysql-password", "docker exec db mysql -uroot -p", r, " app", r);
+// Beside the Markdown that only names the flag (in clean below), the real
+// thing is still caught: a word, a quoted value with a space, joined to -p.
+// The command is put together too: on one line with its value, as here,
+// it is what the release's secret check looks for.
+var SSHP = P("ssh", "pass -p ");
+r = rnd(9); add("sshpass", SSHP, P("hunter", r), " ssh deploy@host", r);
+r = letters(6); add("sshpass", SSHP + "'", P("a ", r), "' ssh deploy@host", r);
+r = rnd(8); add("mysql-password", "mysql -u root -p", P("S3", r), " app", r);
+r = letters(6); add("mysql-password", "mysql -u root -p\"", P("b ", r), "\" app", r);
 // Seen in a real PHP and JS session, and right to mask: letters alone.
 // ("toor" here, as "root" is also the user's name in these lines.)
 add("env-name", "  MYSQL_ROOT_PASSWORD: ", P("to", "or"), "\n");
@@ -168,6 +177,10 @@ var clean = [
   '<input type="password" name="password" id="token">', 'label="Password" placeholder="Password"',
   'autocomplete="current-password"', '"password": "Mot de passe"', "deploy --auth basic", "app --password-file ./pw",
   "mysql db < x.sql; find . -not -path './vendor/*' -print", "mysqldump db | gzip -p12", "mysql db < a.sql && pigz -p8x b",
+  // Markdown that names the flag: what follows -p is a backtick and
+  // punctuation, not a password (the guard stopped prompts over these).
+  "and `sshpass -p`, values named secret", "`curl -u`, `mysql -p` or `sshpass -p`. Nothing is",
+  "run mysql -u root -p`, then type it", "with mysql -p`` and sshpass -p ``", "sshpass -p `,`",
   // fetch()'s option, limits and settings named after a secret, a shell's
   // empty variable before a command, and a field's name as a value.
   "fetch(url, { method: 'POST', credentials: 'include' })", "credentials: 'same-origin'", "credentials: \"omit\"",

@@ -182,6 +182,10 @@ function claudeHtmlRedactor(ownText, on, compiled, only) {
   function flagged(m) {
     var v = m[2], q = /^['"]/.test(v) ? v.charAt(0) : "";
     if (q) v = v.slice(1, -1);
+    // Markdown that names the flag, "`sshpass -p`, values…": what follows
+    // is the closing backtick and a comma, not a password. Unquoted, a
+    // value that starts with a backtick or is only punctuation is not one.
+    if (!q && (v.charAt(0) === "`" || !/[A-Za-z0-9]/.test(v))) return null;
     return !v || standIn(v) ? null : m[1] + q + MASK + q;
   }
   // The words of a name, in lower case: apiKey, API_KEY and api-key are

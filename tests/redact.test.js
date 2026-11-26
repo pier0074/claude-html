@@ -53,6 +53,31 @@ function leaks(text) {
   check("a header keeps its scheme", r.text("Authorization: Bearer " + pw + F.rnd(12)) === "Authorization: Bearer ***");
 })();
 
+// Markdown that names a flag is not a password after it, under the
+// guard's rules too: "`sshpass -p`, values…" once stopped a prompt, the
+// closing backtick and comma taken for the value. The real ones stay.
+(function () {
+  var g = /var SURE = \{\};\s*\(([\s\S]*?)\)\.split/.exec(fs.readFileSync(path.join(HERE, "actions/guard.js"), "utf8"))[1]
+    .replace(/["+\s]+/g, " ").trim().split(" "), sure = {};
+  g.forEach(function (n) { sure[n] = true; });
+  var pw = F.rnd(10);
+  [true, false].forEach(function (compiled) {
+    var how = compiled ? "one expression" : "indexOf", r = make("", true, compiled, sure);
+    ["and `sshpass -p`, values named secret", "`mysql -p` or `sshpass -p`. Nothing is",
+     "run mysql -u root -p`, then type it", "sshpass -p `,`"].forEach(function (t, i) {
+      check(how + ": the guard's rules find nothing in Markdown naming -p (" + i + ")", r.find(t).length === 0,
+            r.find(t).map(function (h) { return h.rule; }).join(", "));
+    });
+    var sp = ["ssh", "pass -p "].join("");   // in pieces, as the fixtures are
+    [["sshpass", sp + pw + " ssh host"], ["sshpass", sp + "'a " + pw + "' ssh host"],
+     ["mysql-password", "mysql -p" + pw + " db"], ["mysql-password", "mysql -u root -p\"" + pw + "\" db"]]
+      .forEach(function (c, i) {
+        check(how + ": the guard's rules still find a real " + c[0] + " (" + i + ")",
+              r.find(c[1]).some(function (h) { return h.rule === c[0]; }));
+      });
+  });
+})();
+
 // ── where a cut falls ──
 // A secret the cap would halve: redacted before the cut, so no part of it
 // is left; and in a text already cut, as an old archive holds, what is left

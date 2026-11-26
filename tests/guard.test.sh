@@ -216,6 +216,9 @@ for ENG in $ENGINES; do
     "$(printf '%s' "$B" | grep -c 'credential helper instead. If you mention this command in your reply, in a report or in a command you propose later, write each sensitive value as \*\*\* — never the value itself. The command, masked: ')" 1
   check "$ENG:   and the user told about safe and stop" "$(printf '%s' "$B" | grep -c '"systemMessage":".*`safe`')" 1
   check "$ENG: a clean command says nothing" "$(hook bash "$T/note.bash_clean")" ""
+  check "$ENG: a prompt that names \`sshpass -p\` in Markdown passes" "$(hook prompt "$T/note.md_flags")" ""
+  check "$ENG: so does a command that names both flags in backticks" "$(hook bash "$T/note.bash_md_flags")" ""
+  check "$ENG: a real password given to sshpass is still asked about" "$(hook bash "$T/note.bash_sshpass" | grep -c '"ask".*sshpass password')" 1
   check "$ENG: another tool says nothing" "$(hook bash "$T/note.write_tool")" ""
   check "$ENG: with the guard on for prompts only, commands pass" "$(hook bash "$T/note.bash_mysql" CLAUDE_HTML_GUARD=prompt)" ""
   check "$ENG: and with it off, prompts too" "$(hook prompt "$T/note.secret" CLAUDE_HTML_GUARD=off)" ""

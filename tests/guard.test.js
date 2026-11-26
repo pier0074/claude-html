@@ -157,6 +157,13 @@ if (args[0] === "fixture") {
       permission_mode: "bypassPermissions", tool_input: { command: my.text } }),
     bash_clean: JSON.stringify({ session_id: "sess-1", hook_event_name: "PreToolUse", tool_name: "Bash",
       permission_mode: "default", tool_input: { command: "mkdir -p build && ls -la" } }),
+    // Markdown that names the flags, which the guard once stopped; and a
+    // real sshpass password, which it must still stop.
+    md_flags: note({ prompt: "the rules catch passwords given to `mysql -p` or `sshpass -p`, values named secret" }),
+    bash_md_flags: JSON.stringify({ session_id: "sess-1", hook_event_name: "PreToolUse", tool_name: "Bash",
+      permission_mode: "default", tool_input: { command: "echo 'run mysql -u root -p`, then sshpass -p `,`'" } }),
+    bash_sshpass: JSON.stringify({ session_id: "sess-1", hook_event_name: "PreToolUse", tool_name: "Bash",
+      permission_mode: "default", tool_input: { command: F.cases.filter(function (c) { return c.rule === "sshpass"; })[0].text } }),
     write_tool: JSON.stringify({ session_id: "sess-1", hook_event_name: "PreToolUse", tool_name: "Write",
       tool_input: { file_path: "/tmp/x", content: gh.text } })
   };

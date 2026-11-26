@@ -145,7 +145,7 @@ T0="$(date +%s)"
 # The longest start first, so the last one to end is not a long one begun late.
 # The three in parts start in the middle: none of their parts is long.
 QUICK="viewer diff index pages docs settingspage"
-SUITES="usage redact archive install layout hooks limits settings incremental update guard screen linux prices engine backend races build agents delete open helper safety gate doctor"
+SUITES="usage redact archive install layout hooks limits settings incremental update guard screen linux prices engine backend races build agents delete open helper safety gate doctor release"
 # A suite in parts says how many in its header ("# parts: 3"); each part
 # is a job, suite.i, run with CLAUDE_HTML_TEST_PART=i/n.
 parts_of() { sed -nE 's/^(#|\/\/) parts: ([0-9]+)$/\2/p' "$HERE/$1.test.sh" 2>/dev/null | head -1; }

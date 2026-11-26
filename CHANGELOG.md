@@ -5,6 +5,37 @@ fixes, a minor adds without breaking, a major needs something from you
 (usually `./install.sh` again). To update: `claude-html --update`; before
 3.1.0, `git checkout main && git pull && ./install.sh`.
 
+## 3.8.8 — 2026-11-26
+
+- Releases: nothing goes to the public CI repository before the lines a
+  release adds to the last public one are read for secrets, with the
+  guard's own rules and your own list. A hit stops the release, naming
+  the file, the line and the rule, never the value. Only added or changed
+  lines are read: the test fixtures' fake secrets, already public, are not
+  hits.
+- Releases: the CI repository's `candidate` branch and every run there
+  are taken away when a release starts and whenever it ends, published,
+  stopped or interrupted. Runs not done are cancelled and waited for (five
+  minutes at most) before they are deleted; any left are named by id.
+- Guard: Markdown that only names a flag, such as "`` `sshpass -p` ``,
+  values…" or "`` mysql -u root -p` ``", is no longer taken for a password:
+  the closing backtick and the comma were read as the value, and the
+  prompt was stopped. A value after `-p` that starts with a backtick, or
+  holds no letter or digit, is not a password unless it is quoted. Real
+  ones are still caught (`sshpass -p` and a word or a quoted value,
+  `mysql -p` joined to one), in the guard and in the pages, which masked
+  the same text. As the rules changed, the next build remakes every page
+  and cache once, and the next save each archive whose transcript is
+  still there.
+- Tests: `tests/release.test.sh` tests both offline, with nothing pushed;
+  in a clone without the private `dev/` folder (CI's) it skips.
+- Docs: the README is cut to the essentials, every feature still named,
+  with the index, session, dashboard and guard pictures only (the Settings
+  pages' three are gone from the README and the repository).
+  `docs/DETAILS.md` says the same in about half the words. The speed line
+  is one claim: saving a 160 MB transcript takes seconds, and a page of
+  fifteen thousand messages (16 MB) opens in half a second.
+
 ## 3.8.7 — 2026-11-25
 
 - Tests: the three longest suites run in parts side by side: update in

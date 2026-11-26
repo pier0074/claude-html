@@ -30,65 +30,41 @@ install, nothing to add, and it builds itself while you work.
   <img src="docs/img/usage-project-light.png" width="740" alt="The same tokens by project">
 </picture>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/img/settings-dark.png">
-  <img src="docs/img/settings-light.png" width="740" alt="The Settings page: every setting, where its value comes from, its default and a field to change it">
-</picture>
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/img/settings-changes-dark.png">
-  <img src="docs/img/settings-changes-light.png" width="740" alt="Three changes made on the Settings page, gathered in the bar at its foot: copy command, apply, discard">
-</picture>
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/img/settings-statusline-dark.png">
-  <img src="docs/img/settings-statusline-light.png" width="740" alt="The status line's options: each item on or off and in order, the form, the width, the bar, and a preview of the line, normal and condensed">
-</picture>
-
-<p>
-  <img src="docs/img/guard-dialog.png" width="400" align="top" alt="The guard's dialog: where, what was found, four choices">
-  <img src="docs/img/limits-stop.png" width="400" align="top" alt="The stop window: the week, the rule, four choices">
-</p>
+<img src="docs/img/guard-dialog.png" width="400" alt="The guard's dialog: where, what was found, four choices">
 
 ## Why
 
 Claude Code deletes transcripts after 30 days, and raw JSONL is unreadable.
-This keeps everything as plain HTML on your own disk: no server, no database,
-no dependencies, and not one byte of your conversations leaves your machine.
+This keeps everything as plain HTML on your own disk: no server, no
+database, no dependencies, and nothing of your conversations leaves your
+machine.
 
-- **Automatic** — hooks save after every reply, when a session ends and before
-  compaction, so a page is never more than one reply behind. Saves read only
-  what was appended: a few seconds at most, even for a 160 MB session
-- **Search everything** — full text across all conversations, straight to the message
-- **Readable** — numbered prompts, labelled tool calls, real diffs; one click hides the machinery
-- **Fast, even at 16 MB** — a conversation of fifteen thousand messages opens in half a second
-- **Resumable** — a **resume** button reopens the conversation in a terminal, in
-  the right folder; **copy** gives you the `cd … && claude --resume …` line
-- **Permanent** — archives live beside your projects, past the 30-day cleanup,
-  with thinking and token counts
-- **Token dashboard** — by week, month or all time, by model or by project;
-  weeks can start when your plan's allowance resets
-- **Cost** — what Claude Code recorded, and beside it, never mixed in, what the
-  tokens cost at the list price of the time, from a dated price file with its
-  sources and a price history
-- **Private** — static files; the pages make no requests and nothing about your
-  conversations leaves your machine. Once a day the tool asks GitHub for the list
-  of releases (`claude-html --update off` stops it). Light and dark, with a ◐ toggle
-- **Secrets masked** — tokens, keys and passwords become `***` in the pages, the
-  search and the archives; Claude Code's own transcript is left as it is
-- **Guard** — a prompt or a command holding a secret is stopped before Claude
-  sees it, and you choose: cancel, allow once, safe, or stop
-- **Settings page** — every setting on one page, where its value comes from and
-  its default; change it there and **apply** asks in a window before writing the
-  conf, or run the same `claude-html --config` line; pick the pages' default views
-- **Plan limits** — your 5-hour and weekly usage on Claude Code's status line
-  and the pages; your own stop rules ("from Fri 20:00, stop at 80 %") ask
-  before a new prompt, and an API budget warns at 80 and 95 %
-- **Status line** — choose what it shows (the windows, costs, context, the
-  agent, project and branch, the stop rule, the budget), in which order, and
-  how: it condenses itself to fit the terminal
-- **Updates** — a daily look for a new release, and, if you turn it on, its
-  install by itself between saves (never a major release)
+- **Automatic and fast** — hooks save after every reply, at a session's end
+  and before compaction, reading only what was appended. Saving even a 160 MB
+  transcript takes seconds, and a page of fifteen thousand messages (16 MB)
+  opens in half a second
+- **Search** — full text across every conversation, straight to the message
+- **Readable** — numbered prompts, labelled tool calls, real diffs; one click
+  hides the machinery
+- **Resumable** — **resume** reopens it in a terminal in the right folder;
+  **copy** gives the `claude --resume` line
+- **Permanent** — archives beside your projects, past the 30-day cleanup,
+  thinking and token counts included
+- **Dashboard and cost** — tokens by week, month or all time, by model or
+  project; the recorded cost, and beside it the list-price cost from a
+  dated price file
+- **Private** — the pages make no requests; once a day the tool asks GitHub
+  for its releases (`claude-html --update off` stops it). Light and dark
+- **Secrets masked, and guarded** — tokens, keys and passwords become `***`
+  in pages, search and archives; a prompt or command holding one is stopped
+  before Claude sees it, and you choose what happens
+- **Settings page** — every setting, its source and default, changed there
+  or with `claude-html --config`
+- **Plan limits and status line** — 5-hour and weekly usage on the status
+  line and the pages, your own stop rules and an API budget; you choose what
+  the status line shows, and it condenses to fit
+- **Updates** — a daily look for a release, and, if you want, its install by
+  itself (never a major one)
 
 ## Install
 
@@ -97,25 +73,19 @@ git clone https://github.com/pier0074/claude-html ~/claude-html
 cd ~/claude-html && ./install.sh
 ```
 
-For a given release, add `--branch v3.8.7` to the clone;
+For a given release, add `--branch v3.8.8` to the clone;
 [CHANGELOG.md](CHANGELOG.md) says what each one brought.
 
-Nothing else to install on a Mac: it uses its own `osascript`. Linux needs
-`node` 14.14 or later, which Claude Code's own installer does not bring: if
-`node --version` prints nothing, install it from your distribution first
-(`install.sh` and `claude-html --doctor` say so when it is missing). A Mac
-that happens to have node uses it too, being faster — node is never
-installed for you.
+A Mac needs nothing else (it uses `osascript`, or node if present). Linux
+needs `node` 14.14 or later, from your distribution; `install.sh` and
+`claude-html --doctor` say when it is missing.
 
-**Where you clone it is the configuration.** The pages are written in the
-clone folder (`index.html` appears right there), and its *parent* is the
-projects root: every session started anywhere under it is archived. Clone
-into `~/Sites/claude-html` and everything under `~/Sites` is covered. Or say
-so: `./install.sh --out DIR --root DIR`.
-
-The installer only adds: its hooks go beside the ones you have, and a second
-run keeps `~/.claude/claude-html.conf` as you left it. Every setting, and
-every way to set it up, is in [docs/SETUP.md](docs/SETUP.md).
+**Where you clone it is the configuration:** the pages go in the clone, and
+every session under its *parent* folder is archived (clone into
+`~/Sites/claude-html` to cover `~/Sites`), or say so with
+`./install.sh --out DIR --root DIR`. The installer only adds its own hooks
+and keeps your `~/.claude/claude-html.conf`. Every setting is in
+[docs/SETUP.md](docs/SETUP.md).
 
 ## Update
 
@@ -126,14 +96,12 @@ claude-html --update list       # every release available
 claude-html --update status     # what is installed, what is newest
 ```
 
-Once a day the tool asks GitHub whether a newer release exists and says so
-on the index; `claude-html --update off` stops that. From a release before
-3.1.0: `git checkout main && git pull && ./install.sh` in the clone. Details in
-[docs/SETUP.md](docs/SETUP.md#updating).
+From a release before 3.1.0: `git checkout main && git pull && ./install.sh`.
+Details in [docs/SETUP.md](docs/SETUP.md#updating).
 
 ## Use
 
-Day to day: nothing — open `index.html` and read. The command is for the exceptions:
+Day to day, nothing: open `index.html`. The command is for the exceptions:
 
 ```bash
 claude-html              # rebuild now and open the index
@@ -148,18 +116,16 @@ bash tests/run-all.sh    # every test suite, macOS and Linux
 cd ~/claude-html && ./install.sh --uninstall
 ```
 
-Removes the command, the helper app or link handler, and its own hooks; keeps
-the pages, the archives and your conf. Details, including how to erase every
-trace, are in [docs/DETAILS.md](docs/DETAILS.md#uninstall).
+Removes the command, the helper app or link handler and its hooks; keeps the
+pages, archives and conf. Erasing every trace:
+[docs/DETAILS.md](docs/DETAILS.md#uninstall).
 
 ## More
 
 **[docs/SETUP.md](docs/SETUP.md)** — every setting, command and hook, with defaults.
 
-**[docs/DETAILS.md](docs/DETAILS.md)** — how saving works and why no message
-can be lost, the engine choice, search, long conversations, the dashboard,
-deleting to the Trash, sub-agents, claude.ai exports, configuration, and what
-each Linux desktop gets.
+**[docs/DETAILS.md](docs/DETAILS.md)** — how it works: saving, search, long
+conversations, the dashboard, deleting, sub-agents, exports, Linux.
 
 ## License
 
